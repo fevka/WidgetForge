@@ -1,0 +1,14 @@
+## Interface: 120000
+## Title: Widget Forge
+## Notes: Advanced customizable stat bars and widgets
+## Author: YourName
+## Version: 1.0.0
+## SavedVariables: WidgetForgeDB
+
+WidgetConstants.lua
+ForgeSerializer.lua
+WidgetUtils.lua
+ForgeSkin.lua
+WidgetForgeConfig.lua
+WidgetStats.lua
+WidgetForge.lua
