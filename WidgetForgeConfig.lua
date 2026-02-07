@@ -28,28 +28,48 @@ Config.DefaultSettings = {
 
 Config.ElementTypes = {
     "FPS", "MS", "Clock", "RAM", "Durability", "Bag Space", 
-    "Stamina", "Strength", "Agility", "Intellect", 
+    "Stamina", "Main Stat", 
     "Crit", "Haste", "Mastery", "Versatility", 
     "Avoidance", "Leech", "Speed", "Dodge", "Parry",
     "Gold", "Zone", "Coords", "Item Level", "Combat Timer", "XP"
 }
 
 Config.Presets = {
-    { text = "System Stats", value = {
-        name = "System", width = 200, height = 30, bgColor = {0,0,0,0.5}, layout="HORIZONTAL", padding=5,
-        elements = {{type="FPS", size=12, color={1,1,1,1}}, {type="MS", size=12, color={1,1,1,1}}, {type="RAM", size=12, color={1,1,1,1}}}
+    { text = "General Stats", value = {
+        name = "Essentials", width = 250, height = 30, bgColor = {0,0,0,0.5}, layout="HORIZONTAL", padding=8,
+        elements = {
+            {type="FPS", size=12, color={1,1,1,1}, showIcon=true}, 
+            {type="MS", size=12, color={1,1,1,1}, showIcon=true}, 
+            {type="Clock", size=12, color={1,0.8,0,1}, showIcon=true},
+            {type="Durability", size=12, color={0,1,0,1}, showIcon=true}
+        }
     }},
-    { text = "Healer Grid", value = {
-        name = "Healer Stats", width = 100, height = 120, bgColor = {0,0,0,0.6}, layout="VERTICAL", padding=8,
-        elements = {{type="Intellect", size=14, color={0,1,1,1}}, {type="Crit", size=12, color={1,0.5,0,1}}, {type="Haste", size=12, color={1,1,0,1}}, {type="Mastery", size=12, color={0.5,0,1,1}}}
+    { text = "DPS/Healer Core", value = {
+        name = "Combat Stats", width = 120, height = 140, bgColor = {0,0,0,0.6}, layout="VERTICAL", padding=6,
+        elements = {
+            {type="Main Stat", size=14, color={1,1,1,1}, showIcon=true}, 
+            {type="Crit", size=12, color={1,0.5,0,1}, showIcon=true}, 
+            {type="Haste", size=12, color={1,1,0,1}, showIcon=true}, 
+            {type="Mastery", size=12, color={0.5,0,1,1}, showIcon=true}
+        }
     }},
-    { text = "Tank Panel", value = {
-        name = "Tank Details", width = 300, height = 40, bgColor = {0.1,0.1,0.1,0.8}, layout="HORIZONTAL", padding=15,
-        elements = {{type="Stamina", size=16, color={1,1,1,1}}, {type="Versatility", size=14, color={1,1,1,1}}, {type="Avoidance", size=14, color={1,1,1,1}}, {type="Durability", size=14, color={0,1,0,1}}}
+    { text = "Tank Survivability", value = {
+        name = "Tank Stats", width = 320, height = 40, bgColor = {0.1,0.1,0.1,0.8}, layout="HORIZONTAL", padding=12,
+        elements = {
+            {type="Stamina", size=14, color={1,1,1,1}, showIcon=true}, 
+            {type="Versatility", size=14, color={1,1,1,1}, showIcon=true}, 
+            {type="Avoidance", size=14, color={1,1,1,1}, showIcon=true},
+            {type="Main Stat", size=14, color={1,1,1,1}, showIcon=true} 
+        }
     }},
-    { text = "World Info", value = {
-        name = "Exploration", width = 250, height = 60, bgColor = {0,0,0,0.5}, layout="VERTICAL", padding=5,
-        elements = {{type="Zone", size=14, color={1,0.8,0,1}}, {type="Coords", size=12, color={1,1,1,1}}, {type="Gold", size=12, color={1,1,0,1}}}
+    { text = "Leveling & Farm", value = {
+        name = "Adventure", width = 220, height = 80, bgColor = {0,0,0,0.5}, layout="VERTICAL", padding=5,
+        elements = {
+            {type="XP", size=12, color={0,0.8,1,1}, showIcon=true}, 
+            {type="Gold", size=12, color={1,1,0,1}, showIcon=true}, 
+            {type="Bag Space", size=12, color={1,1,1,1}, showIcon=true},
+            {type="Item Level", size=12, color={1,0.5,1,1}, showIcon=true}
+        }
     }}
 }
 
@@ -533,49 +553,43 @@ function Config:SelectBar(index)
         local btn = Skin:CreateButton(content, typeName, 120, 20)
         btn:SetPoint("TOPLEFT", 10 + (gridX * 125), y - (gridY * 25))
         
-        -- STAT FILTERING
-        if not WidgetForge:IsStatAllowed(typeName) then
-            btn:Disable()
-            btn:SetAlpha(0.5)
-        else
-            -- Check if already added
-             local exists = false
-            for _, e in ipairs(bar.elements) do
-                if e.type == typeName then exists = true; break end
-            end
-    
-            if exists then
-                -- Selected Styling
-                btn:SetBackdropColor(unpack(Skin.Colors.accent))
-                btn:SetBackdropBorderColor(1, 1, 1, 1)
-                btn.text:SetTextColor(1, 1, 1, 1) 
-                btn:SetScript("OnEnter", nil)
-                btn:SetScript("OnLeave", nil)
-                
-                -- Toggle: Remove on Click
-                btn:SetScript("OnClick", function()
-                     for idx, e in ipairs(bar.elements) do
-                         if e.type == typeName then
-                             table.remove(bar.elements, idx)
-                             break
-                         end
+        -- Check if already added
+        local exists = false
+        for _, e in ipairs(bar.elements) do
+            if e.type == typeName then exists = true; break end
+        end
+
+        if exists then
+            -- Selected Styling
+            btn:SetBackdropColor(unpack(Skin.Colors.accent))
+            btn:SetBackdropBorderColor(1, 1, 1, 1)
+            btn.text:SetTextColor(1, 1, 1, 1) 
+            btn:SetScript("OnEnter", nil)
+            btn:SetScript("OnLeave", nil)
+            
+            -- Toggle: Remove on Click
+            btn:SetScript("OnClick", function()
+                 for idx, e in ipairs(bar.elements) do
+                     if e.type == typeName then
+                         table.remove(bar.elements, idx)
+                         break
                      end
-                     C_Timer.After(0.05, function() Config:SelectBar(index); WidgetForge:RebuildBarComponents(index) end)
-                end)
-            else
-                -- Not Selected: Add on Click
-                btn:SetScript("OnClick", function()
-                     table.insert(bar.elements, { 
-                         type = typeName, 
-                         label = typeName, 
-                         color = {1,1,1,1}, 
-                         font = "Friz Quadrata", 
-                         size = 14, 
-                         outline = "OUTLINE" 
-                     })
-                     C_Timer.After(0.05, function() Config:SelectBar(index); WidgetForge:RebuildBarComponents(index) end)
-                end)
-            end
+                 end
+                 C_Timer.After(0.05, function() Config:SelectBar(index); WidgetForge:RebuildBarComponents(index) end)
+            end)
+        else
+            -- Not Selected: Add on Click
+            btn:SetScript("OnClick", function()
+                 table.insert(bar.elements, { 
+                     type = typeName, 
+                     label = typeName, 
+                     color = {1,1,1,1}, 
+                     font = "Friz Quadrata", 
+                     size = 14, 
+                     outline = "OUTLINE" 
+                 })
+                 C_Timer.After(0.05, function() Config:SelectBar(index); WidgetForge:RebuildBarComponents(index) end)
+            end)
         end
 
         gridX = gridX + 1

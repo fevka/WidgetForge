@@ -5,43 +5,7 @@ local Config = ForgeConfig
 WidgetForge = {}
 local Bars = {} 
 
--- Comprehensive Spec Data (ID -> Main Stat)
-WidgetForge.SpecMainStat = {
-    -- Death Knight (Str)
-    [250] = "Strength", [251] = "Strength", [252] = "Strength",
-    -- Demon Hunter (Agi)
-    [577] = "Agility", [581] = "Agility",
-    -- Druid (Bal/Resto=Int, Feral/Guard=Agi)
-    [102] = "Intellect", [103] = "Agility", [104] = "Agility", [105] = "Intellect",
-    -- Evoker (Int)
-    [1467] = "Intellect", [1468] = "Intellect", [1473] = "Intellect",
-    -- Hunter (Agi)
-    [253] = "Agility", [254] = "Agility", [255] = "Agility",
-    -- Mage (Int)
-    [62] = "Intellect", [63] = "Intellect", [64] = "Intellect",
-    -- Monk (Brew/Wind=Agi, Mist=Int)
-    [268] = "Agility", [269] = "Agility", [270] = "Intellect",
-    -- Paladin (Holy=Int, Prot/Ret=Str)
-    [65] = "Intellect", [66] = "Strength", [70] = "Strength",
-    -- Priest (Int)
-    [256] = "Intellect", [257] = "Intellect", [258] = "Intellect",
-    -- Rogue (Agi)
-    [259] = "Agility", [260] = "Agility", [261] = "Agility",
-    -- Shaman (Ele/Resto=Int, Enh=Agi)
-    [262] = "Intellect", [263] = "Agility", [264] = "Intellect",
-    -- Warlock (Int)
-    [265] = "Intellect", [266] = "Intellect", [267] = "Intellect",
-    -- Warrior (Str)
-    [71] = "Strength", [72] = "Strength", [73] = "Strength"
-}
-
--- Fallback for Low Level (No Spec)
-WidgetForge.ClassDefaults = {
-    WARRIOR = "Strength", PALADIN = "Strength", DEATHKNIGHT = "Strength",
-    HUNTER = "Agility", ROGUE = "Agility", MONK = "Agility", DEMONHUNTER = "Agility",
-    MAGE = "Intellect", WARLOCK = "Intellect", PRIEST = "Intellect", EVOKER = "Intellect",
-    SHAMAN = "Agility", DRUID = "Intellect" -- Hybrids default to one, users can pick spec later
-}
+-- Spec Data moved to WidgetConstants.lua
 
 -- Icons for Stats
 WidgetForge.StatIcons = {
@@ -71,32 +35,10 @@ WidgetForge.StatIcons = {
     ["Dodge"] = "Interface\\Icons\\Spell_Nature_Invisibilty",
     ["Parry"] = "Interface\\Icons\\Ability_Parry",
     ["Target Name"] = "Interface\\Icons\\Ability_Hunter_SniperShot",
-    ["Target HP"] = "Interface\\Icons\\Spell_Holy_SealOfSacrifice"
+    ["Target HP"] = "Interface\\Icons\\Spell_Holy_SealOfSacrifice",
+    ["Main Stat"] = "Interface\\Icons\\Spell_Holy_DivineSpirit" -- Generic Stat Icon
 }
 
-function WidgetForge:IsStatAllowed(statName)
-    -- Always allow non-main stats
-    if statName ~= "Strength" and statName ~= "Agility" and statName ~= "Intellect" then return true end
-    
-    local _, classFilename = UnitClassBase("player")
-    if not classFilename then return true end
-
-    -- 1. Check Spec ID
-    local specIndex = GetSpecialization()
-    if specIndex then
-        local specID = GetSpecializationInfo(specIndex)
-        if specID and WidgetForge.SpecMainStat[specID] then
-            return statName == WidgetForge.SpecMainStat[specID]
-        end
-    end
-
-    -- 2. Fallback: Class Default (No Spec)
-    local def = WidgetForge.ClassDefaults[classFilename]
-    if def then return statName == def end
-
-    -- 3. If unclear, allow all to be safe
-    return true
-end 
 
 -- --- HELPER FUNCTIONS ---
 function WithSpace(str)
@@ -152,6 +94,7 @@ function WidgetForge:UpdateAvailableBars()
             if not Bars[index] then
                 -- Create Frame with ForgeSkin Style
                 local f = CreateFrame("Frame", "WidgetForgeBar"..index, UIParent, "BackdropTemplate")
+                f:SetFrameStrata("DIALOG") -- Fix Z-Index issue
                 Skin:ApplyBackdrop(f) 
                 
                 f:SetMovable(true)
@@ -274,7 +217,13 @@ function WidgetForge:RebuildBarComponents(index)
         if elem.showIcon then
             if not f.icons[i] then f.icons[i] = f:CreateTexture(nil, "OVERLAY") end
             local icon = f.icons[i]
-            local iconPath = WidgetForge.StatIcons[elem.type] or "Interface\\Icons\\INV_Misc_QuestionMark"
+            
+            local typeToIcon = elem.type
+            if typeToIcon == "Main Stat" then
+                 typeToIcon = ForgeStats.ActiveMainStat or "Strength"
+            end
+            
+            local iconPath = WidgetForge.StatIcons[typeToIcon] or "Interface\\Icons\\INV_Misc_QuestionMark"
             icon:Show()
             icon:SetTexture(iconPath)
             icon:SetSize(elem.size, elem.size) -- Square icon based on font size
@@ -665,6 +614,9 @@ local updateFrame = CreateFrame("Frame")
 updateFrame:SetScript("OnUpdate", function(self, elapsed)
     timer = timer + elapsed
     if timer >= WIDGETFORGE_CONSTANTS.UPDATE_INTERVAL then
+        -- [PERFORMANCE] Update Polled Stats (FPS, MS, etc) once per interval
+        ForgeStats:UpdatePolledStats(timer)
+        
         if WidgetForgeDB and WidgetForgeDB.bars then
             for index, conf in ipairs(WidgetForgeDB.bars) do
                 local f = Bars[index]
@@ -696,6 +648,10 @@ loadFrame:SetScript("OnEvent", function(self, event, arg1)
         
         WidgetForge:UpdateAvailableBars()
         WidgetForge:SetBarsLocked(true)
+        
+        -- [PERFORMANCE] Initialize Stats Module
+        ForgeStats:Initialize()
+        
         print("|cff00ccffWidgetForge|r v" .. WIDGETFORGE_CONSTANTS.VERSION .. " Loaded. Type |cff00ccff/wf|r to configure.")
     elseif event == "PLAYER_REGEN_DISABLED" then
         ForgeStats.CombatStart = GetTime()
