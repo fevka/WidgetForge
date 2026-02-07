@@ -2,7 +2,7 @@ ForgeConfig = {}
 local Config = ForgeConfig
 local Skin = ForgeSkin
 
--- Varsayılan Ayarlar (Infinite Bars Structure)
+-- Varsayılan Ayarlar
 Config.DefaultSettings = {
     globalScale = 1.0,
     bars = {
@@ -73,49 +73,71 @@ Config.Presets = {
     }}
 }
 
--- Serialization is now handled by WidgetForgeUtils module
-
 -- --- MAIN CONFIG WINDOW ---
 function Config:OpenConfigWindow()
     if Config.Frame then Config.Frame:Show(); return end
     
     local f = CreateFrame("Frame", "EsrefConfigFrame", UIParent, "BackdropTemplate")
-    f:SetSize(900, 600) -- [FINAL] Comfortable Width
+    f:SetSize(900, 600) 
     f:SetPoint("CENTER")
-    f:SetFrameStrata("HIGH")
     f:SetFrameStrata("HIGH")
     Skin:ApplyBackdrop(f)
     
-    -- Title Bar with Close Button
     Skin:CreateTitleBar(f, "WidgetForge | Advanced Status Bars", function() f:Hide() end)
     
-    -- Locking Logic
     f:SetScript("OnShow", function() WidgetForge:SetBarsLocked(false) end)
     f:SetScript("OnHide", function() WidgetForge:SetBarsLocked(true) end)
-    WidgetForge:SetBarsLocked(false) -- Unlock immediately when opening
+    WidgetForge:SetBarsLocked(false) 
     
-    -- Force Select First Bar (or last selected)
+    -- [PRIORITY LOGIC]
+    local needsNewSelection = false
+    
     if not Config.SelectedBarIndex or not WidgetForgeDB.bars[Config.SelectedBarIndex] then
-        Config.SelectedBarIndex = 1
+        needsNewSelection = true
+    else
+        if not WidgetForge:IsBarRelevant(WidgetForgeDB.bars[Config.SelectedBarIndex]) then
+            needsNewSelection = true
+        end
     end
-    -- Call SelectBar to ensure UI updates and highlighting works
+
+    if needsNewSelection then
+        local bestIndex = nil
+        local bestPriority = -1 
+        
+        for i, bar in ipairs(WidgetForgeDB.bars) do
+            if WidgetForge:IsBarRelevant(bar) then
+                local priority = 0 
+                
+                if bar.scope then
+                    if bar.scope.type == "CHARACTER" then priority = 10 
+                    elseif bar.scope.type == "SPEC" then priority = 5 end
+                end
+                
+                if priority > bestPriority then
+                    bestPriority = priority
+                    bestIndex = i
+                end
+            end
+        end
+        Config.SelectedBarIndex = bestIndex
+    end
+
     C_Timer.After(0.1, function() Config:SelectBar(Config.SelectedBarIndex) end)
 
     
     -- --- SIDEBAR (Bar List) ---
     local sidebar = CreateFrame("Frame", nil, f, "BackdropTemplate")
     sidebar:SetPoint("TOPLEFT", 10, -40)
-    sidebar:SetPoint("BOTTOMLEFT", 10, 100) -- Increased bottom margin for preset area
+    sidebar:SetPoint("BOTTOMLEFT", 10, 100) 
     sidebar:SetWidth(200)
     Skin:ApplyBackdrop(sidebar, 0.4, 0.8)
 
     local sbHeader = Skin:CreateSectionHeader(sidebar, "Active Bars", 180)
-    sbHeader:SetPoint("TOPLEFT", 10, -10) -- Aligned with Configuration header (y=-10)
+    sbHeader:SetPoint("TOPLEFT", 10, -10) 
 
-    -- Adjusted scroll frame width/position for better alignment
     local scrollBarList, contentBarList = Skin:CreateScrollFrame(sidebar, 180, 430)
-    scrollBarList:SetPoint("TOPLEFT", 15, -50) -- Increased gap from header line
-    scrollBarList:SetPoint("BOTTOMRIGHT", 0, 10) -- Moved right (closer to edge)
+    scrollBarList:SetPoint("TOPLEFT", 15, -50) 
+    scrollBarList:SetPoint("BOTTOMRIGHT", 0, 10) 
     Config.BarListContent = contentBarList
 
     -- Add New Bar Button
@@ -125,18 +147,18 @@ function Config:OpenConfigWindow()
         local newId = #WidgetForgeDB.bars + 1
         WidgetForgeDB.bars[newId] = CopyTable(Config.DefaultSettings.bars[1])
         WidgetForgeDB.bars[newId].name = "New Bar " .. newId
+        WidgetForgeDB.bars[newId].scope = { type = "CHARACTER", value = UnitName("player") .. "-" .. GetRealmName() }
+
         Config:RefreshBarList()
         Config:SelectBar(newId)
         WidgetForge:UpdateAvailableBars()
     end)
     
-    -- Preset Dropdown (Moved to BOTTOM LEFT to align with Import/Export)
-    local ddPreset -- Forward declare
-    
+    -- Preset Dropdown 
+    local ddPreset 
     local lblPreset = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     lblPreset:SetText("QUICK ADD PRESET")
     
-    -- Function to get combined presets
     local function GetPresetList()
         local list = {}
         for _, p in ipairs(Config.Presets) do table.insert(list, {text="[Def] "..p.text, value=p.value}) end
@@ -148,29 +170,24 @@ function Config:OpenConfigWindow()
         return list
     end
 
-    -- Compact Preset UI: [Dropdown (143)] [+] [-]
     ddPreset = Skin:CreateDropdown(f, 143, GetPresetList(), function(val)
         local newId = #WidgetForgeDB.bars + 1
         WidgetForgeDB.bars[newId] = CopyTable(val)
-        -- Ensure defaults
         WidgetForgeDB.bars[newId].enabled = true
         WidgetForgeDB.bars[newId].point = "CENTER"
         WidgetForgeDB.bars[newId].x = 0
         WidgetForgeDB.bars[newId].y = 0
         if WidgetForgeDB.bars[newId].showBorder == nil then WidgetForgeDB.bars[newId].showBorder = true end
-        
+        WidgetForgeDB.bars[newId].scope = { type = "CHARACTER", value = UnitName("player") .. "-" .. GetRealmName() }
+
         Config:RefreshBarList()
         Config:SelectBar(newId)
         WidgetForge:UpdateAvailableBars()
-        
-        -- Reset dropdown text to indicate action taken or just leave it
-        -- For now, we leave it as the selected preset name
     end)
     
-    -- Position at bottom left (align with Import/Export which are at y=10)
     ddPreset:SetPoint("BOTTOMLEFT", 10, 10)
     lblPreset:SetPoint("BOTTOMLEFT", ddPreset, "TOPLEFT", 0, 5)
-    f.ddPreset = ddPreset -- Store ref
+    f.ddPreset = ddPreset 
     
     -- Save Button [+]
     local btnSavePreset = Skin:CreateButton(f, "+", 25, 25)
@@ -179,77 +196,47 @@ function Config:OpenConfigWindow()
     btnSavePreset:SetScript("OnClick", function()
         local selIndex = Config.SelectedBarIndex
         if not selIndex or not WidgetForgeDB.bars[selIndex] then print("Select a bar first."); return end
-        
         Skin:CreateInputDialog("Save Preset", WidgetForgeDB.bars[selIndex].name, function(text)
             if not WidgetForgeDB.presets then WidgetForgeDB.presets = {} end
             WidgetForgeDB.presets[text] = CopyTable(WidgetForgeDB.bars[selIndex])
-            -- Clean up positioning
             WidgetForgeDB.presets[text].point = nil
             WidgetForgeDB.presets[text].x = nil
             WidgetForgeDB.presets[text].y = nil
-            
             print("|cff00ff00Preset '"..text.."' saved.|r")
-            
-            -- Refresh dropdown immediately
             ddPreset:SetList(GetPresetList())
-            ddPreset:SetValue(nil, "[Cust] "..text) -- Auto-select/visualize the new preset
+            ddPreset:SetValue(nil, "[Cust] "..text) 
         end)
     end)
     
     -- Delete Button [-]
     local btnDelPreset = Skin:CreateButton(f, "-", 25, 25)
-
-       btnDelPreset.text:SetFont("Fonts\\FRIZQT__.TTF", 22, "THICK")
+    btnDelPreset.text:SetFont("Fonts\\FRIZQT__.TTF", 22, "THICK")
     btnDelPreset:SetPoint("LEFT", btnSavePreset, "RIGHT", 2, 0)
     btnDelPreset:SetScript("OnClick", function()
-        if not WidgetForgeDB.presets or not next(WidgetForgeDB.presets) then
-            print("|cffff0000No custom presets to delete.|r")
-            return
-        end
-        
-        -- Build custom preset list for dropdown
+        if not WidgetForgeDB.presets or not next(WidgetForgeDB.presets) then print("|cffff0000No custom presets.|r"); return end
         local customList = {}
-        for name, _ in pairs(WidgetForgeDB.presets) do
-            table.insert(customList, {text = name, value = name})
-        end
+        for name, _ in pairs(WidgetForgeDB.presets) do table.insert(customList, {text = name, value = name}) end
         
-        -- Create dropdown dialog
         local deleteFrame = CreateFrame("Frame", "ForgeDeletePresetDialog", UIParent, "BackdropTemplate")
         deleteFrame:SetSize(350, 140)
         deleteFrame:SetPoint("CENTER")
         deleteFrame:SetFrameStrata("FULLSCREEN_DIALOG")
-        deleteFrame:EnableMouse(true)
-        deleteFrame:SetMovable(true)
-        deleteFrame:RegisterForDrag("LeftButton")
-        deleteFrame:SetScript("OnDragStart", deleteFrame.StartMoving)
-        deleteFrame:SetScript("OnDragStop", deleteFrame.StopMovingOrSizing)
-        
-        Skin:ApplyBackdrop(deleteFrame)
-        deleteFrame:SetBackdropColor(unpack(Skin.Colors.bg))
-        Skin:SetSmartBorder(deleteFrame, 2, {r=1, g=0.3, b=0.3, a=1}, "OUTSIDE")
-        
+        deleteFrame:EnableMouse(true); deleteFrame:SetMovable(true)
+        deleteFrame:RegisterForDrag("LeftButton"); deleteFrame:SetScript("OnDragStart", deleteFrame.StartMoving); deleteFrame:SetScript("OnDragStop", deleteFrame.StopMovingOrSizing)
+        Skin:ApplyBackdrop(deleteFrame); deleteFrame:SetBackdropColor(unpack(Skin.Colors.bg)); Skin:SetSmartBorder(deleteFrame, 2, {r=1, g=0.3, b=0.3, a=1}, "OUTSIDE")
         Skin:CreateTitleBar(deleteFrame, "Delete Preset", function() deleteFrame:Hide() end)
         
         local ddDelete = Skin:CreateDropdown(deleteFrame, 310, customList, function(presetName)
-            Skin:CreateConfirmDialog(
-                "Confirm Delete",
-                "Are you sure you want to delete preset '" .. presetName .. "'?",
-                function()
+            Skin:CreateConfirmDialog("Confirm Delete", "Delete preset '" .. presetName .. "'?", function()
                     WidgetForgeDB.presets[presetName] = nil
-                    print("|cffff0000Preset '"..presetName.."' deleted.|r")
-                    
-                    -- Refresh main dropdown
-                    ddPreset:SetList(GetPresetList())
-                    ddPreset:SetValue(nil, "Select...")
-                    
+                    print("|cffff0000Deleted.|r")
+                    ddPreset:SetList(GetPresetList()); ddPreset:SetValue(nil, "Select...")
                     deleteFrame:Hide()
-                end
-            )
+            end)
         end)
         ddDelete:SetPoint("TOP", 0, -50)
         deleteFrame:Show()
     end)
-
 
     -- --- IMPORT / EXPORT BUTTONS ---
     local btnExport = Skin:CreateButton(f, "Export Profile", 100, 25)
@@ -268,11 +255,9 @@ function Config:OpenConfigWindow()
                 WidgetForgeDB = t
                 Config:RefreshBarList()
                 WidgetForge:UpdateAvailableBars()
-                print("|cff00ff00WidgetForge:|r Profile imported successfully.")
+                print("|cff00ff00Profile imported.|r")
                 Config.DetailsContent:HideAllChildren()
-            else
-                print("|cffff0000WidgetForge:|r Invalid profile string!")
-            end
+            else print("|cffff0000Invalid profile!|r") end
         end)
     end)
 
@@ -282,12 +267,10 @@ function Config:OpenConfigWindow()
     mainPanel:SetPoint("BOTTOMRIGHT", -10, 50)
     Skin:ApplyBackdrop(mainPanel, 0.2, 0.5)
 
-    local scrollDetails, contentDetails = Skin:CreateScrollFrame(mainPanel, 660, 510) -- [FINAL] Wider for comfortable layout
+    local scrollDetails, contentDetails = Skin:CreateScrollFrame(mainPanel, 660, 510) 
     scrollDetails:SetPoint("TOPLEFT", 0, 0)
     scrollDetails:SetPoint("BOTTOMRIGHT", 0, 0)
     
-    -- Helper to clear children
-    -- Helper to clear children
     function contentDetails:HideAllChildren()
         local kids = {self:GetChildren()}
         for _, k in ipairs(kids) do k:Hide() end
@@ -306,36 +289,28 @@ function Config:RefreshBarList()
     content.buttons = {}
 
     local y = -5
-    local width = content:GetWidth()
     for i, bar in ipairs(WidgetForgeDB.bars) do
-        -- Filter by Scope (Character)
-        local showInList = true
-        if bar.scope then
-            local myName = UnitName("player") .. "-" .. GetRealmName()
-            if bar.scope.type == "CHARACTER" then
-                if bar.scope.value ~= myName then showInList = false end
-            elseif bar.scope.type == "SPEC" and bar.scope.character then
-                 if bar.scope.character ~= myName then showInList = false end
-            end
-        end
+        -- Sadece bu karakter için "ilgili" olanları göster
+        local showInList = WidgetForge:IsBarRelevant(bar) 
 
         if showInList then
-            local btn = Skin:CreateButton(content, bar.name, 155, 30)
-            btn:SetPoint("TOP", 0, y) -- Centered relative to content
+            -- [NEW] Suffix Tags
+            local suffix = ""
+            if not bar.scope then suffix = " |cffcccccc[Global]|r"
+            elseif bar.scope.type == "CHARACTER" then suffix = " |cff00ff00[Char]|r"
+            elseif bar.scope.type == "SPEC" then suffix = " |cffffaa00[Spec]|r" end
             
-            -- Highlight Selected
+            local btn = Skin:CreateButton(content, bar.name .. suffix, 155, 30)
+            btn:SetPoint("TOP", 0, y) 
+            
             if i == Config.SelectedBarIndex then
-                 btn:SetBackdropColor(0, 0.7, 1, 0.4) -- Active Blue Highlight
-                 btn:SetBackdropBorderColor(0, 0.8, 1, 1) -- Active Border
-                 
-                 -- [FIX] Disable default hover scripts to prevent color reset
-                 btn:SetScript("OnEnter", nil)
-                 btn:SetScript("OnLeave", nil)
+                 btn:SetBackdropColor(0, 0.7, 1, 0.4) 
+                 btn:SetBackdropBorderColor(0, 0.8, 1, 1) 
+                 btn:SetScript("OnEnter", nil); btn:SetScript("OnLeave", nil)
             end
             
             btn:SetScript("OnClick", function() Config:SelectBar(i) end)
             
-            -- Delete Button (Small X)
             local btnDel = Skin:CreateButton(btn, "X", 20, 20)
             btnDel:SetPoint("RIGHT", -5, 0)
             btnDel.text:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
@@ -355,27 +330,57 @@ end
 function Config:SelectBar(index)
     Config.SelectedBarIndex = index
     
-    -- Update Main Addon (for visual cues like Drag Button Scale)
-    if WidgetForge.SetSelectedBar then
-        WidgetForge:SetSelectedBar(index)
-    end
-
-    Config:RefreshBarList() -- Refresh list to update selection highlight
+    if WidgetForge.SetSelectedBar then WidgetForge:SetSelectedBar(index) end
+    Config:RefreshBarList() 
     
     local content = Config.DetailsContent
-    if not content then return end -- Safety check: Config window not created yet
+    if not content then return end 
     content:HideAllChildren()
     
+    if not index then return end
     local bar = WidgetForgeDB.bars[index]
     if not bar then return end
     
     local y = -10
     
-    -- --- SECTION 1: BAR LAYOUT (Name, Scope, Title, Layout Type) ---
+    -- --- SECTION 1: BAR LAYOUT ---
     local hLayout = Skin:CreateSectionHeader(content, "Bar Layout: " .. bar.name, 620)
     hLayout:SetPoint("TOPLEFT", 10, y)
     
-    -- [NEW] Scope Dropdown - Positioned relative to header
+    -- [DUZELTME] Düğmeyi ve Dropdown'ı doğru sırayla oluşturuyoruz.
+    -- Hedef: [Dropdown] [Güç Düğmesi(En Sağda)]
+    
+    -- 1. ENABLE / DISABLE TOGGLE BUTTON (En Sağa Yaslı)
+    local btnEnable = Skin:CreateButton(content, "ENABLED", 80, 25)
+    -- hLayout (Başlık Çizgisi) referans alınarak en sağa (-2 px boşlukla) yaslanır.
+    btnEnable:SetPoint("TOPRIGHT", hLayout, "TOPRIGHT", -2, 2) 
+    
+    local function UpdateEnableButton()
+        if bar.enabled then
+            btnEnable:SetBackdropColor(0.5, 0.8, 0.5, 1)
+            btnEnable:SetBackdropBorderColor(0, 1, 0, 1)
+            btnEnable.text:SetText("ENABLED")
+            btnEnable.text:SetTextColor(1, 1, 1, 1)
+-- Hover: Hafif parlak
+            btnEnable:SetScript("OnEnter", function() btnEnable:SetBackdropColor(0.65, 1.0, 0.65, 1) end)
+            btnEnable:SetScript("OnLeave", function() btnEnable:SetBackdropColor(0.5, 0.8, 0.5, 1) end)
+        else
+            btnEnable:SetBackdropColor(0.7, 0, 0, 1) -- KIRMIZI
+            btnEnable:SetBackdropBorderColor(1, 0, 0, 1)
+            btnEnable.text:SetText("DISABLED")
+            btnEnable.text:SetTextColor(1, 1, 1, 1)
+            btnEnable:SetScript("OnEnter", function() btnEnable:SetBackdropColor(0.9, 0, 0, 1) end)
+            btnEnable:SetScript("OnLeave", function() btnEnable:SetBackdropColor(0.7, 0, 0, 1) end)
+        end
+    end
+    UpdateEnableButton() 
+    
+    btnEnable:SetScript("OnClick", function()
+        bar.enabled = not bar.enabled 
+        UpdateEnableButton()
+        WidgetForge:UpdateAvailableBars() 
+    end)
+    
     local scopeList = {
         {text = "Global (Account)", value = "GLOBAL"},
         {text = "This Character", value = "CHARACTER"},
@@ -384,6 +389,7 @@ function Config:SelectBar(index)
     local currentScopeVal = "GLOBAL"
     if bar.scope then currentScopeVal = bar.scope.type end
     
+    -- 2. SCOPE DROPDOWN (Düğmenin Solunda)
     local ddScope = Skin:CreateDropdown(content, 150, scopeList, currentScopeVal, function(v)
         if v == "GLOBAL" then
             bar.scope = nil
@@ -392,272 +398,120 @@ function Config:SelectBar(index)
         elseif v == "SPEC" then
             local spec = GetSpecialization()
             if spec then
-                 bar.scope = { 
-                    type = "SPEC", 
-                    value = GetSpecializationInfo(spec),
-                    character = UnitName("player") .. "-" .. GetRealmName()
-                 }
-            else
-                 print("Error: No Spec active.")
-                 return
-            end
+                 bar.scope = { type = "SPEC", value = GetSpecializationInfo(spec), character = UnitName("player") .. "-" .. GetRealmName() }
+            else print("Error: No Spec active."); return end
         end
         WidgetForge:UpdateAvailableBars()
+        Config:RefreshBarList() 
     end)
-    ddScope:SetPoint("TOPRIGHT", hLayout, "TOPRIGHT", 0, 2) 
-
+    -- Dropdown'ı Düğmenin SOLUNA (-5 px boşlukla) yaslıyoruz.
+    ddScope:SetPoint("RIGHT", btnEnable, "LEFT", -5, 0)
+    
     y = y - 40
 
-    -- Row 1: Name (Label Left) | Show Title (Checkbox) | Vertical Layout (Checkbox)
-    -- Col 1: Name
+    -- Row 1: Name, Title, Vertical
     local lblName = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    lblName:SetPoint("TOPLEFT", 10, y - 8)
-    lblName:SetText("Bar Name:")
-    lblName:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
+    lblName:SetPoint("TOPLEFT", 10, y - 8); lblName:SetText("Bar Name:"); lblName:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
     
     local ebNameFrame = CreateFrame("Frame", nil, content, "BackdropTemplate")
-    ebNameFrame:SetSize(180, 25) 
-    ebNameFrame:SetPoint("TOPLEFT", 90, y)
+    ebNameFrame:SetSize(180, 25); ebNameFrame:SetPoint("TOPLEFT", 90, y)
     Skin:ApplyBackdrop(ebNameFrame); ebNameFrame:SetBackdropColor(0,0,0,0.5); ebNameFrame:SetBackdropBorderColor(0.2, 0.2, 0.2, 1)
-    
     local ebName = CreateFrame("EditBox", nil, ebNameFrame)
-    ebName:SetAllPoints(ebNameFrame)
-    ebName:SetFont(Skin.Constants.FONT_NORMAL, 12, "OUTLINE")
+    ebName:SetAllPoints(ebNameFrame); ebName:SetFont(Skin.Constants.FONT_NORMAL, 12, "OUTLINE")
     ebName:SetTextInsets(5, 5, 0, 0); ebName:SetAutoFocus(false); ebName:SetText(bar.name)
+    ebName:SetMaxLetters(30) 
     ebName:SetScript("OnEnterPressed", function(self) 
-        bar.name = self:GetText()
-        if hLayout and hLayout.text then hLayout.text:SetText(string.upper("Bar Layout: " .. bar.name)) end
-        Config:RefreshBarList()
-        self:ClearFocus() 
+        bar.name = self:GetText(); if hLayout.text then hLayout.text:SetText(string.upper("Bar Layout: " .. bar.name)) end
+        Config:RefreshBarList(); self:ClearFocus() 
     end)
     ebName:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
 
-    -- Col 2: Show Title
-    local chkTitle = Skin:CreateCheckbox(content, "Show Title Bar", bar.showTitle, function(v) 
-        bar.showTitle = v; WidgetForge:RebuildBarComponents(index) 
-    end)
+    local chkTitle = Skin:CreateCheckbox(content, "Show Title Bar", bar.showTitle, function(v) bar.showTitle = v; WidgetForge:RebuildBarComponents(index) end)
     chkTitle:SetPoint("TOPLEFT", 290, y - 3)
 
-    -- Col 3: Vertical Layout
-    local chkLayout = Skin:CreateCheckbox(content, "Vertical Layout", bar.layout == "VERTICAL", function(v) 
-        bar.layout = v and "VERTICAL" or "HORIZONTAL"
-        Config:SelectBar(index); WidgetForge:RebuildBarComponents(index)
-    end)
+    local chkLayout = Skin:CreateCheckbox(content, "Vertical Layout", bar.layout == "VERTICAL", function(v) bar.layout = v and "VERTICAL" or "HORIZONTAL"; Config:SelectBar(index); WidgetForge:RebuildBarComponents(index) end)
     chkLayout:SetPoint("TOPLEFT", 430, y - 3)
-
     y = y - 40
 
-    -- Row 2: Alignment | Spacing | Background
-     -- Col 1: Alignment
+    -- Row 2: Alignment, Spacing, BG
     local lblJ = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    lblJ:SetPoint("TOPLEFT", 10, y - 8); lblJ:SetText("Alignment:")
-    lblJ:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
-    
-    local justifyList = { "LEFT", "CENTER", "RIGHT" }
-    local ddJustify = Skin:CreateDropdown(content, 120, justifyList, bar.justify or "CENTER", function(v)
-        bar.justify = v; WidgetForge:RebuildBarComponents(index)
-    end)
+    lblJ:SetPoint("TOPLEFT", 10, y - 8); lblJ:SetText("Alignment:"); lblJ:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
+    local ddJustify = Skin:CreateDropdown(content, 120, { "LEFT", "CENTER", "RIGHT" }, bar.justify or "CENTER", function(v) bar.justify = v; WidgetForge:RebuildBarComponents(index) end)
     ddJustify:SetPoint("TOPLEFT", 90, y)
 
-    -- Col 2: Spacing
     local lblPad = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    lblPad:SetPoint("TOPLEFT", 230, y - 8); lblPad:SetText("Spacing:")
-    lblPad:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
-    
+    lblPad:SetPoint("TOPLEFT", 230, y - 8); lblPad:SetText("Spacing:"); lblPad:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
     local slPad = Skin:CreateSlider(content, 0, 50, 1, bar.padding or 5, function(v) bar.padding = v; WidgetForge:UpdateAvailableBars() end, 120)
     slPad:SetPoint("TOPLEFT", 290, y)
 
-    -- Col 3: Background
     local lblBg = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    lblBg:SetPoint("TOPLEFT", 430, y - 8); lblBg:SetText("Background Color:")
-    lblBg:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
-
+    lblBg:SetPoint("TOPLEFT", 430, y - 8); lblBg:SetText("Bg Color:"); lblBg:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
     local btnBg = CreateFrame("Button", nil, content, "BackdropTemplate")
-    btnBg:SetSize(20, 20); btnBg:SetPoint("TOPLEFT", 540, y - 3 ) 
-    Skin:ApplyBackdrop(btnBg)
-    local bg = bar.bgColor or {0, 0, 0, 0.5} 
-    btnBg:SetBackdropColor(unpack(bg))
+    btnBg:SetSize(20, 20); btnBg:SetPoint("TOPLEFT", 500, y - 3 ) 
+    Skin:ApplyBackdrop(btnBg); local bg = bar.bgColor or {0, 0, 0, 0.5}; btnBg:SetBackdropColor(unpack(bg))
     btnBg:SetScript("OnClick", function()
         local info = { r=bg[1], g=bg[2], b=bg[3], opacity=bg[4], swatchFunc = function(c) bar.bgColor = c; btnBg:SetBackdropColor(unpack(c)); WidgetForge:UpdateAvailableBars() end }
         Skin:ShowColorPicker(info)
     end)
-
+    
     y = y - 50
 
     -- --- SECTION 2: BAR SIZE ---
-    local hSize = Skin:CreateSectionHeader(content, "Bar Size", 620)
-    hSize:SetPoint("TOPLEFT", 10, y)
-    y = y - 40
-
-    -- Col 1: Width
-    local lblW = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    lblW:SetPoint("TOPLEFT", 10, y - 8); lblW:SetText("Bar Width:")
-    lblW:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
-    
-    local slW = Skin:CreateSlider(content, 50, 600, 5, bar.width, function(v) bar.width = v; WidgetForge:UpdateAvailableBars() end, 150)
-    slW:SetPoint("TOPLEFT", 90, y)
-    
-    -- Col 2: Height
-    local lblH = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    lblH:SetPoint("TOPLEFT", 260, y - 8); lblH:SetText("Bar Height:")
-    lblH:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
-    
-    local slH = Skin:CreateSlider(content, 10, 200, 2, bar.height, function(v) bar.height = v; WidgetForge:UpdateAvailableBars() end, 150)
-    slH:SetPoint("TOPLEFT", 340, y)
-    
+    local hSize = Skin:CreateSectionHeader(content, "Bar Size", 620); hSize:SetPoint("TOPLEFT", 10, y); y = y - 40
+    local lblW = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); lblW:SetPoint("TOPLEFT", 10, y - 8); lblW:SetText("Bar Width:"); lblW:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
+    local slW = Skin:CreateSlider(content, 50, 600, 5, bar.width, function(v) bar.width = v; WidgetForge:UpdateAvailableBars() end, 150); slW:SetPoint("TOPLEFT", 90, y)
+    local lblH = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); lblH:SetPoint("TOPLEFT", 260, y - 8); lblH:SetText("Bar Height:"); lblH:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
+    local slH = Skin:CreateSlider(content, 10, 200, 2, bar.height, function(v) bar.height = v; WidgetForge:UpdateAvailableBars() end, 150); slH:SetPoint("TOPLEFT", 340, y)
     y = y - 50
 
     -- --- SECTION 3: BORDER SETTINGS ---
-    local hBorder = Skin:CreateSectionHeader(content, "Border Settings", 620)
-    hBorder:SetPoint("TOPLEFT", 10, y)
-    y = y - 40
-
-    -- Col 1: Border Size
-    local lblBS = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    lblBS:SetPoint("TOPLEFT", 10, y - 8); lblBS:SetText("Border Size:")
-    lblBS:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
-
-    local slBS = Skin:CreateSlider(content, 1, 10, 1, bar.borderSize or 1, function(v) bar.borderSize = v; WidgetForge:UpdateAvailableBars() end, 150)
-    slBS:SetPoint("TOPLEFT", 90, y)
-    
-    -- Col 2: Border Color
-    local lblBC = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    lblBC:SetPoint("TOPLEFT", 260, y - 8); lblBC:SetText("Border Color:")
-    lblBC:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
-
-    local btnBC = CreateFrame("Button", nil, content, "BackdropTemplate")
-    btnBC:SetSize(20, 20); btnBC:SetPoint("TOPLEFT", 340, y - 3) 
-    Skin:ApplyBackdrop(btnBC)
-    local bc = bar.borderColor or {0.2, 0.2, 0.2, 1}
-    btnBC:SetBackdropColor(unpack(bc))
-    btnBC:SetScript("OnClick", function()
-        local info = { r=bc[1], g=bc[2], b=bc[3], opacity=bc[4], swatchFunc = function(c) bar.borderColor = c; btnBC:SetBackdropColor(unpack(c)); WidgetForge:UpdateAvailableBars() end }
-        Skin:ShowColorPicker(info)
-    end)
-    
-    -- Col 3: Show Border (Checkbox)
-    local chkBorder = Skin:CreateCheckbox(content, "Enable Border", bar.showBorder, function(v) 
-        bar.showBorder = v; WidgetForge:UpdateAvailableBars() 
-    end)
-    chkBorder:SetPoint("TOPLEFT", 430, y - 3)
-
+    local hBorder = Skin:CreateSectionHeader(content, "Border Settings", 620); hBorder:SetPoint("TOPLEFT", 10, y); y = y - 40
+    local lblBS = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); lblBS:SetPoint("TOPLEFT", 10, y - 8); lblBS:SetText("Border Size:"); lblBS:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
+    local slBS = Skin:CreateSlider(content, 1, 10, 1, bar.borderSize or 1, function(v) bar.borderSize = v; WidgetForge:UpdateAvailableBars() end, 150); slBS:SetPoint("TOPLEFT", 90, y)
+    local lblBC = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); lblBC:SetPoint("TOPLEFT", 260, y - 8); lblBC:SetText("Border Color:"); lblBC:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
+    local btnBC = CreateFrame("Button", nil, content, "BackdropTemplate"); btnBC:SetSize(20, 20); btnBC:SetPoint("TOPLEFT", 340, y - 3); Skin:ApplyBackdrop(btnBC); local bc = bar.borderColor or {0.2, 0.2, 0.2, 1}; btnBC:SetBackdropColor(unpack(bc))
+    btnBC:SetScript("OnClick", function() local info = { r=bc[1], g=bc[2], b=bc[3], opacity=bc[4], swatchFunc = function(c) bar.borderColor = c; btnBC:SetBackdropColor(unpack(c)); WidgetForge:UpdateAvailableBars() end }; Skin:ShowColorPicker(info) end)
+    local chkBorder = Skin:CreateCheckbox(content, "Show", bar.showBorder, function(v) bar.showBorder = v; WidgetForge:UpdateAvailableBars() end); chkBorder:SetPoint("TOPLEFT", 430, y - 3)
     y = y - 60
 
     -- --- ELEMENTS ---
-    local headEl = Skin:CreateSectionHeader(content, "Bar Elements", 620)
-    headEl:SetPoint("TOPLEFT", 10, y); y = y - 40
+    local headEl = Skin:CreateSectionHeader(content, "Bar Elements", 620); headEl:SetPoint("TOPLEFT", 10, y); y = y - 40
 
-    -- Add Elements Grid
     local gridX, gridY = 0, 0
     for i, typeName in ipairs(Config.ElementTypes) do
         local btn = Skin:CreateButton(content, typeName, 120, 20)
         btn:SetPoint("TOPLEFT", 10 + (gridX * 125), y - (gridY * 25))
-        
-        -- Check if already added
         local exists = false
-        for _, e in ipairs(bar.elements) do
-            if e.type == typeName then exists = true; break end
-        end
-
+        for _, e in ipairs(bar.elements) do if e.type == typeName then exists = true; break end end
         if exists then
-            -- Selected Styling
-            btn:SetBackdropColor(unpack(Skin.Colors.accent))
-            btn:SetBackdropBorderColor(1, 1, 1, 1)
-            btn.text:SetTextColor(1, 1, 1, 1) 
-            btn:SetScript("OnEnter", nil)
-            btn:SetScript("OnLeave", nil)
-            
-            -- Toggle: Remove on Click
-            btn:SetScript("OnClick", function()
-                 for idx, e in ipairs(bar.elements) do
-                     if e.type == typeName then
-                         table.remove(bar.elements, idx)
-                         break
-                     end
-                 end
-                 C_Timer.After(0.05, function() Config:SelectBar(index); WidgetForge:RebuildBarComponents(index) end)
-            end)
+            btn:SetBackdropColor(unpack(Skin.Colors.accent)); btn:SetBackdropBorderColor(1, 1, 1, 1); btn.text:SetTextColor(1, 1, 1, 1); btn:SetScript("OnEnter", nil); btn:SetScript("OnLeave", nil)
+            btn:SetScript("OnClick", function() for idx, e in ipairs(bar.elements) do if e.type == typeName then table.remove(bar.elements, idx); break end end; C_Timer.After(0.05, function() Config:SelectBar(index); WidgetForge:RebuildBarComponents(index) end) end)
         else
-            -- Not Selected: Add on Click
-            btn:SetScript("OnClick", function()
-                 table.insert(bar.elements, { 
-                     type = typeName, 
-                     label = typeName, 
-                     color = {1,1,1,1}, 
-                     font = "Friz Quadrata", 
-                     size = 14, 
-                     outline = "OUTLINE" 
-                 })
-                 C_Timer.After(0.05, function() Config:SelectBar(index); WidgetForge:RebuildBarComponents(index) end)
-            end)
+            btn:SetScript("OnClick", function() table.insert(bar.elements, { type = typeName, label = typeName, color = {1,1,1,1}, font = "Friz Quadrata", size = 14, outline = "OUTLINE" }); C_Timer.After(0.05, function() Config:SelectBar(index); WidgetForge:RebuildBarComponents(index) end) end)
         end
-
-        gridX = gridX + 1
-        if gridX > 4 then gridX = 0; gridY = gridY + 1 end
+        gridX = gridX + 1; if gridX > 4 then gridX = 0; gridY = gridY + 1 end
     end
     y = y - (gridY * 25) - 40
     
-    -- Active Elements List
-    local fontList = {}
-    for k, v in pairs(Skin.Media.Fonts) do 
-        table.insert(fontList, {text=k, value=k, font=v}) 
-    end
-    
-    local outlineList = {
-        {text="None", value=""},
-        {text="Outline", value="OUTLINE"},
-        {text="Thick", value="THICKOUTLINE"},
-        {text="Mono", value="MONOCHROME"},
-        {text="Mono+Out", value="MONOCHROME,OUTLINE"}
-    }
+    local fontList = {}; for k, v in pairs(Skin.Media.Fonts) do table.insert(fontList, {text=k, value=k, font=v}) end
+    local outlineList = { {text="None", value=""}, {text="Outline", value="OUTLINE"}, {text="Thick", value="THICKOUTLINE"}, {text="Mono", value="MONOCHROME"}, {text="Mono+Out", value="MONOCHROME,OUTLINE"} }
 
-    
-    Config.ElementRows = {}  -- Clear before rebuilding
-    
+    Config.ElementRows = {}
     for i, elem in ipairs(bar.elements) do
         local item = CreateFrame("Frame", nil, content, "BackdropTemplate")
-        item:SetSize(620, 32) -- [FINAL] Increased width per user request
-        item:SetPoint("TOPLEFT", 10, y)
-        Skin:ApplyBackdrop(item, 0.3, 0.5)
-        
-        -- 1. Label (Kept on Left)
-        item.txt = item:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        item.txt:SetPoint("LEFT", 8, 0)
-        item.txt:SetText(i..". "..elem.type)
-        item.txt:SetFont(Skin.Constants.FONT_NORMAL, 11, "OUTLINE")
-        item.txt:SetWidth(110) -- Reduced from 150 to fit new controls
-        item.txt:SetJustifyH("LEFT")
+        item:SetSize(620, 32); item:SetPoint("TOPLEFT", 10, y); Skin:ApplyBackdrop(item, 0.3, 0.5)
+        item.txt = item:CreateFontString(nil, "OVERLAY", "GameFontNormal"); item.txt:SetPoint("LEFT", 8, 0); item.txt:SetText(i..". "..elem.type); item.txt:SetFont(Skin.Constants.FONT_NORMAL, 11, "OUTLINE"); item.txt:SetWidth(110); item.txt:SetJustifyH("LEFT")
 
-        -- RIGHT-ALIGNED FLOW
-        -- Order from Right: [Delete] [Drag] [Color] [Size] [Outline] [Font] [Icon] [Tooltip] [Format]
-        
-        -- 6. Delete Button (Anchor)
-        local btnRem = Skin:CreateButton(item, "X", 20, 20)
-        btnRem:SetPoint("RIGHT", -10, 0)
-        btnRem.text:SetFont(Skin.Constants.FONT_NORMAL, 10, "OUTLINE")
+        local btnRem = Skin:CreateButton(item, "X", 20, 20); btnRem:SetPoint("RIGHT", -10, 0); btnRem.text:SetFont(Skin.Constants.FONT_NORMAL, 10, "OUTLINE")
         btnRem:SetScript("OnClick", function() table.remove(bar.elements, i); Config:SelectBar(index); WidgetForge:RebuildBarComponents(index) end)
         
-        -- 7. Drag Handle (Standardized)
-        local dragHandle = Skin:CreateGripHandle(item, 20, 20)
-        dragHandle:SetPoint("RIGHT", btnRem, "LEFT", -4, 0)
-        dragHandle:EnableMouse(true)
-        dragHandle:RegisterForDrag("LeftButton")
+        local dragHandle = Skin:CreateGripHandle(item, 20, 20); dragHandle:SetPoint("RIGHT", btnRem, "LEFT", -4, 0); dragHandle:EnableMouse(true); dragHandle:RegisterForDrag("LeftButton")
+        Config.ElementRows[i] = item; item.rowIndex = i
         
-        Config.ElementRows[i] = item
-        item.rowIndex = i
-
-        -- DRAG AND DROP - ULTRA SIMPLE VERSION
-        dragHandle:SetScript("OnDragStart", function()
-            -- Store which element we're dragging
+        dragHandle:SetScript("OnDragStart", function() 
             dragHandle.dragSourceIndex = i
-            
-            -- Green color
-            for _, line in ipairs(dragHandle.lines) do
-                line:SetVertexColor(0, 1, 0, 1)
-            end
-            
-            -- Create ghost if needed
-            if not Config.DragGhost then
+            for _, line in ipairs(dragHandle.lines) do line:SetVertexColor(0, 1, 0, 1) end
+            if not Config.DragGhost then 
                 Config.DragGhost = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
                 Config.DragGhost:SetFrameStrata("TOOLTIP")
                 Config.DragGhost:SetSize(100, 25)
@@ -665,72 +519,74 @@ function Config:SelectBar(index)
                 Skin:ApplyBackdrop(Config.DragGhost)
                 Config.DragGhost.text = Config.DragGhost:CreateFontString(nil, "OVERLAY")
                 Config.DragGhost.text:SetFont(Skin.Constants.FONT_NORMAL, 11, "OUTLINE")
-                Config.DragGhost.text:SetPoint("CENTER")
+                Config.DragGhost.text:SetPoint("CENTER") 
             end
-            
             Config.DragGhost.text:SetText(i .. ": " .. elem.type)
-            Config.DragGhost:Show()
+            Config.DragGhost:Show() 
         end)
-        
-        dragHandle:SetScript("OnDragStop", function()
-            if Config.DragGhost then
-                Config.DragGhost:Hide()
-            end
+
+        dragHandle:SetScript("OnDragStop", function() 
+            if Config.DragGhost then Config.DragGhost:Hide() end
             
-            -- Reset color
-            for _, line in ipairs(dragHandle.lines) do
-                line:SetVertexColor(unpack(Skin.Colors.accent))
+            -- Reset Colors
+            for _, line in ipairs(dragHandle.lines) do line:SetVertexColor(unpack(Skin.Colors.accent)) end
+            for idx = 1, #Config.ElementRows do
+                local row = Config.ElementRows[idx]
+                if row then row:SetBackdropBorderColor(unpack(Skin.Colors.border)) end
             end
-            
+
             if not dragHandle.dragSourceIndex then return end
             
             local sourceIdx = dragHandle.dragSourceIndex
             dragHandle.dragSourceIndex = nil
             
-            -- Find target: Y koordinatına en yakın row
+            -- Find target
             local _, mouseY = GetCursorPosition()
             local closestIdx = sourceIdx
             local minDist = 999999
             
-            for idx = 1, #Config.ElementRows do
-                if idx ~= sourceIdx then
+            for idx = 1, #Config.ElementRows do 
+                if idx ~= sourceIdx then 
                     local row = Config.ElementRows[idx]
-                    if row then
+                    if row then 
                         local rowScale = row:GetEffectiveScale()
                         local _, rowCenterY = row:GetCenter()
-                        if rowCenterY then
+                        if rowCenterY then 
                             local rowScreenY = rowCenterY * rowScale
                             local dist = math.abs(rowScreenY - mouseY)
-                            if dist < minDist then
+                            if dist < minDist then 
                                 minDist = dist
-                                closestIdx = idx
-                            end
-                        end
-                    end
-                end
+                                closestIdx = idx 
+                            end 
+                        end 
+                    end 
+                end 
             end
             
-            -- SWAP (not insert!)
-            if closestIdx ~= sourceIdx then
-                -- Direct exchange: only these two positions change
+            if closestIdx ~= sourceIdx then 
                 bar.elements[sourceIdx], bar.elements[closestIdx] = bar.elements[closestIdx], bar.elements[sourceIdx]
                 Config:SelectBar(index)
-                WidgetForge:RebuildBarComponents(index)
-            end
+                WidgetForge:RebuildBarComponents(index) 
+            end 
         end)
         
         dragHandle:SetScript("OnUpdate", function()
             if dragHandle.dragSourceIndex and Config.DragGhost then
-                -- Update ghost position
                 local x, y = GetCursorPosition()
                 local scale = UIParent:GetEffectiveScale()
                 Config.DragGhost:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x/scale, y/scale)
                 
-                -- Highlight target row
                 local _, mouseY = GetCursorPosition()
-                local targetIdx = dragHandle.dragSourceIndex
                 local minDist = 999999
+                local closestRow = nil
                 
+                -- Clear borders
+                for idx = 1, #Config.ElementRows do
+                    local row = Config.ElementRows[idx]
+                    if row then row:SetBackdropBorderColor(unpack(Skin.Colors.border)) end
+                end
+                
+                -- Find and highlight
                 for idx = 1, #Config.ElementRows do
                     if idx ~= dragHandle.dragSourceIndex then
                         local row = Config.ElementRows[idx]
@@ -742,93 +598,30 @@ function Config:SelectBar(index)
                                 local dist = math.abs(rowScreenY - mouseY)
                                 if dist < minDist then
                                     minDist = dist
-                                    targetIdx = idx
+                                    closestRow = row
                                 end
                             end
                         end
                     end
                 end
                 
-                -- Apply highlights
-                for idx = 1, #Config.ElementRows do
-                    local row = Config.ElementRows[idx]
-                    if row then
-                        if idx == targetIdx and idx ~= dragHandle.dragSourceIndex then
-                            row:SetBackdropBorderColor(1, 0.8, 0, 1)
-                        else
-                            row:SetBackdropBorderColor(unpack(Skin.Colors.border))
-                        end
-                    end
+                if closestRow then
+                    closestRow:SetBackdropBorderColor(1, 0.8, 0, 1) -- Highlight Color
                 end
             end
         end)
         
-        dragHandle:SetScript("OnEnter", function()
-            if not dragHandle.dragSourceIndex then
-                for _, line in ipairs(dragHandle.lines) do
-                    line:SetVertexColor(1, 1, 1, 1)
-                end
-            end
-        end)
+        local btnCol = CreateFrame("Button", nil, item, "BackdropTemplate"); btnCol:SetSize(20, 20); btnCol:SetPoint("RIGHT", dragHandle, "LEFT", -8, 0); Skin:ApplyBackdrop(btnCol); btnCol:SetBackdropColor(unpack(elem.color or {1, 1, 1, 1}))
+        btnCol:SetScript("OnClick", function() local oldColor = elem.color or {1, 1, 1, 1}; local info = { r=oldColor[1], g=oldColor[2], b=oldColor[3], opacity=oldColor[4], swatchFunc = function(c) elem.color = c; btnCol:SetBackdropColor(unpack(c)); WidgetForge:RebuildBarComponents(index) end, cancelFunc = function() elem.color = oldColor; btnCol:SetBackdropColor(unpack(oldColor)); WidgetForge:RebuildBarComponents(index) end }; Skin:ShowColorPicker(info) end)
         
-        dragHandle:SetScript("OnLeave", function()
-            if not dragHandle.dragSourceIndex then
-                for _, line in ipairs(dragHandle.lines) do
-                    line:SetVertexColor(unpack(Skin.Colors.accent))
-                end
-            end
-            GameTooltip:Hide()
-        end)
-
-        -- 8. Color Button
-        local btnCol = CreateFrame("Button", nil, item, "BackdropTemplate")
-        btnCol:SetSize(20, 20)
-        btnCol:SetPoint("RIGHT", dragHandle, "LEFT", -8, 0)
-        Skin:ApplyBackdrop(btnCol); btnCol:SetBackdropColor(unpack(elem.color or {1, 1, 1, 1}))
-        btnCol:SetScript("OnClick", function()
-            local oldColor = elem.color or {1, 1, 1, 1}
-            local info = { r=oldColor[1], g=oldColor[2], b=oldColor[3], opacity=oldColor[4], 
-                swatchFunc = function(c) elem.color = c; btnCol:SetBackdropColor(unpack(c)); WidgetForge:RebuildBarComponents(index) end,
-                cancelFunc = function() elem.color = oldColor; btnCol:SetBackdropColor(unpack(oldColor)); WidgetForge:RebuildBarComponents(index) end }
-            Skin:ShowColorPicker(info)
-        end)
-        
-        -- 5. Size Slider (Reduced Width: 70)
-        local slSz = Skin:CreateSlider(item, 8, 50, 1, elem.size, function(v) elem.size = v; WidgetForge:RebuildBarComponents(index) end, 70)
-        slSz:SetPoint("RIGHT", btnCol, "LEFT", -15, 0)
-
-        -- 4. Outline (Reduced Width: 85)
-        local ddOutline = Skin:CreateDropdown(item, 85, outlineList, elem.outline or "OUTLINE", function(v) elem.outline = v; WidgetForge:RebuildBarComponents(index) end)
-        ddOutline:SetPoint("RIGHT", slSz, "LEFT", -10, 0) 
-
-        -- 3. Font (Reduced Width: 100)
-        local ddFont = Skin:CreateDropdown(item, 100, fontList, elem.font or "Standard", function(v) elem.font = v; WidgetForge:RebuildBarComponents(index) end)
-        ddFont:SetPoint("RIGHT", ddOutline, "LEFT", -10, 0)
-
-        -- 2. Icon Checkbox
-        local chkIcon = Skin:CreateCheckbox(item, "Icon", elem.showIcon, function(v) elem.showIcon = v; WidgetForge:RebuildBarComponents(index) end)
-        chkIcon:SetWidth(45) 
-        chkIcon:SetPoint("RIGHT", ddFont, "LEFT", -5, 0)
-        chkIcon.box:SetSize(14, 14) 
-        chkIcon.label:SetFont(Skin.Constants.FONT_NORMAL, 10, "OUTLINE")
-        
-        -- [NEW] Tooltip Checkbox
-        local chkTip = Skin:CreateCheckbox(item, "Tip", elem.showTooltip, function(v) elem.showTooltip = v; WidgetForge:RebuildBarComponents(index) end)
-        chkTip:SetWidth(40)
-        chkTip:SetPoint("RIGHT", chkIcon, "LEFT", -5, 0)
-        chkTip.box:SetSize(14, 14) 
-        chkTip.label:SetFont(Skin.Constants.FONT_NORMAL, 10, "OUTLINE") 
-        
-        -- [NEW] Clock Format (Conditional)
-        if elem.type == "Clock" then
-             local fmtList = { {text="24h", value="24h"}, {text="12h", value="12h"} }
-             local ddFmt = Skin:CreateDropdown(item, 50, fmtList, elem.timeFormat or "24h", function(v) elem.timeFormat = v; WidgetForge:RebuildBarComponents(index) end)
-             ddFmt:SetPoint("RIGHT", chkTip, "LEFT", -5, 0)
-        end
-
+        local slSz = Skin:CreateSlider(item, 8, 50, 1, elem.size, function(v) elem.size = v; WidgetForge:RebuildBarComponents(index) end, 70); slSz:SetPoint("RIGHT", btnCol, "LEFT", -15, 0)
+        local ddOutline = Skin:CreateDropdown(item, 85, outlineList, elem.outline or "OUTLINE", function(v) elem.outline = v; WidgetForge:RebuildBarComponents(index) end); ddOutline:SetPoint("RIGHT", slSz, "LEFT", -10, 0) 
+        local ddFont = Skin:CreateDropdown(item, 100, fontList, elem.font or "Standard", function(v) elem.font = v; WidgetForge:RebuildBarComponents(index) end); ddFont:SetPoint("RIGHT", ddOutline, "LEFT", -10, 0)
+        local chkIcon = Skin:CreateCheckbox(item, "Icon", elem.showIcon, function(v) elem.showIcon = v; WidgetForge:RebuildBarComponents(index) end); chkIcon:SetWidth(45); chkIcon:SetPoint("RIGHT", ddFont, "LEFT", -5, 0); chkIcon.box:SetSize(14, 14); chkIcon.label:SetFont(Skin.Constants.FONT_NORMAL, 10, "OUTLINE")
+        local chkTip = Skin:CreateCheckbox(item, "Tip", elem.showTooltip, function(v) elem.showTooltip = v; WidgetForge:RebuildBarComponents(index) end); chkTip:SetWidth(40); chkTip:SetPoint("RIGHT", chkIcon, "LEFT", -5, 0); chkTip.box:SetSize(14, 14); chkTip.label:SetFont(Skin.Constants.FONT_NORMAL, 10, "OUTLINE") 
+        if elem.type == "Clock" then local fmtList = { {text="24h", value="24h"}, {text="12h", value="12h"} }; local ddFmt = Skin:CreateDropdown(item, 50, fmtList, elem.timeFormat or "24h", function(v) elem.timeFormat = v; WidgetForge:RebuildBarComponents(index) end); ddFmt:SetPoint("RIGHT", chkTip, "LEFT", -5, 0) end
         y = y - 36 
     end
-    
     content:SetHeight(math.abs(y) + 20)
 end
 
