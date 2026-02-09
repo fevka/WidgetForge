@@ -927,6 +927,23 @@ end
 --  SIMPLE INPUT DIALOG (For preset names, confirmations, etc.)
 -- =========================================================================
 function Skin:CreateInputDialog(title, placeholder, onAccept, onCancel)
+    -- [FIX: MEMORY LEAK] SINGLETON PATTERN
+    -- Varsa mevcut olanı kullan
+    if Skin.InputDialog then
+        local f = Skin.InputDialog
+        f:Show()
+        -- Başlığı ve input'u sıfırla
+        f.titleHeader.text:SetText(string.upper(title))
+        f.inputBox:SetText(placeholder or "")
+        f.inputBox:HighlightText()
+        f.inputBox:SetFocus()
+        
+        -- Callbackleri güncelle
+        f.onAccept = onAccept
+        f.onCancel = onCancel
+        return f
+    end
+
     local f = CreateFrame("Frame", "ForgeInputDialog", UIParent, "BackdropTemplate")
     f:SetSize(350, 140)
     f:SetPoint("CENTER")
@@ -941,12 +958,12 @@ function Skin:CreateInputDialog(title, placeholder, onAccept, onCancel)
     f:SetBackdropColor(unpack(Skin.Colors.bg))
     self:SetSmartBorder(f, 2, {r=0, g=0.8, b=1, a=1}, "OUTSIDE")
     
-    Skin:CreateTitleBar(f, title, function() 
-        if onCancel then onCancel() end
+    -- Başlığı değişkene ata ki sonra değiştirebilelim
+    f.titleHeader = Skin:CreateTitleBar(f, title, function() 
+        if f.onCancel then f.onCancel() end
         f:Hide() 
     end)
     
-    -- Input field
     local inputFrame = CreateFrame("Frame", nil, f, "BackdropTemplate")
     inputFrame:SetSize(310, 30)
     inputFrame:SetPoint("TOP", 0, -50)
@@ -960,35 +977,36 @@ function Skin:CreateInputDialog(title, placeholder, onAccept, onCancel)
     input:SetAutoFocus(true)
     input:SetText(placeholder or "")
     input:HighlightText()
+    f.inputBox = input -- Referans sakla
     
-    -- Buttons
     local btnOk = Skin:CreateButton(f, "OK", 100, 25)
     btnOk:SetPoint("BOTTOMRIGHT", -20, 15)
     
     local btnCancel = Skin:CreateButton(f, "Cancel", 100, 25)
     btnCancel:SetPoint("RIGHT", btnOk, "LEFT", -10, 0)
     
+    -- Buton Logic'i dinamik callback kullanacak şekilde
     btnOk:SetScript("OnClick", function()
         local text = input:GetText()
         if text and text ~= "" then
-            if onAccept then onAccept(text) end
+            if f.onAccept then f.onAccept(text) end
             f:Hide()
         end
     end)
     
     btnCancel:SetScript("OnClick", function()
-        if onCancel then onCancel() end
+        if f.onCancel then f.onCancel() end
         f:Hide()
     end)
     
-    input:SetScript("OnEnterPressed", function()
-        btnOk:Click()
-    end)
+    input:SetScript("OnEnterPressed", function() btnOk:Click() end)
+    input:SetScript("OnEscapePressed", function() btnCancel:Click() end)
     
-    input:SetScript("OnEscapePressed", function()
-        btnCancel:Click()
-    end)
-    
+    -- Callbackleri ata
+    f.onAccept = onAccept
+    f.onCancel = onCancel
+
+    Skin.InputDialog = f -- Frame'i cache'le
     f:Show()
     return f
 end

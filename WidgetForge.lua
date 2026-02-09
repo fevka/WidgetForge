@@ -95,6 +95,33 @@ function WidgetForge:SetBarsLocked(locked)
         if locked then
             Skin:SetSmartBorder(f, 0) -- Hide border highlight when locked
         end
+        
+        -- [CLICK THROUGH LOGIC]
+        local conf = WidgetForgeDB.bars[index]
+        if f.hitboxes then
+            for _, hb in pairs(f.hitboxes) do
+                if locked then
+                    -- If Locked (Play Mode):
+                    -- If clickThrough is TRUE, Disable Mouse (allow clicking world)
+                    -- If clickThrough is FALSE, Enable Mouse (allow tooltips)
+                    if conf and conf.clickThrough then
+                        hb:EnableMouse(false)
+                    else
+                        hb:EnableMouse(true)
+                    end
+                else
+                    -- If Unlocked (Config Mode):
+                    -- Disable hitboxes to allow dragging the bar via Grip or background without interference?
+                    -- Or keep them enabled to preview tooltips?
+                    -- Usually better to keep enabled or follow clickThrough? 
+                    -- Let's keep them enabled so user can see tooltips while configuring if they want, 
+                    -- UNLESS clickThrough is on? No, in config mode we might want to edit.
+                    -- Actually, GripHandle is separate. Let's force Enable for tooltips in config mode.
+                    hb:EnableMouse(true)
+                end
+            end
+        end
+
         WidgetForge:RebuildBarComponents(index)
     end
 end
@@ -117,20 +144,8 @@ function WidgetForge:UpdateAvailableBars()
                 
                 f:SetMovable(true)
                 f:EnableMouse(false) -- Default Locked
-                f:RegisterForDrag("LeftButton")
-                f:SetScript("OnDragStart", f.StartMoving)
                 
-                f:SetScript("OnDragStop", function(self)
-                    self:StopMovingOrSizing()
-                    local point, _, relativePoint, x, y = self:GetPoint()
-                    local currentConf = WidgetForgeDB.bars[self.index]
-                    if currentConf then
-                        currentConf.point = point
-                        currentConf.relativePoint = relativePoint
-                        currentConf.x = x
-                        currentConf.y = y
-                    end
-                end)
+                -- [MOVED] Drag Logic is in Rebuild/Init, handled by GripHandle now.
                 
                 -- SmartBorder Interaction
                 f:SetScript("OnEnter", function(self) 
@@ -201,6 +216,19 @@ function WidgetForge:RebuildBarComponents(index)
     for _, t in pairs(f.textsLbl) do t:Hide() end
     for _, t in pairs(f.icons) do t:Hide() end
     for _, h in pairs(f.hitboxes or {}) do h:Hide() end 
+    
+    -- [CLICK THROUGH CHECK]
+    -- We need to ensure hitboxes respect clickThrough even during rebuild
+    -- But SetBarsLocked handles the main toggle. Here we just create them.
+    -- We can set default state here, but SetBarsLocked will override when called.
+    -- However, Rebuild is called strictly during Config (Unlocked) usually, or Init (Locked).
+    -- So we should check IsMouseEnabled of parent? No, logic is complex.
+    -- Let's stick to creating them, and letting SetBarsLocked/Update loop handle state if needed.
+    -- Actually, simple check:
+    local isLocked = not f:IsMouseEnabled()
+    local clickThrough = conf.clickThrough
+    local hbEnabled = true
+    if isLocked and clickThrough then hbEnabled = false end
 
     local justify = conf.justify or "CENTER"
     local isSplit = (conf.layout == "VERTICAL" and justify ~= "CENTER")
@@ -238,13 +266,16 @@ function WidgetForge:RebuildBarComponents(index)
         if not f.hitboxes then f.hitboxes = {} end
         if not f.hitboxes[i] then 
             local hb = CreateFrame("Frame", nil, f)
-            hb:EnableMouse(true)
+            -- hb:EnableMouse(true) -- Handled by SetBarsLocked logic mostly, but set initial:
+            hb:EnableMouse(hbEnabled)
             hb:SetScript("OnEnter", function(self)
                 if not elem.showTooltip then return end 
                 ForgeStats:AddTooltip(self, elem.type, elem)
             end)
             hb:SetScript("OnLeave", function(self) GameTooltip:Hide() end)
             f.hitboxes[i] = hb
+        else
+            f.hitboxes[i]:EnableMouse(hbEnabled)
         end
         f.hitboxes[i]:Show() 
     end
@@ -278,10 +309,23 @@ function WidgetForge:RebuildBarComponents(index)
             local d = Skin:CreateGripHandle(f, 32, 32)
             d:SetPoint("LEFT", f, "RIGHT", 2, 0)
             d:SetFrameLevel(f:GetFrameLevel() + 50) 
-            d:RegisterForDrag("LeftButton")
-            d:SetScript("OnDragStart", function() f:StartMoving() end)
-            d:SetScript("OnDragStop", function()
-                f:StopMovingOrSizing()
+            d:SetScript("OnMouseDown", function(self, button)
+                if button == "LeftButton" then
+                    self.isDragging = true
+                    local mX, mY = GetCursorPosition()
+                    local s = f:GetEffectiveScale()
+                    self.startX, self.startY = mX / s, mY / s
+                    
+                    -- Mevcut frame pozisyonunu al
+                    local point, relativeTo, relativePoint, xOfs, yOfs = f:GetPoint()
+                    self.startPoint = {point or "CENTER", relativeTo or UIParent, relativePoint or "CENTER", xOfs or 0, yOfs or 0}
+                end
+            end)
+            
+            d:SetScript("OnMouseUp", function(self)
+                self.isDragging = false
+                
+                -- Pozisyonu DB'ye kaydet
                 local point, _, relativePoint, x, y = f:GetPoint()
                 local currentConf = WidgetForgeDB.bars[f.index]
                 if currentConf then
@@ -289,6 +333,21 @@ function WidgetForge:RebuildBarComponents(index)
                     currentConf.relativePoint = relativePoint
                     currentConf.x = x
                     currentConf.y = y
+                end
+            end)
+            
+            d:SetScript("OnUpdate", function(self)
+                if self.isDragging then
+                    local mX, mY = GetCursorPosition()
+                    local s = f:GetEffectiveScale()
+                    local curX, curY = mX / s, mY / s
+                    
+                    local diffX = curX - self.startX
+                    local diffY = curY - self.startY
+                    
+                    local p = self.startPoint
+                    f:ClearAllPoints()
+                    f:SetPoint(p[1], p[2], p[3], p[4] + diffX, p[5] + diffY)
                 end
             end)
             f.dragButton = d
@@ -487,8 +546,8 @@ function WidgetForge:UpdateBarValues(index)
     else
         -- HORIZONTAL
         local startX = 0
-        if justify == "LEFT" then startX = -(barWidth / 2) + conf.padding
-        elseif justify == "RIGHT" then startX = (barWidth / 2) - totalW - conf.padding
+        if justify == "LEFT" then startX = -(barWidth / 2) + 5
+        elseif justify == "RIGHT" then startX = (barWidth / 2) - totalW - 5
         else startX = -(totalW / 2) end
         
         local currentX = startX
@@ -520,6 +579,9 @@ end
 local timer = 0
 local updateFrame = CreateFrame("Frame")
 updateFrame:SetScript("OnUpdate", function(self, elapsed)
+    -- [FIX: RACE CONDITION] Stats modülü hazır olmadan update yapma
+    if not ForgeStats or not ForgeStats.Initialized then return end
+
     timer = timer + elapsed
     if timer >= WIDGETFORGE_CONSTANTS.UPDATE_INTERVAL then
         ForgeStats:UpdatePolledStats(timer)
@@ -531,7 +593,8 @@ updateFrame:SetScript("OnUpdate", function(self, elapsed)
                 end
             end
         end
-        timer = 0
+        -- [FIX: TIMER DRIFT] Zaman kaymasını önle
+        timer = timer - WIDGETFORGE_CONSTANTS.UPDATE_INTERVAL
     end
 end)
 

@@ -449,11 +449,65 @@ function Config:SelectBar(index)
     local btnBg = CreateFrame("Button", nil, content, "BackdropTemplate")
     btnBg:SetSize(20, 20); btnBg:SetPoint("TOPLEFT", 500, y - 3 ) 
     Skin:ApplyBackdrop(btnBg); local bg = bar.bgColor or {0, 0, 0, 0.5}; btnBg:SetBackdropColor(unpack(bg))
+    
+    -- [DUZELTME BAŞLANGICI] Arka Plan Rengi Seçici (Cancel Fonksiyonu Eklendi)
     btnBg:SetScript("OnClick", function()
-        local info = { r=bg[1], g=bg[2], b=bg[3], opacity=bg[4], swatchFunc = function(c) bar.bgColor = c; btnBg:SetBackdropColor(unpack(c)); WidgetForge:UpdateAvailableBars() end }
+        local oldColor = {bg[1], bg[2], bg[3], bg[4]} -- Değerleri kopyalayarak sakla
+        local info = { 
+            r=bg[1], g=bg[2], b=bg[3], opacity=bg[4], 
+            swatchFunc = function(c) 
+                bar.bgColor = c; 
+                btnBg:SetBackdropColor(unpack(c)); 
+                WidgetForge:UpdateAvailableBars() 
+            end,
+            cancelFunc = function()
+                bar.bgColor = oldColor -- Eski rengi geri yükle
+                btnBg:SetBackdropColor(unpack(oldColor))
+                WidgetForge:UpdateAvailableBars()
+            end
+        }
         Skin:ShowColorPicker(info)
     end)
+    -- [DUZELTME BITIŞI]
     
+    -- [DUZELTME BITIŞI]
+    
+    y = y - 40
+
+    -- Row 3: Position (Manual X/Y)
+    local lblPos = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    lblPos:SetPoint("TOPLEFT", 10, y - 8); lblPos:SetText("Position:"); lblPos:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
+    
+    local slX = Skin:CreateSlider(content, -math.floor(GetScreenWidth()/2), math.floor(GetScreenWidth()/2), 1, bar.x or 0, function(v) 
+        bar.x = v; 
+        WidgetForge:UpdateAvailableBars() 
+    end, 150)
+    slX:SetPoint("TOPLEFT", 90, y)
+    -- Slider label customization (X)
+    local slXLabel = slX.track:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    slXLabel:SetPoint("BOTTOM", slX.track, "TOP", 0, 2); slXLabel:SetText("X")
+    
+    local slY = Skin:CreateSlider(content, -math.floor(GetScreenHeight()/2), math.floor(GetScreenHeight()/2), 1, bar.y or 0, function(v) 
+        bar.y = v; 
+        WidgetForge:UpdateAvailableBars() 
+    end, 150)
+    slY:SetPoint("TOPLEFT", 260, y)
+    -- Slider label customization (Y)
+    local slYLabel = slY.track:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    slYLabel:SetPoint("BOTTOM", slY.track, "TOP", 0, 2); slYLabel:SetText("Y")
+
+    -- Click Through Checkbox
+    local chkClick = Skin:CreateCheckbox(content, "Click Through (Non-Interactive)", bar.clickThrough, function(v) 
+        bar.clickThrough = v
+        -- [FIX] Config açıkken 'Click Through' değiştiğinde barları kilitleme (kilitlemek sürüklemeyi engeller). 
+        -- Aksine açık kalmalarını (False) garantile.
+        WidgetForge:SetBarsLocked(false) 
+        
+        -- [refresh] UI'yı yenile ki Tip checkboxları disable olsun
+        C_Timer.After(0.05, function() Config:SelectBar(index) end)
+    end)
+    chkClick:SetPoint("TOPLEFT", 430, y - 3)
+
     y = y - 50
 
     -- --- SECTION 2: BAR SIZE ---
@@ -470,7 +524,27 @@ function Config:SelectBar(index)
     local slBS = Skin:CreateSlider(content, 1, 10, 1, bar.borderSize or 1, function(v) bar.borderSize = v; WidgetForge:UpdateAvailableBars() end, 150); slBS:SetPoint("TOPLEFT", 90, y)
     local lblBC = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); lblBC:SetPoint("TOPLEFT", 260, y - 8); lblBC:SetText("Border Color:"); lblBC:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
     local btnBC = CreateFrame("Button", nil, content, "BackdropTemplate"); btnBC:SetSize(20, 20); btnBC:SetPoint("TOPLEFT", 340, y - 3); Skin:ApplyBackdrop(btnBC); local bc = bar.borderColor or {0.2, 0.2, 0.2, 1}; btnBC:SetBackdropColor(unpack(bc))
-    btnBC:SetScript("OnClick", function() local info = { r=bc[1], g=bc[2], b=bc[3], opacity=bc[4], swatchFunc = function(c) bar.borderColor = c; btnBC:SetBackdropColor(unpack(c)); WidgetForge:UpdateAvailableBars() end }; Skin:ShowColorPicker(info) end)
+    
+    -- [DUZELTME BAŞLANGICI] Çerçeve Rengi Seçici (Cancel Fonksiyonu Eklendi)
+    btnBC:SetScript("OnClick", function() 
+        local oldColor = {bc[1], bc[2], bc[3], bc[4]} -- Değerleri kopyalayarak sakla
+        local info = { 
+            r=bc[1], g=bc[2], b=bc[3], opacity=bc[4], 
+            swatchFunc = function(c) 
+                bar.borderColor = c; 
+                btnBC:SetBackdropColor(unpack(c)); 
+                WidgetForge:UpdateAvailableBars() 
+            end,
+            cancelFunc = function()
+                bar.borderColor = oldColor -- Eski rengi geri yükle
+                btnBC:SetBackdropColor(unpack(oldColor))
+                WidgetForge:UpdateAvailableBars()
+            end
+        }; 
+        Skin:ShowColorPicker(info) 
+    end)
+    -- [DUZELTME BITIŞI]
+
     local chkBorder = Skin:CreateCheckbox(content, "Show", bar.showBorder, function(v) bar.showBorder = v; WidgetForge:UpdateAvailableBars() end); chkBorder:SetPoint("TOPLEFT", 430, y - 3)
     y = y - 60
 
@@ -619,6 +693,14 @@ function Config:SelectBar(index)
         local ddFont = Skin:CreateDropdown(item, 100, fontList, elem.font or "Standard", function(v) elem.font = v; WidgetForge:RebuildBarComponents(index) end); ddFont:SetPoint("RIGHT", ddOutline, "LEFT", -10, 0)
         local chkIcon = Skin:CreateCheckbox(item, "Icon", elem.showIcon, function(v) elem.showIcon = v; WidgetForge:RebuildBarComponents(index) end); chkIcon:SetWidth(45); chkIcon:SetPoint("RIGHT", ddFont, "LEFT", -5, 0); chkIcon.box:SetSize(14, 14); chkIcon.label:SetFont(Skin.Constants.FONT_NORMAL, 10, "OUTLINE")
         local chkTip = Skin:CreateCheckbox(item, "Tip", elem.showTooltip, function(v) elem.showTooltip = v; WidgetForge:RebuildBarComponents(index) end); chkTip:SetWidth(40); chkTip:SetPoint("RIGHT", chkIcon, "LEFT", -5, 0); chkTip.box:SetSize(14, 14); chkTip.label:SetFont(Skin.Constants.FONT_NORMAL, 10, "OUTLINE") 
+        
+        -- [DISABLE TIP IF CLICKTHROUGH]
+        if bar.clickThrough then
+            chkTip:SetAlpha(0.5)
+            chkTip.box:EnableMouse(false)
+            chkTip.label:SetTextColor(0.5, 0.5, 0.5)
+        end
+        
         if elem.type == "Clock" then local fmtList = { {text="24h", value="24h"}, {text="12h", value="12h"} }; local ddFmt = Skin:CreateDropdown(item, 50, fmtList, elem.timeFormat or "24h", function(v) elem.timeFormat = v; WidgetForge:RebuildBarComponents(index) end); ddFmt:SetPoint("RIGHT", chkTip, "LEFT", -5, 0) end
         y = y - 36 
     end
@@ -628,5 +710,4 @@ end
 SLASH_WIDGETFORGE1 = "/wf"
 SlashCmdList["WIDGETFORGE"] = function() 
     Config:OpenConfigWindow() 
-    if #WidgetForgeDB.bars > 0 then Config:SelectBar(1) end
 end
