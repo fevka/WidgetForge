@@ -148,131 +148,44 @@ function RetirementHome:CreateSettings(parentFrame)
     f.config.thickness = f.config.thickness or 4
     if not f.config.color then f.config.color = {1, 1, 1, 1} end
     
-    local lastY = -20
-    local fullWidth = 400
-    local halfWidth = 190
-    local startX = 25
-
-    local function AddSlider(key, label, minVal, maxVal, step, defaultVal, width, x, y)
-         local val = f.config[key] or defaultVal
-         local w = width or fullWidth
-         local px = x or startX
-         local py = y or lastY
-         
-         local slider = Skin:CreateSlider(f.content, minVal, maxVal, step, val, function(v)
-             f.config[key] = v
-             RetirementHome:UpdateVisuals(f.config)
-         end, w)
-         slider:SetPoint("TOPLEFT", px, py)
-         
-         local lbl = f.content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-         lbl:SetPoint("BOTTOMLEFT", slider, "TOPLEFT", 0, 5)
-         lbl:SetText(label)
-         
-         f.controls[key] = slider
-         f.controls[key .. "Label"] = lbl -- Store label for visibility sync
-         return slider, lbl
+    -- Initialize Builder on f.content
+    local sb = f.builder or WidgetForgeUtils:CreateSettingsBuilder(f.content)
+    f.builder = sb -- Store for release later
+    
+    -- We need a wrapper to handle dynamic rebuilds for Cross shape
+    local function FullRebuild()
+        sb:Release()
+        RetirementHome:CreateSettings(f)
     end
     
-    local function AddDropdown(key, label, items, width, x, y)
-        local w = width or fullWidth
-        local px = x or startX
-        local py = y or lastY
-        
-        local dd = Skin:CreateDropdown(f.content, w, items, f.config[key], function(val)
-            f.config[key] = val
-            RetirementHome:UpdateVisuals(f.config)
-            if f.controls["thickness"] then
-                local isCross = (val == "Cross")
-                f.controls["thickness"]:SetShown(isCross)
-                if f.controls["thicknessLabel"] then f.controls["thicknessLabel"]:SetShown(isCross) end
-                
-                -- Dynamic Resizing
-                local mainFrame = _G.ForgeRetirementHomeSettings
-                if mainFrame then
-                    mainFrame:SetHeight(isCross and 340 or 250)
-                end
-            end
-        end)
-        dd:SetPoint("TOPLEFT", px, py)
-        
-        local lbl = f.content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        lbl:SetPoint("BOTTOMLEFT", dd, "TOPLEFT", 0, 5)
-        lbl:SetText(label)
-        
-        f.controls[key] = dd
-        return dd
-    end
-
-    local function AddColor(key, label, width, x, y, horizontalLabel)
-        local w = width or fullWidth
-        local px = x or startX
-        local py = y or lastY
-        
-        local btn = Skin:CreateButton(f.content, "", w, 25)
-        btn:SetPoint("TOPLEFT", px, py)
-        
-        local col = f.config[key] or {1, 1, 1, 1}
-        local swatch = btn:CreateTexture(nil, "OVERLAY")
-        swatch:SetSize(w - 4, 19); swatch:SetPoint("CENTER")
-        swatch:SetColorTexture(unpack(col))
-        
-        btn:SetScript("OnClick", function()
-             local c = f.config[key] or {1, 1, 1, 1}
-             local info = {
-                 r = c[1], g = c[2], b = c[3], opacity = c[4],
-                 swatchFunc = function(newCol) 
-                     f.config[key] = newCol
-                     swatch:SetColorTexture(unpack(newCol))
-                     RetirementHome:UpdateVisuals(f.config)
-                 end,
-                 cancelFunc = function()
-                     f.config[key] = c
-                     swatch:SetColorTexture(unpack(c))
-                     RetirementHome:UpdateVisuals(f.config)
-                 end
-             }
-             Skin:ShowColorPicker(info)
-        end)
-        
-        local lbl = f.content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        if horizontalLabel then
-            lbl:SetPoint("LEFT", btn, "RIGHT", 10, 0) -- Label to the RIGHT of button
-        else
-            lbl:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 5)
-        end
-        lbl:SetText(label)
-        f.controls[key] = btn
-        f.controls[key .. "Label"] = lbl
+    local function OnShapeChange(val)
+        f.config.shape = val
+        RetirementHome:UpdateVisuals(f.config)
+        FullRebuild() -- Rebuild to show/hide thickness toggle
     end
     
+    local function OnUpdate(val)
+        -- specific key update handled by closure in builder
+        RetirementHome:UpdateVisuals(f.config)
+    end
+
     -- Row 1: Shape (Full Width)
-    AddDropdown("shape", "Dot Shape", {"Dot", "Circle", "Circle (Filled)", "Square (Border)", "Square (Filled)", "Cross"}, fullWidth, startX, lastY)
-    lastY = lastY - 70
+    sb:AddDropdown("shape", "Dot Shape", {"Dot", "Circle", "Circle (Filled)", "Square (Border)", "Square (Filled)", "Cross"}, "Circle", f.config, OnShapeChange)
     
     -- Row 2: Size (Matches X Offset) + Color (Matches Y Offset)
-    AddSlider("size", "Size (8-128)", 8, 128, 1, 32, 190, startX, lastY)
-    AddColor("color", "Color", 35, startX + 210, lastY, true) 
-    lastY = lastY - 70
-
+    sb:AddSlider("size", "Size (8-128)", 8, 128, 1, 32, f.config, OnUpdate)
+    sb:AddColor("color", "Color", f.config.color, f.config, OnUpdate)
+    
     -- Row 3: X (Left) + Y (Right)
-    AddSlider("x", "X Offset (-50 to 50)", -50, 50, 1, 0, 190, startX, lastY)
-    AddSlider("y", "Y Offset (-50 to 50)", -50, 50, 1, 0, 190, startX + 210, lastY)
-    lastY = lastY - 70
-
+    sb:AddSlider("x", "X Offset (-50 to 50)", -50, 50, 1, 0, f.config, OnUpdate)
+    sb:AddSlider("y", "Y Offset (-50 to 50)", -50, 50, 1, 0, f.config, OnUpdate)
+    
     -- Row 4: Thickness (Full Width, Conditional)
-    local slThick, lblThick = AddSlider("thickness", "Line Thickness (Cross)", 1, 20, 1, 4, fullWidth, startX, lastY)
-    
-    -- Init Visibility
-    local isCross = (f.config.shape == "Cross")
-    slThick:SetShown(isCross)
-    lblThick:SetShown(isCross)
-    
-    -- Set Initial Height
-    local mainFrame = _G.ForgeRetirementHomeSettings
-    if mainFrame then
-        mainFrame:SetHeight(isCross and 340 or 250)
+    if f.config.shape == "Cross" then
+        sb:AddSlider("thickness", "Line Thickness (Cross)", 1, 20, 1, 4, f.config, OnUpdate, true)
     end
+    
+    sb:Finish()
 end
 
 -- Inject into Config
@@ -313,11 +226,9 @@ if _G.ForgeConfig then
         f.config = elem
         f:Show()
         
-        -- Clear old controls
-        if f.content then
-             local kids = { f.content:GetChildren() }
-             for _, child in ipairs(kids) do child:Hide(); child:SetParent(nil) end
-             f.controls = {}
+        -- Clear old controls via Builder
+        if f.builder then
+             f.builder:Release()
         end
         
         RetirementHome:CreateSettings(f)

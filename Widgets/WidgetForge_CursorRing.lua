@@ -8,8 +8,9 @@ function WidgetForge:CreateCursorRing(bar, config)
     f:SetAllPoints()
     
     -- Hide the parent bar since Cursor Ring follows mouse (no bar needed)
-    bar:SetAlpha(0)
-    bar:EnableMouse(false)
+    -- [MODIFIED] Do not hide bar blindly, as other widgets might be on it (e.g. M+ Dashboard)
+    -- bar:SetAlpha(0)
+    -- bar:EnableMouse(false)
     
     -- Ring Frame (Visual) - Parented to UIParent to follow cursor freely
     local ring = CreateFrame("Frame", nil, UIParent)
@@ -207,16 +208,47 @@ function WidgetForge:CreateCursorRing(bar, config)
     -- Apply Transparency
     ring:SetAlpha(config.transparency or 1.0)
     
-    -- Trail System
-    ring.trailTimer = 0
+    -- Trail Pool (Recycling)
+    if not ring.trailPool then ring.trailPool = {} end
     
+    local function GetTrailFrame()
+        local t = table.remove(ring.trailPool)
+        if not t then
+            t = CreateFrame("Frame", nil, UIParent)
+            t:SetFrameStrata("TOOLTIP")
+            t:SetFrameLevel(1999)
+            t:EnableMouse(false)
+            t.texture = t:CreateTexture(nil, "ARTWORK")
+            t.texture:SetAllPoints()
+            t.texture:SetTexture("Interface\\AddOns\\WidgetForge\\media\\ring.tga")
+        else
+            t:SetParent(UIParent) -- [FIX] Restore parent to ensure correct scaling inheritance
+            t:SetFrameStrata("TOOLTIP") -- Reset strata just in case
+            t:SetFrameLevel(1999)
+        end
+        t:Show()
+        return t
+    end
+
+    local function RecycleTrailFrame(t)
+        t:Hide()
+        t:SetScript("OnUpdate", nil)
+        t:SetParent(nil)
+        t:SetAlpha(0)
+        table.insert(ring.trailPool, t)
+    end
+
     -- GCD/Cast tracking state
     local lastGCDStart = 0
     local castStart, castDuration = 0, 0
     local activeStart, activeDuration = 0, 0
     
+    -- Optimization: Cache last values to avoid needless redraws
+    local lastProgress = -1
+    
     -- Update Script
     ring:SetScript("OnUpdate", function(self, elapsed)
+        -- Throttled Update? No, mouse needs smooth movement.
         local x, y = GetCursorPosition()
         local scale = UIParent:GetEffectiveScale()
         self:ClearAllPoints()
@@ -256,40 +288,38 @@ function WidgetForge:CreateCursorRing(bar, config)
                 end
             end
             
-            -- Convert progress (0→1) to angle (0→360) and render wedges
-            local fillAngle = progress * 360
-            RefreshWedges(0, fillAngle)
+            -- Optimization: Only refresh wedges if change > 0.5% (visual threshold)
+            if math.abs(progress - lastProgress) > 0.005 then
+                local fillAngle = progress * 360
+                RefreshWedges(0, fillAngle)
+                lastProgress = progress
+            end
         end
         
-        -- Trail Logic
+        -- Trail Logic (Pooled)
         if config.trailEnabled then
             self.trailTimer = (self.trailTimer or 0) + elapsed
             local density = config.trailDensity or 0.005
-            if self.trailTimer >= density then
-                self.trailTimer = 0
-                local trail = CreateFrame("Frame", nil, UIParent)
+            while self.trailTimer >= density do
+                self.trailTimer = self.trailTimer - density
+                
+                local trail = GetTrailFrame()
                 local trailSize = (config.ringSize or 64) * (config.trailScale or 1.0)
                 trail:SetSize(trailSize, trailSize)
-                trail:SetFrameStrata("TOOLTIP")
-                trail:SetFrameLevel(1999)
-                trail:EnableMouse(false)
+                trail:ClearAllPoints() -- [FIX] Prevent anchor accumulation on recycled frames
                 trail:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x / scale, y / scale)
                 
-                local tex = trail:CreateTexture(nil, "ARTWORK")
-                tex:SetAllPoints()
-                tex:SetTexture("Interface\\AddOns\\WidgetForge\\media\\ring.tga")
                 local tc = config.trailColor or {1, 1, 1, 1}
-                tex:SetVertexColor(tc[1], tc[2], tc[3], tc[4])
+                trail.texture:SetVertexColor(tc[1], tc[2], tc[3], tc[4])
                 trail:SetAlpha(0.6)
                 
                 local duration = config.trailDuration or 0.5
                 local startTime = GetTime()
+                
                 trail:SetScript("OnUpdate", function(self2, el)
                     local age = GetTime() - startTime
                     if age >= duration then
-                        self2:SetScript("OnUpdate", nil)
-                        self2:Hide()
-                        self2:SetParent(nil)
+                        RecycleTrailFrame(self2)
                     else
                         self2:SetAlpha(0.6 * (1 - age / duration))
                     end
@@ -384,12 +414,9 @@ function WidgetForge:OpenCursorRingSettings(barIndex, elemIndex, elem)
         f:HookScript("OnHide", function(self) self:EnableKeyboard(false) end)
     end
     
-    -- Clear old content
-    if f.content then
-        local kids = { f.content:GetChildren() }
-        for _, child in ipairs(kids) do child:Hide(); child:SetParent(nil) end
-        local regions = { f.content:GetRegions() }
-        for _, rgn in ipairs(regions) do rgn:Hide() end
+    -- Clear old content via Builder Release
+    if f.builder then
+        f.builder:Release()
     end
     
     f:Show()
@@ -434,89 +461,9 @@ function WidgetForge:OpenCursorRingSettings(barIndex, elemIndex, elem)
         end)
     end
     
-    local lastY = -10
-    local col1X = 10
-    local col2X = 260
-    local isRight = false
-    local content = f.content
-    
-    -- Helper: Slider (2-column layout like Dragonriding)
-    local function AddSlider(key, label, minVal, maxVal, step, defaultVal, forceFullRow)
-        local width = 220
-        local x = isRight and col2X or col1X
-        
-        if forceFullRow then
-            width = 460; isRight = false; x = col1X
-        end
-        
-        local lbl = content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        lbl:SetText(label)
-        lbl:SetPoint("TOPLEFT", x, lastY)
-        
-        local s = Skin:CreateSlider(content, minVal, maxVal, step, elem[key] or defaultVal, function(val)
-            elem[key] = val
-            RefreshCursorRing() -- Real-time update (no full rebuild)
-        end, width)
-        s:SetPoint("TOPLEFT", x, lastY - 15)
-        
-        if forceFullRow then
-            lastY = lastY - 50
-        else
-            if isRight then lastY = lastY - 50 end
-            isRight = not isRight
-        end
-    end
-    
-    -- Helper: Checkbox (2-column)
-    local function AddCheck(key, label, defaultVal)
-        local x = isRight and col2X or col1X
-        local c = Skin:CreateCheckbox(content, label, elem[key] ~= nil and elem[key] or defaultVal, function(val)
-            elem[key] = val
-            RefreshCursorRing()
-        end)
-        c:SetPoint("TOPLEFT", x, lastY)
-        
-        if isRight then lastY = lastY - 35 end
-        isRight = not isRight
-    end
-    
-    -- Helper: Color Picker (2-column)
-    local function AddColor(key, label, defaultColor)
-        local x = isRight and col2X or col1X
-        local c = Skin:CreateColorPicker(content, label, elem[key] or defaultColor, function(val)
-            elem[key] = val
-            RefreshCursorRing()
-        end, 230)
-        c:SetPoint("TOPLEFT", x, lastY)
-        c:Show()
-        
-        if isRight then lastY = lastY - 50 end
-        isRight = not isRight
-    end
-    
-    -- Helper: Dropdown (2-column)
-    local function AddDropdown(key, label, items, defaultVal)
-        local x = isRight and col2X or col1X
-        local lbl = content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        lbl:SetText(label)
-        lbl:SetPoint("TOPLEFT", x, lastY)
-        
-        local dd = Skin:CreateDropdown(content, 150, items, elem[key] or defaultVal, function(val)
-            elem[key] = val
-            RefreshCursorRing()
-        end)
-        dd:SetPoint("TOPLEFT", x + 5, lastY - 15)
-        
-        if isRight then lastY = lastY - 50 end
-        isRight = not isRight
-    end
-    
-    -- Helper: Section Header
-    local function AddHeader(text)
-        if isRight then lastY = lastY - 50; isRight = false end
-        Skin:CreateSectionHeader(content, text, 480):SetPoint("TOPLEFT", 10, lastY)
-        lastY = lastY - 45
-    end
+    -- Initialize Builder
+    local sb = WidgetForgeUtils:CreateSettingsBuilder(f.content)
+    f.builder = sb
     
     -- === INITIALIZE DEFAULTS ===
     if elem.ringSize == nil then elem.ringSize = 64 end
@@ -532,34 +479,32 @@ function WidgetForge:OpenCursorRingSettings(barIndex, elemIndex, elem)
     -- === CONTROLS ===
     
     -- --- Outer Ring ---
-    AddHeader("Outer Ring")
-    AddColor("ringColor", "Ring Color:", {0, 0.8, 1, 1})
-    AddSlider("ringSize", "Ring Size:", 16, 256, 4, 64)
+    sb:AddHeader("Outer Ring")
+    sb:AddColor("ringColor", "Ring Color:", {0, 0.8, 1, 1}, elem, RefreshCursorRing)
+    sb:AddSlider("ringSize", "Ring Size:", 16, 256, 4, 64, elem, RefreshCursorRing)
     
     -- --- Inner Ring (GCD / Cast) ---
-    AddHeader("Inner Ring (GCD / Cast)")
-    AddCheck("showInnerRing", "Enable Inner Ring", true)
-    AddColor("innerRingColor", "Inner Ring Color:", {1, 0.8, 0, 1})
-    AddSlider("innerRingSize", "Inner Ring Size:", 8, 200, 2, 38)
-    AddDropdown("innerRingMode", "Tracking Mode:", {
+    sb:AddHeader("Inner Ring (GCD / Cast)")
+    sb:AddCheckbox("showInnerRing", "Enable Inner Ring", true, elem, RefreshCursorRing)
+    sb:AddColor("innerRingColor", "Inner Ring Color:", {1, 0.8, 0, 1}, elem, RefreshCursorRing)
+    sb:AddSlider("innerRingSize", "Inner Ring Size:", 8, 200, 2, 38, elem, RefreshCursorRing)
+    sb:AddDropdown("innerRingMode", "Tracking Mode:", {
         {text = "GCD Only", value = "GCD"},
         {text = "Cast Only", value = "CAST"},
         {text = "Both", value = "BOTH"}
-    }, "GCD")
+    }, "GCD", elem, RefreshCursorRing)
     
     -- --- Cursor Trail ---
-    AddHeader("Cursor Trail")
-    AddCheck("trailEnabled", "Enable Trail", false)
-    AddColor("trailColor", "Trail Color:", {1, 1, 1, 1})
-    AddSlider("trailDuration", "Trail Duration:", 0.1, 2.0, 0.05, 0.5)
-    AddSlider("trailDensity", "Trail Density:", 0.001, 0.05, 0.001, 0.005)
-    AddSlider("trailScale", "Trail Scale:", 0.1, 3.0, 0.1, 1.0)
+    sb:AddHeader("Cursor Trail")
+    sb:AddCheckbox("trailEnabled", "Enable Trail", false, elem, RefreshCursorRing)
+    sb:AddColor("trailColor", "Trail Color:", {1, 1, 1, 1}, elem, RefreshCursorRing)
+    sb:AddSlider("trailDuration", "Trail Duration:", 0.1, 2.0, 0.05, 0.5, elem, RefreshCursorRing)
+    sb:AddSlider("trailDensity", "Trail Density:", 0.001, 0.05, 0.001, 0.005, elem, RefreshCursorRing)
+    sb:AddSlider("trailScale", "Trail Scale:", 0.1, 3.0, 0.1, 1.0, elem, RefreshCursorRing)
     
     -- --- Visibility ---
-    AddHeader("Visibility")
-    AddSlider("transparency", "Transparency:", 0.1, 1.0, 0.05, 1.0, true)
+    sb:AddHeader("Visibility")
+    sb:AddSlider("transparency", "Transparency:", 0.1, 1.0, 0.05, 1.0, elem, RefreshCursorRing, true) -- Force Full Row
     
-    -- Clean up bottom space
-    if isRight then lastY = lastY - 50 end
-    content:SetHeight(math.abs(lastY) + 50)
+    sb:Finish()
 end

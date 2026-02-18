@@ -154,3 +154,256 @@ function WidgetForgeUtils:MigrateDatabase(db)
     WIDGETFORGE_DEBUG("Database migrated to version", db.version)
 end
 
+
+-- =========================================================================
+--  SETTINGS BUILDER (POOLED UI)
+-- =========================================================================
+
+WidgetForgeUtils.SettingsBuilder = {}
+local SB = WidgetForgeUtils.SettingsBuilder
+SB.__index = SB
+
+-- Global Pools
+local Pool = {
+    sliders = {},
+    checkboxes = {},
+    dropdowns = {},
+    colors = {},
+    buttons = {},
+    headers = {}
+}
+
+function WidgetForgeUtils:CreateSettingsBuilder(canvas)
+    local sb = {}
+    setmetatable(sb, SB)
+    sb.canvas = canvas
+    sb.controls = {} -- List of controls currently in use by this builder
+    sb.y = -10
+    sb.col1 = 10
+    sb.col2 = 260
+    sb.isRight = false
+    return sb
+end
+
+function SB:Release()
+    for _, c in ipairs(self.controls) do
+        c:Hide()
+        c:SetParent(UIParent) -- Detach
+        c:ClearAllPoints()
+        
+        if c.type == "Slider" then table.insert(Pool.sliders, c)
+        elseif c.type == "Checkbox" then table.insert(Pool.checkboxes, c)
+        elseif c.type == "Dropdown" then table.insert(Pool.dropdowns, c)
+        elseif c.type == "Color" then table.insert(Pool.colors, c)
+        elseif c.type == "Button" then table.insert(Pool.buttons, c)
+        elseif c.type == "Header" then table.insert(Pool.headers, c)
+        end
+    end
+    self.controls = {}
+    self.y = -10
+    self.isRight = false
+end
+
+-- internal: get or create
+local function GetControl(pool, createFunc, parent)
+    local c = table.remove(pool)
+    if not c then
+        c = createFunc(parent)
+    else
+        c:SetParent(parent)
+    end
+    c:Show()
+    return c
+end
+
+function SB:AddHeader(text)
+    if self.isRight then self.y = self.y - 50; self.isRight = false end
+    
+    local h = GetControl(Pool.headers, function(p)
+        return ForgeSkin:CreateSectionHeader(p, "", 480)
+    end, self.canvas)
+    
+    h.type = "Header"
+    if h.text then h.text:SetText(text) end
+    h:SetPoint("TOPLEFT", 10, self.y)
+    
+    table.insert(self.controls, h)
+    self.y = self.y - 45
+end
+
+function SB:AddSlider(key, label, minVal, maxVal, step, defaultVal, configTable, callback, forceFullRow)
+    local width = 220
+    local x = self.isRight and self.col2 or self.col1
+    
+    if forceFullRow then
+        width = 460; self.isRight = false; x = self.col1
+    end
+    
+    local val = configTable[key]
+    if val == nil then val = defaultVal end
+    
+    local s = GetControl(Pool.sliders, function(p)
+        -- Create with dummy values, will update later
+        local sl = ForgeSkin:CreateSlider(p, 0, 100, 1, 0, nil, width)
+        sl.label = sl:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        sl.label:SetPoint("BOTTOMLEFT", sl, "TOPLEFT", 0, 5)
+        return sl
+    end, self.canvas)
+    
+    s.type = "Slider"
+    s:SetWidth(width)
+    -- Update Skin slider internals if needed (resizing track)
+    if s.track then s.track:SetWidth(width - 45) end
+    
+    s.label:SetText(label)
+    s.min = minVal; s.max = maxVal; s.step = step
+    
+    -- Reset callback to avoid triggering during setup
+    s.callback = nil
+    s:SetValue(val)
+    s.callback = function(v)
+        configTable[key] = v
+        if callback then callback(v) end
+    end
+    
+    s:SetPoint("TOPLEFT", x, self.y - 15) -- -15 for label space
+    table.insert(self.controls, s)
+    
+    if forceFullRow then
+        self.y = self.y - 50
+    else
+        if self.isRight then self.y = self.y - 50 end
+        self.isRight = not self.isRight
+    end
+end
+
+function SB:AddCheckbox(key, label, defaultVal, configTable, callback)
+    local x = self.isRight and self.col2 or self.col1
+    
+    local val = configTable[key]
+    if val == nil then val = defaultVal end
+    
+    local c = GetControl(Pool.checkboxes, function(p)
+        return ForgeSkin:CreateCheckbox(p, "", false, nil)
+    end, self.canvas)
+    
+    c.type = "Checkbox"
+    c.label:SetText(label)
+    
+    c.callback = nil
+    c:SetChecked(val)
+    c.callback = function(v)
+        configTable[key] = v
+        if callback then callback(v) end
+    end
+    
+    c:SetPoint("TOPLEFT", x, self.y)
+    table.insert(self.controls, c)
+    
+    if self.isRight then self.y = self.y - 35 end
+    self.isRight = not self.isRight
+end
+
+function SB:AddColor(key, label, defaultVal, configTable, callback)
+    local x = self.isRight and self.col2 or self.col1
+    
+    local val = configTable[key] or defaultVal
+    
+    local c = GetControl(Pool.colors, function(p)
+        -- Manual Color Picker Button Construction
+        local btn = CreateFrame("Button", nil, p, "BackdropTemplate")
+        btn:SetSize(220, 30) -- Match slider width
+        
+        -- Swatch (Control)
+        btn.swatch = btn:CreateTexture(nil, "ARTWORK")
+        btn.swatch:SetSize(25, 25) -- Square style as requested
+        btn.swatch:SetPoint("LEFT", 0, 0)
+        btn.swatch:SetColorTexture(1, 1, 1, 1)
+        
+        -- Swatch Border
+        btn.swatchBd = CreateFrame("Frame", nil, btn, "BackdropTemplate")
+        btn.swatchBd:SetAllPoints(btn.swatch)
+        if ForgeSkin.ApplyBackdrop then ForgeSkin:ApplyBackdrop(btn.swatchBd, 0, 1) end
+        
+        -- Label (Moved Right to match user request)
+        btn.label = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        btn.label:SetPoint("LEFT", btn.swatch, "RIGHT", 10, 0)
+        btn.label:SetJustifyH("LEFT")
+        btn.label:SetWordWrap(false)
+        btn.label:SetWidth(170) -- 220 - 40 (swatch) - 10 (gap)
+        
+        return btn
+    end, self.canvas)
+    
+    c.type = "Color"
+    c.label:SetText(label)
+    
+    c:SetScript("OnClick", function()
+        local current = configTable[key] or defaultVal
+        local info = {
+            r = current[1], g = current[2], b = current[3], opacity = current[4],
+            swatchFunc = function(newCol)
+                local r, g, b, a = unpack(newCol)
+                configTable[key] = {r, g, b, a}
+                if c.swatch then c.swatch:SetColorTexture(r, g, b, a) end
+                if callback then callback({r, g, b, a}) end
+            end,
+            cancelFunc = function()
+                configTable[key] = current
+                 if c.swatch then c.swatch:SetColorTexture(unpack(current)) end
+                if callback then callback(current) end
+            end
+        }
+        ForgeSkin:ShowColorPicker(info)
+    end)
+    
+    -- Init Visuals
+    if val then c.swatch:SetColorTexture(unpack(val)) end
+    
+    -- Position: Match Slider's y-15 offset
+    c:SetPoint("TOPLEFT", x, self.y - 15)
+    table.insert(self.controls, c)
+    
+    -- Height: Match Slider's 50px consumption
+    if self.isRight then self.y = self.y - 50 end 
+    self.isRight = not self.isRight
+end
+
+function SB:AddDropdown(key, label, items, defaultVal, configTable, callback)
+    local x = self.isRight and self.col2 or self.col1
+    
+    local val = configTable[key]
+    if val == nil then val = defaultVal end
+    
+    local d = GetControl(Pool.dropdowns, function(p)
+        return ForgeSkin:CreateDropdown(p, 150, {}, nil, nil)
+    end, self.canvas)
+    
+    d.type = "Dropdown"
+    
+    -- Label
+    if not d.label then
+        d.label = d:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        d.label:SetPoint("BOTTOMLEFT", d, "TOPLEFT", 0, 5)
+    end
+    d.label:SetText(label)
+    
+    d:SetList(items)
+    d:SetValue(val)
+    
+    d.callback = function(v)
+        configTable[key] = v
+        if callback then callback(v) end
+    end
+    
+    d:SetPoint("TOPLEFT", x, self.y - 15)
+    table.insert(self.controls, d)
+    
+    if self.isRight then self.y = self.y - 50 end
+    self.isRight = not self.isRight
+end
+
+function SB:Finish()
+    if self.isRight then self.y = self.y - 50 end
+    self.canvas:SetHeight(math.abs(self.y) + 50)
+end

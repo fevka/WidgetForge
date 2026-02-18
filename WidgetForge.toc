@@ -15,3 +15,4 @@ WidgetForge.lua
 Widgets\WidgetForge_CursorRing.lua
 Widgets\WidgetForge_RetirementHome.lua
 Widgets\WidgetForge_MythicPlus.lua
+Widgets\WidgetForge_Dragonriding.lua

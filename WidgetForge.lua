@@ -97,6 +97,7 @@ function WidgetForge:IsBarRelevant(conf)
 end
 
 function WidgetForge:SetBarsLocked(locked)
+    WidgetForge.BarsLocked = locked
     for index, f in pairs(Bars) do
         f:EnableMouse(not locked)
         if locked then
@@ -265,9 +266,26 @@ function WidgetForge:RebuildBarComponents(index)
 
     local justify = conf.justify or "CENTER"
     local isSplit = (conf.layout == "VERTICAL" and justify ~= "CENTER")
+
+    -- [EXCLUSIVE CHECK]
+    local exclusiveType = nil
+    for _, e in ipairs(conf.elements) do
+        if e.type == "Mythic+ Dashboard" or e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" then
+            exclusiveType = e.type
+            break
+        end
+    end
     
     for i, elem in ipairs(conf.elements) do
-        if elem.type == "Divider" then
+        if exclusiveType and elem.type ~= exclusiveType then
+            -- Hide Peers in Exclusive Mode
+            if f.textsVal[i] then f.textsVal[i]:Hide() end
+            if f.textsLbl[i] then f.textsLbl[i]:Hide() end
+            if f.icons[i] then f.icons[i]:Hide() end
+            if f.hitboxes and f.hitboxes[i] then f.hitboxes[i]:Hide() end
+            if f.dividers and f.dividers[i] then f.dividers[i]:Hide() end
+            if f.dragonFrames and f.dragonFrames[i] then f.dragonFrames[i]:Hide() end
+        elseif elem.type == "Divider" then
             if elem.dividerMode == "TEXT" then
                 -- Divider as Text
                 if not f.textsVal[i] then f.textsVal[i] = f:CreateFontString(nil, "OVERLAY") end
@@ -284,170 +302,30 @@ function WidgetForge:RebuildBarComponents(index)
                 div:Show()
                 div:SetColorTexture(unpack(elem.color or {1, 1, 1, 1}))
             end
+        elseif elem.type == "Cursor Ring" then
+            -- Create/Load once
+            local ring = WidgetForge:CreateCursorRing(f, elem)
+            table.insert(f.customWidgets, ring)
+        elseif elem.type == "Retirement Home" then
+            if WidgetForge.RetirementHome then
+                 local cw = WidgetForge.RetirementHome:Load(f, elem)
+                 if cw then table.insert(f.customWidgets, cw) end
+            end
+        elseif elem.type == "Mythic+ Dashboard" then
+            if addonTable.MythicPlus then
+                 local cw = addonTable.MythicPlus:Load(f, elem)
+                 if cw then table.insert(f.customWidgets, cw) end
+            end
         elseif elem.type == "Dragonriding" then
-            -- === DRAGONRIDING CUSTOM WIDGET ===
-            -- Defaults
-            local wW = elem.widgetWidth or 300
-            local vH = elem.vigorHeight or 14
-            local sH = elem.speedHeight or 14
-            local vPad = elem.verticalPadding or 4
-            local cGap = elem.cellGap or 4
-            
-            -- Separate Border Configs
-            local vBSize = elem.vigorBorderSize or 1
-            local vBColor = elem.vigorBorderColor or {0, 0, 0, 1}
-            local sBSize = elem.speedBorderSize or 1
-            local sBColor = elem.speedBorderColor or {0, 0, 0, 1}
-            
-            -- Background Box Config
-            local padX = elem.bgPaddingX or 5
-            local padY = elem.bgPaddingY or 5
-            local bgBoxColor = elem.bgColor or {0, 0, 0, 0}
-            
-            local swap = elem.swapPositions
-            
-            -- Check for structural update (if old version exists, reset it)
-            if f.dragonFrames[i] and not f.dragonFrames[i].speedFrame then
-                f.dragonFrames[i]:Hide()
-                f.dragonFrames[i] = nil
+            if addonTable.Dragonriding then
+                 local cw = addonTable.Dragonriding:Load(f, elem)
+                 if cw then 
+                    table.insert(f.customWidgets, cw)
+                    -- [FIX] Layout loop requires indexed access
+                    if not f.dragonFrames then f.dragonFrames = {} end
+                    f.dragonFrames[i] = cw
+                 end
             end
-
-            if not f.dragonFrames[i] then
-                local df = CreateFrame("Frame", nil, f, "BackdropTemplate")
-                -- We'll apply backdrop dynamically in layout step
-                
-                -- Background Box (Behind everything)
-                if not df.bgBox then
-                    local bgBox = CreateFrame("Frame", nil, df, "BackdropTemplate")
-                    bgBox:SetFrameLevel(df:GetFrameLevel()) -- Same level as container
-                    -- We will position it relative to the content area
-                    df.bgBox = bgBox
-                end
-                
-                -- Vigor Segments (max 6)
-                -- Structure: Frame (Border/BG) -> StatusBar (Fill)
-                df.vigorSegs = {}
-                for s = 1, 6 do
-                    local segFrame = CreateFrame("Frame", nil, df, "BackdropTemplate")
-                    segFrame:SetFrameLevel(df:GetFrameLevel() + 2) -- Above bgBox
-                    local segBar = CreateFrame("StatusBar", nil, segFrame)
-                    segBar:SetAllPoints()
-                    segBar:SetMinMaxValues(0, 1)
-                    segBar:SetValue(1)
-                    segBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
-                    
-                    -- Background (Empty Color) - We use the Frame's backdrop or a texture?
-                    -- Falcon uses a separate texture for background? 
-                    -- Let's use a texture behind the bar for the "Empty" color
-                    local bg = segFrame:CreateTexture(nil, "BACKGROUND")
-                    bg:SetAllPoints()
-                    segFrame.bg = bg
-                    
-                    segFrame.bar = segBar
-                    df.vigorSegs[s] = segFrame
-                end
-                
-                -- Speed Bar (Frame -> StatusBar)
-                local spFrame = CreateFrame("Frame", nil, df, "BackdropTemplate")
-                spFrame:SetFrameLevel(df:GetFrameLevel() + 2) -- Above bgBox
-                local spBar = CreateFrame("StatusBar", nil, spFrame)
-                spBar:SetAllPoints()
-                spBar:SetMinMaxValues(0, 100)
-                spBar:SetValue(0)
-                spBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
-                
-                local spBg = spFrame:CreateTexture(nil, "BACKGROUND")
-                spBg:SetAllPoints()
-                spFrame.bg = spBg
-                
-                spFrame.bar = spBar
-                df.speedFrame = spFrame
-                
-                -- Speed Text
-                df.speedText = spBar:CreateFontString(nil, "OVERLAY")
-                df.speedText:SetFont("Fonts\\FRIZQT__.TTF", 11, "OUTLINE")
-                df.speedText:SetPoint("CENTER", spBar, "CENTER", 0, 0)
-                df.speedText:SetTextColor(1, 1, 1, 1)
-                
-                f.dragonFrames[i] = df
-            end
-            
-            local df = f.dragonFrames[i]
-            local totalHeight = vH + sH + vPad
-            if elem.height then elem.height = totalHeight end -- Update internal height if used?
-            
-            df:SetSize(wW, totalHeight)
-            df:Show()
-            
-            -- Apply Background Box Settings
-            -- Calculate total content bounds to position the box
-            -- Content Area = wW x totalHeight (centered in df?)
-            -- Actually df IS the content area size (wW, totalHeight).
-            -- So Background Box should be larger by padding.
-            
-            local bgBox = df.bgBox
-            bgBox:ClearAllPoints()
-            bgBox:SetPoint("TOPLEFT", df, "TOPLEFT", -padX, padY)
-            bgBox:SetPoint("BOTTOMRIGHT", df, "BOTTOMRIGHT", padX, -padY)
-            
-            bgBox:SetBackdrop({bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = nil, tile = false})
-            bgBox:SetBackdropColor(unpack(bgBoxColor))
-            bgBox:Show()
-            
-            -- Prepare Border Configs
-            local function GetBackdrop(size)
-                local cfg = {
-                    bgFile = nil, 
-                    edgeFile = "Interface\\Buttons\\WHITE8x8", 
-                    edgeSize = size, 
-                    insets = {left=0, right=0, top=0, bottom=0} 
-                }
-                if size == 0 then cfg.edgeFile = nil end
-                return cfg
-            end
-            local vigorBd = GetBackdrop(vBSize)
-            local speedBd = GetBackdrop(sBSize)
-
-            -- Layout Calculation
-            local segW = (wW - (5 * cGap)) / 6
-            if segW < 1 then segW = 1 end
-            
-            -- Determine Y offsets
-            -- If swap=false (default): Vigor Top, Speed Bottom
-            -- If swap=true: Speed Top, Vigor Bottom
-            local vigorY, speedY
-            if swap then
-                 -- Speed Top (0), Vigor Bottom (-sH -vPad)
-                 speedY = 0
-                 vigorY = -(sH + vPad)
-            else
-                 -- Vigor Top (0), Speed Bottom (-vH -vPad)
-                 vigorY = 0
-                 speedY = -(vH + vPad)
-            end
-            
-            -- Position Vigor Segments
-            for s = 1, 6 do
-                local seg = df.vigorSegs[s]
-                seg:ClearAllPoints()
-                seg:SetSize(segW, vH)
-                local x = (s-1) * (segW + cGap)
-                seg:SetPoint("TOPLEFT", df, "TOPLEFT", x, vigorY)
-                
-                -- Apply Border/Backdrop to Segment Frame
-                seg:SetBackdrop(vigorBd)
-                seg:SetBackdropBorderColor(unpack(vBColor))
-            end
-            
-            -- Position Speed Bar
-            local sp = df.speedFrame
-            sp:ClearAllPoints()
-            sp:SetSize(wW, sH)
-            sp:SetPoint("TOPLEFT", df, "TOPLEFT", 0, speedY)
-            sp:SetBackdrop(speedBd)
-            sp:SetBackdropBorderColor(unpack(sBColor))
-            
-            if elem.showSpeedText then df.speedText:Show() else df.speedText:Hide() end
 
         else
             -- Standard Element
@@ -678,103 +556,13 @@ function WidgetForge:UpdateBarValues(index)
              end
         elseif elem.type == "Dragonriding" then
             -- === DRAGONRIDING UPDATE ===
+            -- Handled via UpdateVisuals in Module
             local df = f.dragonFrames and f.dragonFrames[i]
-            if df then
-                -- Double-convert to strip Patch 12 taint from secret values
-                local vigor = tonumber(tostring(ForgeStats.Data["DragonVigor"])) or 0
-                local vigorMax = tonumber(tostring(ForgeStats.Data["DragonVigorMax"])) or 6
-                local speed = tonumber(tostring(ForgeStats.Data["DragonSpeed"])) or 0
-                local isActive = ForgeStats.Data["DragonActive"] -- Boolean now
-                
-                -- Update Vigor Segments (Fractional Fill)
-                local fillC = elem.vigorFillColor or {0, 0.85, 0.85, 1}
-                local emptyC = elem.vigorEmptyColor or {0.15, 0.15, 0.15, 1}
-                
-                -- Ensure vigor doesn't exceed max
-                if vigor > vigorMax then vigor = vigorMax end
-                
-                for s = 1, 6 do
-                    local seg = df.vigorSegs[s]
-                    if s <= vigorMax then
-                        seg:Show()
-                        
-                        -- Calculate fill for this segment
-                        -- If vigor is 3.5: s=1 (1), s=2 (1), s=3 (1), s=4 (0.5), s=5 (0)
-                        local fill = 0
-                        if vigor >= s then
-                            fill = 1
-                        elseif vigor > (s-1) then
-                            fill = vigor - (s-1)
-                        end
-                        
-                        seg.bar:SetValue(fill)
-                        seg.bar:SetStatusBarColor(fillC[1], fillC[2], fillC[3], fillC[4])
-                        
-                        -- Vigor Inset Logic (Fixed)
-                        local vbSize = elem.vigorBorderSize or 1
-                        seg.bar:ClearAllPoints()
-                        seg.bar:SetPoint("TOPLEFT", vbSize, -vbSize)
-                        seg.bar:SetPoint("BOTTOMRIGHT", -vbSize, vbSize)
-                        -- The "empty" color is the background of the segment frame or bar?
-                        -- In Rebuild, we set a background texture `seg.bg`
-                        if seg.bg then
-                             seg.bg:SetColorTexture(emptyC[1], emptyC[2], emptyC[3], emptyC[4])
-                        end
-                    else
-                        seg:Hide()
-                    end
-                end
-                
-                -- Update Speed Bar
-                -- Falcon Logic: speed * 14.285 for text
-                local speedVal = speed * 14.285
-                local spBar = df.speedFrame.bar
-                local spText = df.speedText
-                local spBg = df.speedFrame.bg
-                
-                -- Color
-                local spC = elem.speedBarColor or {0.7, 0, 0.7, 1}
-                spBar:SetStatusBarColor(spC[1], spC[2], spC[3], spC[4])
-                
-                -- Empty Color (Background)
-                local spEmptyC = elem.speedEmptyColor or {0.15, 0.15, 0.15, 1}
-                if spBg then
-                    spBg:SetColorTexture(spEmptyC[1], spEmptyC[2], spEmptyC[3], spEmptyC[4])
-                end
-                
-                -- Text Color
-                local txtC = elem.speedTextColor or {1, 1, 1, 1}
-                spText:SetTextColor(txtC[1], txtC[2], txtC[3], txtC[4])
-                
-                spBar:SetMinMaxValues(0, 1250)
-                spBar:SetValue(speedVal)
-                spText:SetText(string.format("%.0f", speedVal))
-
-                -- [FIX] Bar Inset to avoid covering border
-                local bSize = elem.speedBorderSize or 1
-                spBar:ClearAllPoints()
-                spBar:SetPoint("TOPLEFT", bSize, -bSize)
-                spBar:SetPoint("BOTTOMRIGHT", -bSize, bSize)
-                
-                -- Visibility based on active state
-                -- Options: ALWAYS_SHOW, DIMMED (default), HIDDEN
-                local behavior = elem.inactiveBehavior or "DIMMED"
-                
-                if isActive then
-                    df:SetAlpha(1)
-                    df:Show()
-                else
-                    if behavior == "ALWAYS_SHOW" then
-                         df:SetAlpha(1)
-                         df:Show()
-                    elseif behavior == "HIDDEN" then
-                         df:Hide()
-                    else
-                         -- DIMMED
-                         local alpha = elem.inactiveAlpha or 0.3
-                         df:SetAlpha(alpha)
-                         df:Show()
-                    end
+            if df and addonTable.Dragonriding then
+                if df.UpdateVisuals or addonTable.Dragonriding.UpdateVisuals then
+                     -- Module method (preferred) or instance method?
+                     -- We defined method on Module: Dragonriding:UpdateVisuals(f, elem)
+                     addonTable.Dragonriding:UpdateVisuals(df, elem)
                 end
             end
             
@@ -787,21 +575,18 @@ function WidgetForge:UpdateBarValues(index)
             else
                 totalW = totalW + wW
                 if i > 1 then totalW = totalW + conf.padding end
+                if i > 1 then totalW = totalW + conf.padding end
             end
         elseif elem.type == "Cursor Ring" then
-            local ring = WidgetForge:CreateCursorRing(f, elem)
-            table.insert(f.customWidgets, ring)
-            -- Position is handled by ring script
+            -- Handled in RebuildBarComponents (Fixed Leak)
+            -- Just update position if needed, but CursorRing follows mouse.
+            -- Maybe call UpdateVisuals if we can find the instance?
+            -- Since customWidgets are list, finding the specific one for 'i' is hard without mapping.
+            -- But we don't need to update it every 0.1s. It handles itself.
         elseif elem.type == "Retirement Home" then
-            if WidgetForge.RetirementHome then
-                 local cw = WidgetForge.RetirementHome:Load(f, elem)
-                 if cw then table.insert(f.customWidgets, cw) end
-            end
+            -- Handled in Rebuild
         elseif elem.type == "Mythic+ Dashboard" then
-            if addonTable.MythicPlus then
-                 local cw = addonTable.MythicPlus:Load(f, elem)
-                 if cw then table.insert(f.customWidgets, cw) end
-            end
+            -- Handled in Rebuild
         else
             -- Standard Element Size Calculation
             local valStr, lblStr = ForgeStats:GetStat(elem.type) 
