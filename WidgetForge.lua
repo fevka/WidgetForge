@@ -4,6 +4,7 @@ local Config = ForgeConfig
 
 WidgetForge = {}
 local Bars = {} 
+function WidgetForge:GetBarFrames() return Bars end
 
 -- Spec Data moved to WidgetConstants.lua
 
@@ -18,6 +19,7 @@ WidgetForge.StatIcons = {
     ["Gold"] = "Interface\\Icons\\INV_Misc_Coin_02",
     ["Zone"] = "Interface\\Icons\\INV_Misc_Map02",
     ["Coords"] = "Interface\\Icons\\INV_Misc_Map02",
+    ["Mythic+ Dashboard"] = "Interface\\Icons\\Achievement_GuildPerk_MobileBanking",
     ["Item Level"] = "Interface\\Icons\\INV_Helmet_04",
     ["XP"] = "Interface\\Icons\\Spell_Holy_DivineProvidence",
     ["Combat Timer"] = "Interface\\Icons\\INV_Misc_PocketWatch_02",
@@ -36,7 +38,12 @@ WidgetForge.StatIcons = {
     ["Parry"] = "Interface\\Icons\\Ability_Parry",
     ["Target Name"] = "Interface\\Icons\\Ability_Hunter_SniperShot",
     ["Target HP"] = "Interface\\Icons\\Spell_Holy_SealOfSacrifice",
-    ["Main Stat"] = "Interface\\Icons\\Spell_Holy_DivineSpirit" -- Generic Stat Icon
+    ["Main Stat"] = "Interface\\Icons\\Spell_Holy_DivineSpirit", -- Generic Stat Icon
+    ["Run Speed"] = "Interface\\Icons\\Ability_Rogue_Sprint",
+    ["Armor"] = "Interface\\Icons\\INV_Chest_Plate03",
+    ["Max HP"] = "Interface\\Icons\\Spell_Holy_SealOfSacrifice",
+    ["Dragonriding"] = "Interface\\Icons\\Ability_DragonRiding_Vigor01",
+    ["Retirement Home"] = "Interface\\Icons\\Ability_Hunter_EagleEye"
 }
 
 
@@ -174,25 +181,38 @@ function WidgetForge:UpdateAvailableBars()
             f:ClearAllPoints()
             f:SetPoint(conf.point or "CENTER", UIParent, conf.relativePoint or conf.point or "CENTER", conf.x or 100, conf.y or 0)
             
+            -- Check Exclusive Mode (Dragonriding / Cursor Ring)
+            local isExclusive = false
+            if conf.elements then
+                for _, e in ipairs(conf.elements) do
+                    if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" then isExclusive = true; break end
+                end
+            end
+
             -- Set Colors from Config
-            local c = conf.bgColor
-            f:SetBackdropColor(c[1], c[2], c[3], c[4])
-            
-            if conf.showBorder == false then
-                 f:SetBackdropBorderColor(0,0,0,0)
+            if isExclusive then
+                 f:SetBackdropColor(0, 0, 0, 0) -- Force Transparent
+                 f:SetBackdropBorderColor(0, 0, 0, 0) -- Force No Border
             else
-                 local b = conf.borderColor or Skin.Colors.border
-                 local size = conf.borderSize or 1
-                 
-                 local backdrop = {
-                    bgFile = "Interface\\Buttons\\WHITE8x8",
-                    edgeFile = "Interface\\Buttons\\WHITE8x8",
-                    tile = false, tileSize = 0, edgeSize = size,
-                    insets = { left = 0, right = 0, top = 0, bottom = 0 }
-                 }
-                 f:SetBackdrop(backdrop)
-                 f:SetBackdropColor(c[1], c[2], c[3], c[4]) 
-                 f:SetBackdropBorderColor(b[1], b[2], b[3], b[4] or 1)
+                 local c = conf.bgColor or {0, 0, 0, 0.5}
+                 f:SetBackdropColor(c[1], c[2], c[3], c[4])
+            
+                 if conf.showBorder == false then
+                     f:SetBackdropBorderColor(0,0,0,0)
+                 else
+                     local b = conf.borderColor or Skin.Colors.border
+                     local size = conf.borderSize or 1
+                     
+                     local backdrop = {
+                        bgFile = "Interface\\Buttons\\WHITE8x8",
+                        edgeFile = "Interface\\Buttons\\WHITE8x8",
+                        tile = false, tileSize = 0, edgeSize = size,
+                        insets = { left = 0, right = 0, top = 0, bottom = 0 }
+                     }
+                     f:SetBackdrop(backdrop)
+                     f:SetBackdropColor(c[1], c[2], c[3], c[4]) 
+                     f:SetBackdropBorderColor(b[1], b[2], b[3], b[4] or 1)
+                 end
             end
             
             WidgetForge:RebuildBarComponents(index)
@@ -210,12 +230,25 @@ function WidgetForge:RebuildBarComponents(index)
     if not f.textsVal then f.textsVal = {} end
     if not f.textsLbl then f.textsLbl = {} end
     if not f.icons then f.icons = {} end
+    if not f.dragonFrames then f.dragonFrames = {} end
+    
+    -- Cleanup Custom Widgets (Cursor Ring, etc.)
+    if f.customWidgets then
+        for _, cw in ipairs(f.customWidgets) do
+            cw:Hide()
+            if cw.Unload then cw:Unload() end
+            cw:SetParent(nil)
+        end
+    end
+    f.customWidgets = {}
     
     -- Cleanup Old
     for _, t in pairs(f.textsVal) do t:Hide() end
     for _, t in pairs(f.textsLbl) do t:Hide() end
     for _, t in pairs(f.icons) do t:Hide() end
-    for _, h in pairs(f.hitboxes or {}) do h:Hide() end 
+    for _, h in pairs(f.hitboxes or {}) do h:Hide() end
+    if f.dividers then for _, d in pairs(f.dividers) do d:Hide() end end
+    for _, df in pairs(f.dragonFrames) do df:Hide() end
     
     -- [CLICK THROUGH CHECK]
     -- We need to ensure hitboxes respect clickThrough even during rebuild
@@ -234,50 +267,251 @@ function WidgetForge:RebuildBarComponents(index)
     local isSplit = (conf.layout == "VERTICAL" and justify ~= "CENTER")
     
     for i, elem in ipairs(conf.elements) do
-        -- Value Text
-        if not f.textsVal[i] then f.textsVal[i] = f:CreateFontString(nil, "OVERLAY") end
-        local tVal = f.textsVal[i]
-        tVal:Show()
-        tVal:SetFont(Skin.Media.Fonts[elem.font] or "Fonts\\FRIZQT__.TTF", elem.size, elem.outline)
-        tVal:SetTextColor(unpack(elem.color or {1, 1, 1, 1}))
-        
-        -- Label Text
-        if isSplit then
-             if not f.textsLbl[i] then f.textsLbl[i] = f:CreateFontString(nil, "OVERLAY") end
-             local tLbl = f.textsLbl[i]
-             tLbl:Show()
-             tLbl:SetFont(Skin.Media.Fonts[elem.font] or "Fonts\\FRIZQT__.TTF", elem.size, elem.outline)
-             tLbl:SetTextColor(unpack(elem.color or {1, 1, 1, 1}))
-        end
+        if elem.type == "Divider" then
+            if elem.dividerMode == "TEXT" then
+                -- Divider as Text
+                if not f.textsVal[i] then f.textsVal[i] = f:CreateFontString(nil, "OVERLAY") end
+                local tVal = f.textsVal[i]
+                tVal:Show()
+                tVal:SetFont("Fonts\\FRIZQT__.TTF", elem.size or 14, "OUTLINE") 
+                tVal:SetTextColor(unpack(elem.color or {1, 1, 1, 1}))
+                tVal:SetText(elem.dividerText or "|")
+            else
+                -- Divider as Line (Graphic)
+                if not f.dividers then f.dividers = {} end
+                if not f.dividers[i] then f.dividers[i] = f:CreateTexture(nil, "OVERLAY") end
+                local div = f.dividers[i]
+                div:Show()
+                div:SetColorTexture(unpack(elem.color or {1, 1, 1, 1}))
+            end
+        elseif elem.type == "Dragonriding" then
+            -- === DRAGONRIDING CUSTOM WIDGET ===
+            -- Defaults
+            local wW = elem.widgetWidth or 300
+            local vH = elem.vigorHeight or 14
+            local sH = elem.speedHeight or 14
+            local vPad = elem.verticalPadding or 4
+            local cGap = elem.cellGap or 4
+            
+            -- Separate Border Configs
+            local vBSize = elem.vigorBorderSize or 1
+            local vBColor = elem.vigorBorderColor or {0, 0, 0, 1}
+            local sBSize = elem.speedBorderSize or 1
+            local sBColor = elem.speedBorderColor or {0, 0, 0, 1}
+            
+            -- Background Box Config
+            local padX = elem.bgPaddingX or 5
+            local padY = elem.bgPaddingY or 5
+            local bgBoxColor = elem.bgColor or {0, 0, 0, 0}
+            
+            local swap = elem.swapPositions
+            
+            -- Check for structural update (if old version exists, reset it)
+            if f.dragonFrames[i] and not f.dragonFrames[i].speedFrame then
+                f.dragonFrames[i]:Hide()
+                f.dragonFrames[i] = nil
+            end
 
-        -- Icon
-        if elem.showIcon then
-            if not f.icons[i] then f.icons[i] = f:CreateTexture(nil, "OVERLAY") end
-            local icon = f.icons[i]
-            local typeToIcon = elem.type
-            if typeToIcon == "Main Stat" then typeToIcon = ForgeStats.ActiveMainStat or "Strength" end
-            local iconPath = WidgetForge.StatIcons[typeToIcon] or "Interface\\Icons\\INV_Misc_QuestionMark"
-            icon:Show()
-            icon:SetTexture(iconPath)
-            icon:SetSize(elem.size, elem.size) 
-        end
+            if not f.dragonFrames[i] then
+                local df = CreateFrame("Frame", nil, f, "BackdropTemplate")
+                -- We'll apply backdrop dynamically in layout step
+                
+                -- Background Box (Behind everything)
+                if not df.bgBox then
+                    local bgBox = CreateFrame("Frame", nil, df, "BackdropTemplate")
+                    bgBox:SetFrameLevel(df:GetFrameLevel()) -- Same level as container
+                    -- We will position it relative to the content area
+                    df.bgBox = bgBox
+                end
+                
+                -- Vigor Segments (max 6)
+                -- Structure: Frame (Border/BG) -> StatusBar (Fill)
+                df.vigorSegs = {}
+                for s = 1, 6 do
+                    local segFrame = CreateFrame("Frame", nil, df, "BackdropTemplate")
+                    segFrame:SetFrameLevel(df:GetFrameLevel() + 2) -- Above bgBox
+                    local segBar = CreateFrame("StatusBar", nil, segFrame)
+                    segBar:SetAllPoints()
+                    segBar:SetMinMaxValues(0, 1)
+                    segBar:SetValue(1)
+                    segBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
+                    
+                    -- Background (Empty Color) - We use the Frame's backdrop or a texture?
+                    -- Falcon uses a separate texture for background? 
+                    -- Let's use a texture behind the bar for the "Empty" color
+                    local bg = segFrame:CreateTexture(nil, "BACKGROUND")
+                    bg:SetAllPoints()
+                    segFrame.bg = bg
+                    
+                    segFrame.bar = segBar
+                    df.vigorSegs[s] = segFrame
+                end
+                
+                -- Speed Bar (Frame -> StatusBar)
+                local spFrame = CreateFrame("Frame", nil, df, "BackdropTemplate")
+                spFrame:SetFrameLevel(df:GetFrameLevel() + 2) -- Above bgBox
+                local spBar = CreateFrame("StatusBar", nil, spFrame)
+                spBar:SetAllPoints()
+                spBar:SetMinMaxValues(0, 100)
+                spBar:SetValue(0)
+                spBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
+                
+                local spBg = spFrame:CreateTexture(nil, "BACKGROUND")
+                spBg:SetAllPoints()
+                spFrame.bg = spBg
+                
+                spFrame.bar = spBar
+                df.speedFrame = spFrame
+                
+                -- Speed Text
+                df.speedText = spBar:CreateFontString(nil, "OVERLAY")
+                df.speedText:SetFont("Fonts\\FRIZQT__.TTF", 11, "OUTLINE")
+                df.speedText:SetPoint("CENTER", spBar, "CENTER", 0, 0)
+                df.speedText:SetTextColor(1, 1, 1, 1)
+                
+                f.dragonFrames[i] = df
+            end
+            
+            local df = f.dragonFrames[i]
+            local totalHeight = vH + sH + vPad
+            if elem.height then elem.height = totalHeight end -- Update internal height if used?
+            
+            df:SetSize(wW, totalHeight)
+            df:Show()
+            
+            -- Apply Background Box Settings
+            -- Calculate total content bounds to position the box
+            -- Content Area = wW x totalHeight (centered in df?)
+            -- Actually df IS the content area size (wW, totalHeight).
+            -- So Background Box should be larger by padding.
+            
+            local bgBox = df.bgBox
+            bgBox:ClearAllPoints()
+            bgBox:SetPoint("TOPLEFT", df, "TOPLEFT", -padX, padY)
+            bgBox:SetPoint("BOTTOMRIGHT", df, "BOTTOMRIGHT", padX, -padY)
+            
+            bgBox:SetBackdrop({bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = nil, tile = false})
+            bgBox:SetBackdropColor(unpack(bgBoxColor))
+            bgBox:Show()
+            
+            -- Prepare Border Configs
+            local function GetBackdrop(size)
+                local cfg = {
+                    bgFile = nil, 
+                    edgeFile = "Interface\\Buttons\\WHITE8x8", 
+                    edgeSize = size, 
+                    insets = {left=0, right=0, top=0, bottom=0} 
+                }
+                if size == 0 then cfg.edgeFile = nil end
+                return cfg
+            end
+            local vigorBd = GetBackdrop(vBSize)
+            local speedBd = GetBackdrop(sBSize)
 
-        -- HitBox
-        if not f.hitboxes then f.hitboxes = {} end
-        if not f.hitboxes[i] then 
-            local hb = CreateFrame("Frame", nil, f)
-            -- hb:EnableMouse(true) -- Handled by SetBarsLocked logic mostly, but set initial:
-            hb:EnableMouse(hbEnabled)
-            hb:SetScript("OnEnter", function(self)
-                if not elem.showTooltip then return end 
-                ForgeStats:AddTooltip(self, elem.type, elem)
-            end)
-            hb:SetScript("OnLeave", function(self) GameTooltip:Hide() end)
-            f.hitboxes[i] = hb
+            -- Layout Calculation
+            local segW = (wW - (5 * cGap)) / 6
+            if segW < 1 then segW = 1 end
+            
+            -- Determine Y offsets
+            -- If swap=false (default): Vigor Top, Speed Bottom
+            -- If swap=true: Speed Top, Vigor Bottom
+            local vigorY, speedY
+            if swap then
+                 -- Speed Top (0), Vigor Bottom (-sH -vPad)
+                 speedY = 0
+                 vigorY = -(sH + vPad)
+            else
+                 -- Vigor Top (0), Speed Bottom (-vH -vPad)
+                 vigorY = 0
+                 speedY = -(vH + vPad)
+            end
+            
+            -- Position Vigor Segments
+            for s = 1, 6 do
+                local seg = df.vigorSegs[s]
+                seg:ClearAllPoints()
+                seg:SetSize(segW, vH)
+                local x = (s-1) * (segW + cGap)
+                seg:SetPoint("TOPLEFT", df, "TOPLEFT", x, vigorY)
+                
+                -- Apply Border/Backdrop to Segment Frame
+                seg:SetBackdrop(vigorBd)
+                seg:SetBackdropBorderColor(unpack(vBColor))
+            end
+            
+            -- Position Speed Bar
+            local sp = df.speedFrame
+            sp:ClearAllPoints()
+            sp:SetSize(wW, sH)
+            sp:SetPoint("TOPLEFT", df, "TOPLEFT", 0, speedY)
+            sp:SetBackdrop(speedBd)
+            sp:SetBackdropBorderColor(unpack(sBColor))
+            
+            if elem.showSpeedText then df.speedText:Show() else df.speedText:Hide() end
+
         else
-            f.hitboxes[i]:EnableMouse(hbEnabled)
+            -- Standard Element
+            -- Value Text
+            if not f.textsVal[i] then f.textsVal[i] = f:CreateFontString(nil, "OVERLAY") end
+            local tVal = f.textsVal[i]
+            tVal:Show()
+            local fontPath = Skin.Media.Fonts[elem.font] or "Fonts\\FRIZQT__.TTF"
+            tVal:SetFont(fontPath, elem.size, elem.outline)
+            
+            -- [SAFETY] Logic: If font is invalid, GetStringWidth usually returns 0 or errors later.
+            -- We test it here.
+            tVal:SetText("test")
+            if tVal:GetStringWidth() == 0 then
+                 -- Fallback
+                 tVal:SetFont("Fonts\\FRIZQT__.TTF", elem.size, elem.outline)
+            end
+            tVal:SetText("") -- Reset
+
+            tVal:SetTextColor(unpack(elem.color or {1, 1, 1, 1}))
+            
+            -- Label Text
+            if isSplit then
+                 if not f.textsLbl[i] then f.textsLbl[i] = f:CreateFontString(nil, "OVERLAY") end
+                 local tLbl = f.textsLbl[i]
+                 tLbl:Show()
+                 tLbl:SetFont(fontPath, elem.size, elem.outline) -- Use same font
+                 -- Safety check for label too
+                 tLbl:SetText("test")
+                 if tLbl:GetStringWidth() == 0 then tLbl:SetFont("Fonts\\FRIZQT__.TTF", elem.size, elem.outline) end
+                 tLbl:SetText("")
+                 
+                 tLbl:SetTextColor(unpack(elem.color or {1, 1, 1, 1}))
+            end
+    
+            -- Icon
+            if elem.showIcon then
+                if not f.icons[i] then f.icons[i] = f:CreateTexture(nil, "OVERLAY") end
+                local icon = f.icons[i]
+                local typeToIcon = elem.type
+                if typeToIcon == "Main Stat" then typeToIcon = ForgeStats.ActiveMainStat or "Strength" end
+                local iconPath = WidgetForge.StatIcons[typeToIcon] or "Interface\\Icons\\INV_Misc_QuestionMark"
+                icon:Show()
+                icon:SetTexture(iconPath)
+                icon:SetSize(elem.size, elem.size) 
+            end
+    
+            -- HitBox
+            if not f.hitboxes then f.hitboxes = {} end
+            if not f.hitboxes[i] then 
+                local hb = CreateFrame("Frame", nil, f)
+                -- hb:EnableMouse(true) -- Handled by SetBarsLocked logic mostly, but set initial:
+                hb:EnableMouse(hbEnabled)
+                hb:SetScript("OnEnter", function(self)
+                    if not elem.showTooltip then return end 
+                    ForgeStats:AddTooltip(self, elem.type, elem)
+                end)
+                hb:SetScript("OnLeave", function(self) GameTooltip:Hide() end)
+                f.hitboxes[i] = hb
+            else
+                f.hitboxes[i]:EnableMouse(hbEnabled)
+            end
+            f.hitboxes[i]:Show() 
         end
-        f.hitboxes[i]:Show() 
     end
 
     -- Title Bar & Drag Handle
@@ -333,6 +567,11 @@ function WidgetForge:RebuildBarComponents(index)
                     currentConf.relativePoint = relativePoint
                     currentConf.x = x
                     currentConf.y = y
+                end
+                
+                -- Sync Config UI
+                if ForgeConfig and ForgeConfig.UpdateCoordinates then
+                    ForgeConfig:UpdateCoordinates(f.index)
                 end
             end)
             
@@ -407,170 +646,531 @@ function WidgetForge:UpdateBarValues(index)
     local titleHeight = (conf.showTitle) and 20 or 0
     
     for i, elem in ipairs(conf.elements) do
-        local valStr, lblStr = ForgeStats:GetStat(elem.type) 
-        if elem.type == "Clock" then
-             local fmt = elem.timeFormat or "24h"
-             if fmt == "12h" then valStr = date("%I:%M %p") else valStr = date("%H:%M") end 
-        end
-        if not lblStr then lblStr = "" end
+        local elemWidth = 0
+        local elemHeight = 0
         
-        local tVal = f.textsVal[i]
-        if not tVal then break end
-
-        local icon = f.icons[i] 
-        local iconWidth = (elem.showIcon and icon) and (elem.size + 4) or 0
-        
-        -- [OPTIMIZATION] Prevent Redraw if Text Hasn't Changed
-        local fullTextVal = valStr
-        if isSplit then
-             local currentVal = tVal:GetText()
-             if currentVal ~= fullTextVal then tVal:SetText(fullTextVal) end
+        if elem.type == "Divider" then
+             local size = elem.size or 20
+             local thk = elem.thickness or 2
+             local style = elem.dividerStyle or "VERTICAL"
              
-             local tLbl = f.textsLbl[i]
-             local currentLbl = tLbl:GetText()
-             if currentLbl ~= lblStr then tLbl:SetText(lblStr) end
+             if elem.dividerMode == "TEXT" then
+                  local tVal = f.textsVal[i]; 
+                  if tVal then 
+                      tVal:SetText(elem.dividerText or "|"); 
+                      elemWidth = tVal:GetStringWidth(); 
+                      elemHeight = elem.size or 14 
+                  end
+             else
+                  -- [FIX] In Vertical layout, dividers are forced HORIZONTAL (same logic as positioning pass)
+                  local effectiveStyle = style
+                  if conf.layout == "VERTICAL" then effectiveStyle = "HORIZONTAL" end
+                  if effectiveStyle == "VERTICAL" then elemWidth = thk; elemHeight = size
+                  else elemWidth = size; elemHeight = thk end 
+             end
+             
+             if conf.layout == "VERTICAL" then
+                totalH = totalH + elemHeight
+                if i > 1 then totalH = totalH + conf.padding end
+             else
+                totalW = totalW + elemWidth
+                if i > 1 then totalW = totalW + conf.padding end
+             end
+        elseif elem.type == "Dragonriding" then
+            -- === DRAGONRIDING UPDATE ===
+            local df = f.dragonFrames and f.dragonFrames[i]
+            if df then
+                -- Double-convert to strip Patch 12 taint from secret values
+                local vigor = tonumber(tostring(ForgeStats.Data["DragonVigor"])) or 0
+                local vigorMax = tonumber(tostring(ForgeStats.Data["DragonVigorMax"])) or 6
+                local speed = tonumber(tostring(ForgeStats.Data["DragonSpeed"])) or 0
+                local isActive = ForgeStats.Data["DragonActive"] -- Boolean now
+                
+                -- Update Vigor Segments (Fractional Fill)
+                local fillC = elem.vigorFillColor or {0, 0.85, 0.85, 1}
+                local emptyC = elem.vigorEmptyColor or {0.15, 0.15, 0.15, 1}
+                
+                -- Ensure vigor doesn't exceed max
+                if vigor > vigorMax then vigor = vigorMax end
+                
+                for s = 1, 6 do
+                    local seg = df.vigorSegs[s]
+                    if s <= vigorMax then
+                        seg:Show()
+                        
+                        -- Calculate fill for this segment
+                        -- If vigor is 3.5: s=1 (1), s=2 (1), s=3 (1), s=4 (0.5), s=5 (0)
+                        local fill = 0
+                        if vigor >= s then
+                            fill = 1
+                        elseif vigor > (s-1) then
+                            fill = vigor - (s-1)
+                        end
+                        
+                        seg.bar:SetValue(fill)
+                        seg.bar:SetStatusBarColor(fillC[1], fillC[2], fillC[3], fillC[4])
+                        
+                        -- Vigor Inset Logic (Fixed)
+                        local vbSize = elem.vigorBorderSize or 1
+                        seg.bar:ClearAllPoints()
+                        seg.bar:SetPoint("TOPLEFT", vbSize, -vbSize)
+                        seg.bar:SetPoint("BOTTOMRIGHT", -vbSize, vbSize)
+                        -- The "empty" color is the background of the segment frame or bar?
+                        -- In Rebuild, we set a background texture `seg.bg`
+                        if seg.bg then
+                             seg.bg:SetColorTexture(emptyC[1], emptyC[2], emptyC[3], emptyC[4])
+                        end
+                    else
+                        seg:Hide()
+                    end
+                end
+                
+                -- Update Speed Bar
+                -- Falcon Logic: speed * 14.285 for text
+                local speedVal = speed * 14.285
+                local spBar = df.speedFrame.bar
+                local spText = df.speedText
+                local spBg = df.speedFrame.bg
+                
+                -- Color
+                local spC = elem.speedBarColor or {0.7, 0, 0.7, 1}
+                spBar:SetStatusBarColor(spC[1], spC[2], spC[3], spC[4])
+                
+                -- Empty Color (Background)
+                local spEmptyC = elem.speedEmptyColor or {0.15, 0.15, 0.15, 1}
+                if spBg then
+                    spBg:SetColorTexture(spEmptyC[1], spEmptyC[2], spEmptyC[3], spEmptyC[4])
+                end
+                
+                -- Text Color
+                local txtC = elem.speedTextColor or {1, 1, 1, 1}
+                spText:SetTextColor(txtC[1], txtC[2], txtC[3], txtC[4])
+                
+                spBar:SetMinMaxValues(0, 1250)
+                spBar:SetValue(speedVal)
+                spText:SetText(string.format("%.0f", speedVal))
+
+                -- [FIX] Bar Inset to avoid covering border
+                local bSize = elem.speedBorderSize or 1
+                spBar:ClearAllPoints()
+                spBar:SetPoint("TOPLEFT", bSize, -bSize)
+                spBar:SetPoint("BOTTOMRIGHT", -bSize, bSize)
+                
+                -- Visibility based on active state
+                -- Options: ALWAYS_SHOW, DIMMED (default), HIDDEN
+                local behavior = elem.inactiveBehavior or "DIMMED"
+                
+                if isActive then
+                    df:SetAlpha(1)
+                    df:Show()
+                else
+                    if behavior == "ALWAYS_SHOW" then
+                         df:SetAlpha(1)
+                         df:Show()
+                    elseif behavior == "HIDDEN" then
+                         df:Hide()
+                    else
+                         -- DIMMED
+                         local alpha = elem.inactiveAlpha or 0.3
+                         df:SetAlpha(alpha)
+                         df:Show()
+                    end
+                end
+            end
+            
+            -- Size contribution
+            local wW = elem.widgetWidth or 300
+            local wH = elem.widgetHeight or 45
+            if conf.layout == "VERTICAL" then
+                totalH = totalH + wH
+                if i > 1 then totalH = totalH + conf.padding end
+            else
+                totalW = totalW + wW
+                if i > 1 then totalW = totalW + conf.padding end
+            end
+        elseif elem.type == "Cursor Ring" then
+            local ring = WidgetForge:CreateCursorRing(f, elem)
+            table.insert(f.customWidgets, ring)
+            -- Position is handled by ring script
+        elseif elem.type == "Retirement Home" then
+            if WidgetForge.RetirementHome then
+                 local cw = WidgetForge.RetirementHome:Load(f, elem)
+                 if cw then table.insert(f.customWidgets, cw) end
+            end
+        elseif elem.type == "Mythic+ Dashboard" then
+            if addonTable.MythicPlus then
+                 local cw = addonTable.MythicPlus:Load(f, elem)
+                 if cw then table.insert(f.customWidgets, cw) end
+            end
         else
-             local fullText = valStr .. WithSpace(lblStr)
-             local currentFull = tVal:GetText()
-             if currentFull ~= fullText then tVal:SetText(fullText) end
-        end
-        
-        if conf.layout == "VERTICAL" then
-            totalH = totalH + (elem.size or 12)
-            if i > 1 then totalH = totalH + conf.padding end
-        else
-            local w = tVal:GetStringWidth() + iconWidth
-            totalW = totalW + w
-            if i > 1 then totalW = totalW + conf.padding end
+            -- Standard Element Size Calculation
+            local valStr, lblStr = ForgeStats:GetStat(elem.type) 
+            if elem.type == "Clock" then
+                 local fmt = elem.timeFormat or "24h"
+                 if fmt == "12h" then valStr = date("%I:%M %p") else valStr = date("%H:%M") end 
+            end
+            if not lblStr then lblStr = "" end
+            
+            local tVal = f.textsVal[i]
+            if tVal then
+                local iconWidth = (elem.showIcon and f.icons[i]) and (elem.size + 4) or 0
+                
+                -- [OPTIMIZATION] Prevent Redraw if Text Hasn't Changed
+                local fullTextVal = valStr
+                if isSplit then
+                     local currentVal = tVal:GetText()
+                     if currentVal ~= fullTextVal then tVal:SetText(fullTextVal) end
+                     
+                     local tLbl = f.textsLbl[i]
+                     if tLbl then
+                         local currentLbl = tLbl:GetText()
+                         if currentLbl ~= lblStr then tLbl:SetText(lblStr) end
+                     end
+                else
+                     local fullText = valStr .. WithSpace(lblStr)
+                     local currentFull = tVal:GetText()
+                     if currentFull ~= fullText then tVal:SetText(fullText) end
+                end
+                
+                -- Width Logic (Stable Digit Width + Padding)
+                -- We substitute all digits with '0' to ensure width doesn't change due to digit variance (e.g. "11" vs "88")
+                -- We also add the '1 digit extra' padding (elem.size) requested.
+                
+                local currentText = tVal:GetText() or ""
+                local stableText = string.gsub(currentText, "%d", "0")
+                
+                if elem.type == "FPS" then
+                    if isSplit then
+                        stableText = "000"
+                    else
+                        -- Use "000" + Label to reserve space for 3 digits
+                        stableText = "000" .. WithSpace(lblStr)
+                    end
+                end
+                
+                -- Temporarily set text to stable version to measure it
+                tVal:SetText(stableText)
+                local stableContentW = tVal:GetStringWidth()
+                tVal:SetText(currentText) -- Restore real text
+                
+                local extraPadding = (elem.size or 12)
+                local activeW = stableContentW + extraPadding
+                
+                tVal:SetWidth(activeW)
+                tVal:SetJustifyH("CENTER") -- Measurement pass: always CENTER, positioning pass overrides per layout
+
+                if conf.layout == "VERTICAL" then
+                    totalH = totalH + (elem.size or 12)
+                    if i > 1 then totalH = totalH + conf.padding end
+                else
+                    local w = activeW + iconWidth
+                    totalW = totalW + w
+                    if i > 1 then totalW = totalW + conf.padding end
+                end
+            end
         end
     end
 
     -- Positioning (Standart Layout Logic)
-    local justify = conf.justify or "CENTER"
-    local barWidth, barHeight = f:GetSize()
-    local contentCenterY = (-titleHeight / 2) 
+    -- [Auto-Resize] Update Frame Size based on Content
+    local edgePad = (conf.padding or 5) * 2
+    local totalMinH = totalH + edgePad + titleHeight -- Minimum height needed by content
     
     if conf.layout == "VERTICAL" then
+        -- Use the LARGER of: user-configured height OR minimum content height
+        -- This lets the user make the bar bigger (more padding), but prevents clipping
+        local userH = conf.height or 30
+        local newH = math.max(userH, totalMinH)
+        f:SetHeight(newH)
+        f:SetWidth(conf.width or 100)
+    else
+        local newW = math.max(conf.width or 100, totalW + edgePad)
+        f:SetWidth(newW)
+        f:SetHeight(conf.height or 30)
+    end
+
+    -- justify already declared above (line 436)
+    local barWidth, barHeight = f:GetSize()
+    
+    if conf.layout == "VERTICAL" then
+        -- [FIX] Simple vertical centering using frame's own CENTER anchor.
+        -- The title takes up space at the top, so we shift the content center down by titleHeight/2.
+        local contentCenterY = -(titleHeight / 2)
+        
+        -- currentY tracks the TOP edge of each element's slot, relative to the content center.
         local startY = contentCenterY + (totalH / 2)
         local currentY = startY
         
         for i, elem in ipairs(conf.elements) do
-            local tVal = f.textsVal[i]
-            if not tVal then break end
-            local tLbl = isSplit and f.textsLbl[i] or nil
-            local icon = f.icons[i] 
-            local hb = f.hitboxes and f.hitboxes[i] 
+            local offset = elem.offset or 0
+            local elemHeight = 0
             
-            tVal:ClearAllPoints()
-            if tLbl then tLbl:ClearAllPoints() end
-            if icon then icon:ClearAllPoints() end
-            if hb then hb:ClearAllPoints() end
-
-            local iconOffset = (elem.showIcon and icon) and (elem.size + 4) or 0
-
-            if isSplit then
-                if justify == "LEFT" then
-                    local margin = 15
-                    if icon then
-                        icon:SetPoint("LEFT", f, "LEFT", margin, 0)
-                        icon:SetPoint("TOP", f, "CENTER", 0, currentY)
-                    end
-                    tVal:SetPoint("LEFT", f, "LEFT", margin + iconOffset, 0)
-                    tVal:SetPoint("TOP", f, "CENTER", 0, currentY)
-                    tLbl:SetPoint("LEFT", f, "LEFT", margin + iconOffset + valueColWidth, 0)
-                    tLbl:SetPoint("TOP", f, "CENTER", 0, currentY)
-                    if hb then
-                        hb:SetPoint("LEFT", f, "LEFT", margin, 0)
-                        hb:SetPoint("RIGHT", f, "RIGHT", -margin, 0)
-                        hb:SetHeight(elem.size); hb:SetPoint("TOP", f, "CENTER", 0, currentY)
-                    end
-                elseif justify == "RIGHT" then
-                    local margin = 5
-                    tLbl:SetPoint("RIGHT", f, "RIGHT", -margin, 0)
-                    tLbl:SetPoint("TOP", f, "CENTER", 0, currentY)
-                    local valRight = -margin - valueColWidth 
-                    tVal:SetPoint("RIGHT", f, "RIGHT", valRight, 0)
-                    tVal:SetPoint("TOP", f, "CENTER", 0, currentY)
-                    if icon then
-                        icon:SetPoint("RIGHT", tVal, "LEFT", -4, 0)
-                        icon:SetPoint("TOP", f, "CENTER", 0, currentY)
-                    end
-                     if hb then
-                        hb:SetPoint("LEFT", f, "LEFT", margin, 0)
-                        hb:SetPoint("RIGHT", f, "RIGHT", -margin, 0)
-                        hb:SetHeight(elem.size); hb:SetPoint("TOP", f, "CENTER", 0, currentY)
-                    end
-                end
+            -- Determine height FIRST to calculate center position
+            if elem.type == "Divider" then
+                 local size = elem.size or 20
+                 local thk = elem.thickness or 2
+                 local style = elem.dividerStyle or "VERTICAL"
+                 
+                 if elem.dividerMode == "TEXT" then
+                      elemHeight = elem.size or 14
+                 else
+                      local isVertLayout = (conf.layout == "VERTICAL")
+                      local effectiveStyle = style
+                      if isVertLayout then effectiveStyle = "HORIZONTAL" end
+                      -- In Vertical Layout, Horizontal Divider has Height = thk
+                      elemHeight = (effectiveStyle=="VERTICAL") and size or thk
+                 end
+            elseif elem.type == "Dragonriding" then
+                 elemHeight = elem.widgetHeight or 45
             else
-                if justify == "LEFT" then
-                    local margin = 15
-                    if icon then
-                        icon:SetPoint("LEFT", f, "LEFT", margin, 0)
-                        icon:SetPoint("TOP", f, "CENTER", 0, currentY)
-                    end
-                    tVal:SetPoint("LEFT", f, "LEFT", margin + iconOffset, 0)
-                    tVal:SetPoint("TOP", f, "CENTER", 0, currentY)
-                    if hb then
-                        local w = tVal:GetStringWidth() + iconOffset
-                        hb:SetSize(math.max(w, 20), math.max(elem.size, 12)) 
-                        hb:SetPoint("LEFT", f, "LEFT", margin, 0)
-                        hb:SetPoint("TOP", f, "CENTER", 0, currentY)
-                    end
-                elseif justify == "RIGHT" then
-                     local margin = 5
-                     tVal:SetPoint("RIGHT", f, "RIGHT", -margin, 0)
-                     tVal:SetPoint("TOP", f, "CENTER", 0, currentY)
-                     if icon then
-                        icon:SetPoint("RIGHT", tVal, "LEFT", -4, 0)
-                        icon:SetPoint("TOP", f, "CENTER", 0, currentY)
+                 elemHeight = elem.size or 12
+            end
+
+            -- FIX: Offset logic
+            -- placementY is the CENTER of the element
+            -- Center = Top - (Height / 2)
+            local placementY = (currentY - (elemHeight / 2)) - offset
+
+            if elem.type == "Divider" then
+                local size = elem.size or 20
+                local thk = elem.thickness or 2
+                local style = elem.dividerStyle or "VERTICAL"
+                
+                if elem.dividerMode == "TEXT" then
+                     local tVal = f.textsVal[i]
+                     if tVal then
+                         tVal:ClearAllPoints()
+                         tVal:SetPoint("CENTER", f, "CENTER", 0, placementY)
                      end
-                      if hb then
-                        local w = tVal:GetStringWidth() + iconOffset
-                        hb:SetSize(math.max(w, 20), math.max(elem.size, 12)) 
-                        hb:SetPoint("RIGHT", f, "RIGHT", -margin, 0)
-                        hb:SetPoint("TOP", f, "CENTER", 0, currentY)
-                    end
                 else
-                    local w = tVal:GetStringWidth() + iconOffset
-                    local startX = -(w/2)
-                    if icon then icon:SetPoint("LEFT", f, "CENTER", startX, currentY) end
-                    tVal:SetPoint("LEFT", f, "CENTER", startX + iconOffset, currentY)
-                    if hb then
-                         hb:SetSize(math.max(w, 20), math.max(elem.size, 12)) 
-                         hb:SetPoint("CENTER", f, "CENTER", 0, currentY)
+                     local div = f.dividers and f.dividers[i]
+                     if div then
+                         div:ClearAllPoints()
+                         
+                         local isVertLayout = (conf.layout == "VERTICAL")
+                         local effectiveStyle = style
+                         if isVertLayout then effectiveStyle = "HORIZONTAL" end
+                         
+                         local w = (effectiveStyle=="VERTICAL") and thk or size
+                         local h = (effectiveStyle=="VERTICAL") and size or thk
+                         div:SetSize(w, h)
+                         div:SetPoint("CENTER", f, "CENTER", 0, placementY)
+                     end
+                end
+                -- Advance currentY by full height + padding
+                currentY = currentY - elemHeight
+                if i < #conf.elements then currentY = currentY - conf.padding end
+            elseif elem.type == "Dragonriding" then
+                -- Dragonriding positioning (VERTICAL)
+                local df = f.dragonFrames and f.dragonFrames[i]
+                if df then
+                    df:ClearAllPoints()
+                    df:SetPoint("CENTER", f, "CENTER", 0, placementY)
+                end
+                currentY = currentY - elemHeight
+                if i < #conf.elements then currentY = currentY - conf.padding end
+            else
+                local tVal = f.textsVal[i]
+                if tVal then
+                    local tLbl = isSplit and f.textsLbl[i] or nil
+                    local icon = f.icons[i] 
+                    local hb = f.hitboxes and f.hitboxes[i] 
+                    local iconOffset = (elem.showIcon and icon) and (elem.size + 4) or 0
+                    
+                    tVal:ClearAllPoints()
+                    if tLbl then tLbl:ClearAllPoints() end
+                    if icon then icon:ClearAllPoints() end
+                    if hb then hb:ClearAllPoints() end
+    
+                     tVal:SetWordWrap(false)
+                     local currentText = tVal:GetText() or ""
+                     local stableText = string.gsub(currentText, "%d", "0")
+                     
+                     if elem.type == "FPS" then
+                        local _, lbl = ForgeStats:GetStat(elem.type)
+                        if isSplit then
+                            stableText = "000"
+                        else
+                            stableText = "000" .. WithSpace(lbl)
+                        end
+                     end
+                     
+                     tVal:SetText(stableText)
+                     local stableContentW = tVal:GetStringWidth()
+                     tVal:SetText(currentText)
+                     
+                     local extraPadding = (elem.size or 12)
+                     local activeW = stableContentW + extraPadding
+    
+                    if isSplit then
+                        -- [FIX] "Spine" Alignment: Value Right | Label Left
+                        local centerGap = 2
+                        
+                        -- Value: Right Aligned to Center
+                        tVal:ClearAllPoints()
+                        tVal:SetWidth(stableContentW)
+                        tVal:SetJustifyH("RIGHT")
+                        tVal:SetPoint("RIGHT", f, "CENTER", -centerGap, placementY)
+                        
+                        -- Label: Left Aligned to Center
+                        if tLbl then
+                            tLbl:ClearAllPoints()
+                            tLbl:SetJustifyH("LEFT")
+                            tLbl:SetPoint("LEFT", f, "CENTER", centerGap, placementY)
+                        end
+                        
+                        -- Icon: Left of Value
+                        if icon then
+                            icon:ClearAllPoints()
+                            icon:SetPoint("RIGHT", tVal, "LEFT", -4, 0)
+                        end
+                        
+                        if hb then
+                            hb:SetPoint("LEFT", f, "LEFT", 0, 0)
+                            hb:SetPoint("RIGHT", f, "RIGHT", 0, 0)
+                            hb:SetHeight(elem.size)
+                            hb:SetPoint("CENTER", f, "CENTER", 0, placementY)
+                        end
+                    else
+                        if justify == "LEFT" then
+                            local margin = 15
+                            if icon then
+                                icon:SetPoint("LEFT", f, "LEFT", margin, placementY)
+                            end
+                            tVal:SetPoint("LEFT", f, "LEFT", margin + iconOffset, placementY)
+                            if hb then
+                                local w = activeW + iconOffset
+                                hb:SetSize(math.max(w, 20), math.max(elem.size, 12)) 
+                                hb:SetPoint("LEFT", f, "LEFT", margin, placementY)
+                            end
+                        elseif justify == "RIGHT" then
+                             local margin = 5
+                             tVal:SetPoint("RIGHT", f, "RIGHT", -margin, placementY)
+                             if icon then
+                                icon:SetPoint("RIGHT", tVal, "LEFT", -4, 0)
+                             end
+                              if hb then
+                                local w = activeW + iconOffset
+                                hb:SetSize(math.max(w, 20), math.max(elem.size, 12)) 
+                                hb:SetPoint("RIGHT", f, "RIGHT", -margin, placementY)
+                            end
+                        else
+                            local w = activeW + iconOffset
+                            local startX = -(w/2)
+                            if icon then icon:SetPoint("LEFT", f, "CENTER", startX, placementY) end
+                            tVal:SetPoint("LEFT", f, "CENTER", startX + iconOffset, placementY)
+                            if hb then
+                                 hb:SetSize(math.max(w, 20), math.max(elem.size, 12)) 
+                                 hb:SetPoint("CENTER", f, "CENTER", 0, placementY)
+                            end
+                        end
                     end
+                    -- Advance currentY by full height + padding (using pre-calculated height)
+                    currentY = currentY - elemHeight
+                    if i < #conf.elements then currentY = currentY - conf.padding end
                 end
             end
-            currentY = currentY - (elem.size) - conf.padding
         end
     else
         -- HORIZONTAL
+        local contentCenterY = -(titleHeight / 2) -- Center offset for horizontal (accounts for title)
         local startX = 0
         if justify == "LEFT" then startX = -(barWidth / 2) + 5
         elseif justify == "RIGHT" then startX = (barWidth / 2) - totalW - 5
         else startX = -(totalW / 2) end
         
         local currentX = startX
-        local currentY = contentCenterY 
+        -- [FIX] Vertical Center Adjustment: Move down by 1px for better visual centering
+        local currentY = contentCenterY - 1 
         
         for i, elem in ipairs(conf.elements) do
-            local tVal = f.textsVal[i]
-            local icon = f.icons[i]
-            local hb = f.hitboxes and f.hitboxes[i] 
-            local iconOffset = (elem.showIcon and icon) and (elem.size + 4) or 0
-            
-            tVal:ClearAllPoints()
-            if icon then icon:ClearAllPoints() end
-            if hb then hb:ClearAllPoints() end
-            
-            if icon then icon:SetPoint("LEFT", f, "CENTER", currentX, currentY) end
-            tVal:SetPoint("LEFT", f, "CENTER", currentX + iconOffset, currentY)
-            local w = tVal:GetStringWidth() + iconOffset
-            if hb then
-                hb:SetSize(w, math.max(16, elem.size)) 
-                hb:SetPoint("LEFT", f, "CENTER", currentX, currentY)
+            local offset = elem.offset or 0
+            -- FIX: Offset logic (Visual Only)
+            local placementX = currentX + offset
+
+            if elem.type == "Divider" then
+                local tVal = f.textsVal[i]
+                local div = f.dividers and f.dividers[i]
+                
+                local style = elem.dividerStyle or "VERTICAL"
+                local size = elem.size or 20
+                local thk = elem.thickness or 2
+                local divWidth = 0
+                
+                if elem.dividerMode == "TEXT" then
+                    if tVal then
+                         tVal:ClearAllPoints()
+                         -- Use LEFT alignment for standard flow
+                         tVal:SetPoint("LEFT", f, "CENTER", placementX, currentY) 
+                         divWidth = tVal:GetStringWidth()
+                    end
+                    if div then div:Hide() end
+                else
+                    if tVal then tVal:Hide() end
+                    if div then
+                         div:Show()
+                         div:ClearAllPoints()
+                         -- Width depends on Style
+                         -- If VERTICAL Style: it's a TALL line, Width = thk
+                         -- If HORIZONTAL Style: it's a WIDE line, Width = size
+                         local w = (style=="VERTICAL") and thk or size
+                         local h = (style=="VERTICAL") and size or thk
+                         div:SetSize(w, h)
+                         div:SetPoint("LEFT", f, "CENTER", placementX, currentY) 
+                         divWidth = w
+                    end
+                end
+                
+                currentX = currentX + divWidth + conf.padding
+            elseif elem.type == "Dragonriding" then
+                -- Dragonriding positioning (HORIZONTAL)
+                local df = f.dragonFrames and f.dragonFrames[i]
+                if df then
+                    df:ClearAllPoints()
+                    df:SetPoint("LEFT", f, "CENTER", placementX, currentY)
+                end
+                currentX = currentX + (elem.widgetWidth or 300) + conf.padding
+            else
+                local tVal = f.textsVal[i]
+                if tVal then -- Check existence
+                    local icon = f.icons[i]
+                    local hb = f.hitboxes and f.hitboxes[i] 
+                    local iconOffset = (elem.showIcon and icon) and (elem.size + 4) or 0
+                    
+                    tVal:ClearAllPoints()
+                    if icon then icon:ClearAllPoints() end
+                    if hb then hb:ClearAllPoints() end
+                    
+                    if icon then icon:SetPoint("LEFT", f, "CENTER", placementX, currentY) end
+                    tVal:SetWordWrap(false)
+                    tVal:SetPoint("LEFT", f, "CENTER", placementX + iconOffset, currentY)
+                    
+                    local currentText = tVal:GetText() or ""
+                    local stableText = string.gsub(currentText, "%d", "0")
+                    
+                    if elem.type == "FPS" then
+                        local _, lbl = ForgeStats:GetStat(elem.type)
+                        if isSplit then
+                            stableText = "000"
+                        else
+                            stableText = "000" .. WithSpace(lbl)
+                        end
+                    end
+                    
+                    tVal:SetText(stableText)
+                    local stableContentW = tVal:GetStringWidth()
+                    tVal:SetText(currentText)
+                    
+                    local extraPadding = (elem.size or 12)
+                    local w = stableContentW + extraPadding + iconOffset
+
+                    if hb then
+                        hb:SetSize(w, math.max(16, elem.size)) 
+                        hb:SetPoint("LEFT", f, "CENTER", placementX, currentY)
+                    end
+                    currentX = currentX + w + conf.padding
+                end
             end
-            currentX = currentX + w + conf.padding
         end
     end
 end
@@ -593,8 +1193,8 @@ updateFrame:SetScript("OnUpdate", function(self, elapsed)
                 end
             end
         end
-        -- [FIX: TIMER DRIFT] Zaman kaymasını önle
-        timer = timer - WIDGETFORGE_CONSTANTS.UPDATE_INTERVAL
+        -- [FIX: TIMER DRIFT] Reset timer to 0 instead of subtracting
+        timer = 0
     end
 end)
 

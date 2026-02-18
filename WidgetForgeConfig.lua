@@ -27,11 +27,12 @@ Config.DefaultSettings = {
 }
 
 Config.ElementTypes = {
-    "FPS", "MS", "Clock", "RAM", "Durability", "Bag Space", 
+    "Divider", "FPS", "MS", "Clock", "RAM", "Durability", "Bag Space", 
     "Stamina", "Main Stat", 
     "Crit", "Haste", "Mastery", "Versatility", 
-    "Avoidance", "Leech", "Speed", "Dodge", "Parry",
-    "Gold", "Zone", "Coords", "Item Level", "Combat Timer", "XP"
+    "Avoidance", "Leech", "Speed", "Run Speed", "Dodge", "Parry", "Armor", "Max HP",
+    "Gold", "Zone", "Coords", "Item Level", "Combat Timer", "XP",
+    "Dragonriding"
 }
 
 Config.Presets = {
@@ -70,6 +71,20 @@ Config.Presets = {
             {type="Bag Space", size=12, color={1,1,1,1}, showIcon=true},
             {type="Item Level", size=12, color={1,0.5,1,1}, showIcon=true}
         }
+    }},
+    { text = "Dragonriding HUD", value = {
+        name = "Skyriding", width = 320, height = 50, bgColor = {0,0,0,0}, layout="HORIZONTAL", padding=0,
+        showBorder = false,
+        elements = {
+            {type="Dragonriding", size=14, color={1,1,1,1},
+             vigorFillColor = {0, 0.85, 0.85, 1},
+             vigorEmptyColor = {0.15, 0.15, 0.15, 1},
+             speedBarColor = {0.7, 0, 0.7, 1},
+             speedEmptyColor = {0.15, 0.15, 0.15, 1},
+             speedTextColor = {1, 1, 1, 1},
+             widgetWidth = 300, widgetHeight = 45
+            }
+        }
     }}
 }
 
@@ -78,10 +93,11 @@ function Config:OpenConfigWindow()
     if Config.Frame then Config.Frame:Show(); return end
     
     local f = CreateFrame("Frame", "EsrefConfigFrame", UIParent, "BackdropTemplate")
-    f:SetSize(900, 600) 
+    f:SetSize(870, 600) 
     f:SetPoint("CENTER")
     f:SetFrameStrata("HIGH")
     Skin:ApplyBackdrop(f)
+    tinsert(UISpecialFrames, "EsrefConfigFrame")
     
     Skin:CreateTitleBar(f, "WidgetForge | Advanced Status Bars", function() f:Hide() end)
     
@@ -267,7 +283,7 @@ function Config:OpenConfigWindow()
     mainPanel:SetPoint("BOTTOMRIGHT", -10, 50)
     Skin:ApplyBackdrop(mainPanel, 0.2, 0.5)
 
-    local scrollDetails, contentDetails = Skin:CreateScrollFrame(mainPanel, 660, 510) 
+    local scrollDetails, contentDetails = Skin:CreateScrollFrame(mainPanel, 630, 510) 
     scrollDetails:SetPoint("TOPLEFT", 0, 0)
     scrollDetails:SetPoint("BOTTOMRIGHT", 0, 0)
     
@@ -325,14 +341,38 @@ function Config:RefreshBarList()
             y = y - 35
         end
     end
+    
+    -- [FIX] Update Content Height so ScrollFrame works
+    content:SetHeight(math.max(1, math.abs(y)))
 end
 
 function Config:SelectBar(index)
+    Config.isUpdatingScale = false -- Reset stuck flag
     Config.SelectedBarIndex = index
     
     if WidgetForge.SetSelectedBar then WidgetForge:SetSelectedBar(index) end
     Config:RefreshBarList() 
     
+    function Config:UpdateCoordinates(index)
+    -- Only update if the dragged bar is the currently selected one
+    if Config.SelectedBarIndex ~= index then return end
+    if not Config.Frame or not Config.Frame:IsShown() then return end
+    
+    local bar = WidgetForgeDB.bars[index]
+    if not bar then return end
+
+    Config.isUpdatingScale = true -- Suppress callbacks
+    if Config.slX then
+        Config.slX:SetValue(bar.x)
+        Config.slX.editBox:SetText(tostring(math.floor(bar.x)))
+    end
+    
+    if Config.slY then
+        Config.slY:SetValue(bar.y)
+        Config.slY.editBox:SetText(tostring(math.floor(bar.y)))
+    end
+    Config.isUpdatingScale = false
+end
     local content = Config.DetailsContent
     if not content then return end 
     content:HideAllChildren()
@@ -341,18 +381,33 @@ function Config:SelectBar(index)
     local bar = WidgetForgeDB.bars[index]
     if not bar then return end
     
+    if not bar.elements then bar.elements = {} end
+    
+    -- [ISOLATION CHECK]
+    local isExclusive = false
+    local exclusiveType = nil
+    for _, e in ipairs(bar.elements) do
+        if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" then 
+            isExclusive = true
+            exclusiveType = e.type
+            break 
+        end
+    end
+    
     local y = -10
     
     -- --- SECTION 1: BAR LAYOUT ---
-    local hLayout = Skin:CreateSectionHeader(content, "Bar Layout: " .. bar.name, 620)
+    local hLayout
+    if not isExclusive then
+        hLayout = Skin:CreateSectionHeader(content, "Bar Layout: " .. bar.name, 600)
+    else
+        hLayout = Skin:CreateSectionHeader(content, "Bar: " .. bar.name .. " LAYOUT LOCKED", 600)
+        if hLayout.text then hLayout.text:SetTextColor(1, 0.3, 0.3, 1) end
+    end
     hLayout:SetPoint("TOPLEFT", 10, y)
-    
-    -- [DUZELTME] Düğmeyi ve Dropdown'ı doğru sırayla oluşturuyoruz.
-    -- Hedef: [Dropdown] [Güç Düğmesi(En Sağda)]
     
     -- 1. ENABLE / DISABLE TOGGLE BUTTON (En Sağa Yaslı)
     local btnEnable = Skin:CreateButton(content, "ENABLED", 80, 25)
-    -- hLayout (Başlık Çizgisi) referans alınarak en sağa (-2 px boşlukla) yaslanır.
     btnEnable:SetPoint("TOPRIGHT", hLayout, "TOPRIGHT", -2, 2) 
     
     local function UpdateEnableButton()
@@ -361,11 +416,10 @@ function Config:SelectBar(index)
             btnEnable:SetBackdropBorderColor(0, 1, 0, 1)
             btnEnable.text:SetText("ENABLED")
             btnEnable.text:SetTextColor(1, 1, 1, 1)
--- Hover: Hafif parlak
             btnEnable:SetScript("OnEnter", function() btnEnable:SetBackdropColor(0.65, 1.0, 0.65, 1) end)
             btnEnable:SetScript("OnLeave", function() btnEnable:SetBackdropColor(0.5, 0.8, 0.5, 1) end)
         else
-            btnEnable:SetBackdropColor(0.7, 0, 0, 1) -- KIRMIZI
+            btnEnable:SetBackdropColor(0.7, 0, 0, 1)
             btnEnable:SetBackdropBorderColor(1, 0, 0, 1)
             btnEnable.text:SetText("DISABLED")
             btnEnable.text:SetTextColor(1, 1, 1, 1)
@@ -404,7 +458,6 @@ function Config:SelectBar(index)
         WidgetForge:UpdateAvailableBars()
         Config:RefreshBarList() 
     end)
-    -- Dropdown'ı Düğmenin SOLUNA (-5 px boşlukla) yaslıyoruz.
     ddScope:SetPoint("RIGHT", btnEnable, "LEFT", -5, 0)
     
     y = y - 40
@@ -414,7 +467,7 @@ function Config:SelectBar(index)
     lblName:SetPoint("TOPLEFT", 10, y - 8); lblName:SetText("Bar Name:"); lblName:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
     
     local ebNameFrame = CreateFrame("Frame", nil, content, "BackdropTemplate")
-    ebNameFrame:SetSize(180, 25); ebNameFrame:SetPoint("TOPLEFT", 90, y)
+    ebNameFrame:SetSize(150, 25); ebNameFrame:SetPoint("TOPLEFT", 90, y)
     Skin:ApplyBackdrop(ebNameFrame); ebNameFrame:SetBackdropColor(0,0,0,0.5); ebNameFrame:SetBackdropBorderColor(0.2, 0.2, 0.2, 1)
     local ebName = CreateFrame("EditBox", nil, ebNameFrame)
     ebName:SetAllPoints(ebNameFrame); ebName:SetFont(Skin.Constants.FONT_NORMAL, 12, "OUTLINE")
@@ -426,154 +479,410 @@ function Config:SelectBar(index)
     end)
     ebName:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
 
-    local chkTitle = Skin:CreateCheckbox(content, "Show Title Bar", bar.showTitle, function(v) bar.showTitle = v; WidgetForge:RebuildBarComponents(index) end)
-    chkTitle:SetPoint("TOPLEFT", 290, y - 3)
+    if not isExclusive then
+        local chkTitle = Skin:CreateCheckbox(content, "Show Title Bar", bar.showTitle, function(v) bar.showTitle = v; WidgetForge:RebuildBarComponents(index) end)
+        chkTitle:SetPoint("TOPLEFT", 260, y - 3)
 
-    local chkLayout = Skin:CreateCheckbox(content, "Vertical Layout", bar.layout == "VERTICAL", function(v) bar.layout = v and "VERTICAL" or "HORIZONTAL"; Config:SelectBar(index); WidgetForge:RebuildBarComponents(index) end)
-    chkLayout:SetPoint("TOPLEFT", 430, y - 3)
-    y = y - 40
+        local chkLayout = Skin:CreateCheckbox(content, "Vertical Layout", bar.layout == "VERTICAL", function(v) bar.layout = v and "VERTICAL" or "HORIZONTAL"; Config:SelectBar(index); WidgetForge:RebuildBarComponents(index) end)
+        chkLayout:SetPoint("TOPLEFT", 430, y - 3)
+        y = y - 40
 
-    -- Row 2: Alignment, Spacing, BG
-    local lblJ = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    lblJ:SetPoint("TOPLEFT", 10, y - 8); lblJ:SetText("Alignment:"); lblJ:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
-    local ddJustify = Skin:CreateDropdown(content, 120, { "LEFT", "CENTER", "RIGHT" }, bar.justify or "CENTER", function(v) bar.justify = v; WidgetForge:RebuildBarComponents(index) end)
-    ddJustify:SetPoint("TOPLEFT", 90, y)
+        -- Row 2: Alignment, Spacing, BG
+        -- Row 2: Alignment, Spacing
+        local lblJ = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        lblJ:SetPoint("TOPLEFT", 10, y - 8); lblJ:SetText("Alignment:"); lblJ:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
+        local ddJustify = Skin:CreateDropdown(content, 150, { "LEFT", "CENTER", "RIGHT" }, bar.justify or "CENTER", function(v) bar.justify = v; WidgetForge:RebuildBarComponents(index) end)
+        ddJustify:SetPoint("TOPLEFT", 90, y)
 
-    local lblPad = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    lblPad:SetPoint("TOPLEFT", 230, y - 8); lblPad:SetText("Spacing:"); lblPad:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
-    local slPad = Skin:CreateSlider(content, 0, 50, 1, bar.padding or 5, function(v) bar.padding = v; WidgetForge:UpdateAvailableBars() end, 120)
-    slPad:SetPoint("TOPLEFT", 290, y)
+        -- Spacing Slider (Aligned with Y slider at 260)
+        local slPad = Skin:CreateSlider(content, -10, 50, 1, bar.padding or 5, function(v) bar.padding = v; WidgetForge:UpdateAvailableBars() end, 150)
+        slPad:SetPoint("TOPLEFT", 260, y)
+        local lblPad = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        lblPad:SetPoint("LEFT", slPad, "RIGHT", 5, 0); lblPad:SetText("Spacing"); lblPad:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
 
-    local lblBg = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    lblBg:SetPoint("TOPLEFT", 430, y - 8); lblBg:SetText("Bg Color:"); lblBg:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
-    local btnBg = CreateFrame("Button", nil, content, "BackdropTemplate")
-    btnBg:SetSize(20, 20); btnBg:SetPoint("TOPLEFT", 500, y - 3 ) 
-    Skin:ApplyBackdrop(btnBg); local bg = bar.bgColor or {0, 0, 0, 0.5}; btnBg:SetBackdropColor(unpack(bg))
-    
-    -- [DUZELTME BAŞLANGICI] Arka Plan Rengi Seçici (Cancel Fonksiyonu Eklendi)
-    btnBg:SetScript("OnClick", function()
-        local oldColor = {bg[1], bg[2], bg[3], bg[4]} -- Değerleri kopyalayarak sakla
-        local info = { 
-            r=bg[1], g=bg[2], b=bg[3], opacity=bg[4], 
-            swatchFunc = function(c) 
-                bar.bgColor = c; 
-                btnBg:SetBackdropColor(unpack(c)); 
-                WidgetForge:UpdateAvailableBars() 
-            end,
-            cancelFunc = function()
-                bar.bgColor = oldColor -- Eski rengi geri yükle
-                btnBg:SetBackdropColor(unpack(oldColor))
-                WidgetForge:UpdateAvailableBars()
-            end
-        }
-        Skin:ShowColorPicker(info)
-    end)
-    -- [DUZELTME BITIŞI]
-    
-    -- [DUZELTME BITIŞI]
-    
-    y = y - 40
+        y = y - 40
 
-    -- Row 3: Position (Manual X/Y)
-    local lblPos = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    lblPos:SetPoint("TOPLEFT", 10, y - 8); lblPos:SetText("Position:"); lblPos:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
-    
-    local slX = Skin:CreateSlider(content, -math.floor(GetScreenWidth()/2), math.floor(GetScreenWidth()/2), 1, bar.x or 0, function(v) 
-        bar.x = v; 
-        WidgetForge:UpdateAvailableBars() 
-    end, 150)
-    slX:SetPoint("TOPLEFT", 90, y)
-    -- Slider label customization (X)
-    local slXLabel = slX.track:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    slXLabel:SetPoint("BOTTOM", slX.track, "TOP", 0, 2); slXLabel:SetText("X")
-    
-    local slY = Skin:CreateSlider(content, -math.floor(GetScreenHeight()/2), math.floor(GetScreenHeight()/2), 1, bar.y or 0, function(v) 
-        bar.y = v; 
-        WidgetForge:UpdateAvailableBars() 
-    end, 150)
-    slY:SetPoint("TOPLEFT", 260, y)
-    -- Slider label customization (Y)
-    local slYLabel = slY.track:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    slYLabel:SetPoint("BOTTOM", slY.track, "TOP", 0, 2); slYLabel:SetText("Y")
+    else
+        y = y - 40 
+    end
 
-    -- Click Through Checkbox
-    local chkClick = Skin:CreateCheckbox(content, "Click Through (Non-Interactive)", bar.clickThrough, function(v) 
-        bar.clickThrough = v
-        -- [FIX] Config açıkken 'Click Through' değiştiğinde barları kilitleme (kilitlemek sürüklemeyi engeller). 
-        -- Aksine açık kalmalarını (False) garantile.
-        WidgetForge:SetBarsLocked(false) 
+    -- Row 3: Position (Manual X/Y) - Hidden for Cursor Ring AND Retirement Home
+    if exclusiveType ~= "Cursor Ring" and exclusiveType ~= "Retirement Home" then
+        local lblPos = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        lblPos:SetPoint("TOPLEFT", 10, y - 8); lblPos:SetText("Position:"); lblPos:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
         
-        -- [refresh] UI'yı yenile ki Tip checkboxları disable olsun
-        C_Timer.After(0.05, function() Config:SelectBar(index) end)
-    end)
-    chkClick:SetPoint("TOPLEFT", 430, y - 3)
+        local slX = Skin:CreateSlider(content, -math.floor(GetScreenWidth()/2), math.floor(GetScreenWidth()/2), 1, bar.x or 0, function(v) 
+            if Config.isUpdatingScale then return end
+            bar.x = v; 
+            WidgetForge:UpdateAvailableBars() 
+        end, 150)
+        slX:SetPoint("TOPLEFT", 90, y)
+        local slXLabel = slX.track:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        slXLabel:SetPoint("TOP", slX.track, "BOTTOM", 0, -12); slXLabel:SetText("X")
+        Config.slX = slX
+        
+        local slY = Skin:CreateSlider(content, -math.floor(GetScreenHeight()/2), math.floor(GetScreenHeight()/2), 1, bar.y or 0, function(v) 
+            if Config.isUpdatingScale then return end
+            bar.y = v; 
+            WidgetForge:UpdateAvailableBars() 
+        end, 150)
+        slY:SetPoint("TOPLEFT", 260, y)
+        local slYLabel = slY.track:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        slYLabel:SetPoint("TOP", slY.track, "BOTTOM", 0, -12); slYLabel:SetText("Y")
+        Config.slY = slY
 
-    y = y - 50
 
-    -- --- SECTION 2: BAR SIZE ---
-    local hSize = Skin:CreateSectionHeader(content, "Bar Size", 620); hSize:SetPoint("TOPLEFT", 10, y); y = y - 40
-    local lblW = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); lblW:SetPoint("TOPLEFT", 10, y - 8); lblW:SetText("Bar Width:"); lblW:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
-    local slW = Skin:CreateSlider(content, 50, 600, 5, bar.width, function(v) bar.width = v; WidgetForge:UpdateAvailableBars() end, 150); slW:SetPoint("TOPLEFT", 90, y)
-    local lblH = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); lblH:SetPoint("TOPLEFT", 260, y - 8); lblH:SetText("Bar Height:"); lblH:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
-    local slH = Skin:CreateSlider(content, 10, 200, 2, bar.height, function(v) bar.height = v; WidgetForge:UpdateAvailableBars() end, 150); slH:SetPoint("TOPLEFT", 340, y)
-    y = y - 50
+    end
+
+    -- Reduce gap for Cursor Ring (most controls hidden)
+    if exclusiveType == "Cursor Ring" or exclusiveType == "Retirement Home" then
+        y = y - 10
+    else
+        y = y - 50
+    end
+
+    -- --- SECTION 2: BACKGROUND BAR SETTINGS ---
+    if not isExclusive then
+        local hSize = Skin:CreateSectionHeader(content, "Background Bar Settings", 600); hSize:SetPoint("TOPLEFT", 10, y); y = y - 40
+        -- Row 1: Width | Height 
+        local lblW = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); lblW:SetPoint("TOPLEFT", 10, y - 8); lblW:SetText("Width:"); lblW:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
+        local slW = Skin:CreateSlider(content, 50, 600, 5, bar.width, function(v) bar.width = v; WidgetForge:UpdateAvailableBars() end, 150); slW:SetPoint("TOPLEFT", 90, y)
+        
+        local slH = Skin:CreateSlider(content, 10, 200, 2, bar.height, function(v) bar.height = v; WidgetForge:UpdateAvailableBars() end, 150); slH:SetPoint("TOPLEFT", 260, y)
+        local lblH = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); lblH:SetPoint("LEFT", slH, "RIGHT", 5, 0); lblH:SetText("Height"); lblH:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
+        
+        y = y - 40
+
+        -- Row 2: Bg Color
+
+        -- [NEW] Bg Color (Moved Here - Next Row)
+        local lblBg = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        lblBg:SetPoint("TOPLEFT", 10, y - 8); lblBg:SetText("Bg Color:"); lblBg:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
+        local btnBg = CreateFrame("Button", nil, content, "BackdropTemplate")
+        btnBg:SetSize(20, 20); btnBg:SetPoint("TOPLEFT", 90, y - 3 ) 
+        Skin:ApplyBackdrop(btnBg); local bg = bar.bgColor or {0, 0, 0, 0.5}; btnBg:SetBackdropColor(unpack(bg))
+        
+        btnBg:SetScript("OnClick", function()
+            local oldColor = {bg[1], bg[2], bg[3], bg[4]} 
+            local info = { 
+                r=bg[1], g=bg[2], b=bg[3], opacity=bg[4], 
+                swatchFunc = function(c) 
+                    bar.bgColor = c; 
+                    btnBg:SetBackdropColor(unpack(c)); 
+                    WidgetForge:UpdateAvailableBars() 
+                end,
+                cancelFunc = function()
+                    bar.bgColor = oldColor 
+                    btnBg:SetBackdropColor(unpack(oldColor))
+                    WidgetForge:UpdateAvailableBars()
+                end
+            }
+            Skin:ShowColorPicker(info)
+        end)
+
+        -- [Moved Here] Click Through
+        local chkClick = Skin:CreateCheckbox(content, "Click Through (Non-Interactive)", bar.clickThrough, function(v) 
+            bar.clickThrough = v
+            WidgetForge:SetBarsLocked(false) 
+            C_Timer.After(0.05, function() Config:SelectBar(index) end)
+        end)
+        chkClick:SetPoint("TOPLEFT", 260, y - 3) -- Next column at 260
+
+        y = y - 40
+    end
 
     -- --- SECTION 3: BORDER SETTINGS ---
-    local hBorder = Skin:CreateSectionHeader(content, "Border Settings", 620); hBorder:SetPoint("TOPLEFT", 10, y); y = y - 40
-    local lblBS = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); lblBS:SetPoint("TOPLEFT", 10, y - 8); lblBS:SetText("Border Size:"); lblBS:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
-    local slBS = Skin:CreateSlider(content, 1, 10, 1, bar.borderSize or 1, function(v) bar.borderSize = v; WidgetForge:UpdateAvailableBars() end, 150); slBS:SetPoint("TOPLEFT", 90, y)
-    local lblBC = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); lblBC:SetPoint("TOPLEFT", 260, y - 8); lblBC:SetText("Border Color:"); lblBC:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
-    local btnBC = CreateFrame("Button", nil, content, "BackdropTemplate"); btnBC:SetSize(20, 20); btnBC:SetPoint("TOPLEFT", 340, y - 3); Skin:ApplyBackdrop(btnBC); local bc = bar.borderColor or {0.2, 0.2, 0.2, 1}; btnBC:SetBackdropColor(unpack(bc))
-    
-    -- [DUZELTME BAŞLANGICI] Çerçeve Rengi Seçici (Cancel Fonksiyonu Eklendi)
-    btnBC:SetScript("OnClick", function() 
-        local oldColor = {bc[1], bc[2], bc[3], bc[4]} -- Değerleri kopyalayarak sakla
-        local info = { 
-            r=bc[1], g=bc[2], b=bc[3], opacity=bc[4], 
-            swatchFunc = function(c) 
-                bar.borderColor = c; 
-                btnBC:SetBackdropColor(unpack(c)); 
-                WidgetForge:UpdateAvailableBars() 
-            end,
-            cancelFunc = function()
-                bar.borderColor = oldColor -- Eski rengi geri yükle
-                btnBC:SetBackdropColor(unpack(oldColor))
-                WidgetForge:UpdateAvailableBars()
-            end
-        }; 
-        Skin:ShowColorPicker(info) 
-    end)
-    -- [DUZELTME BITIŞI]
+    -- [FIX] Hide Global Border Settings if Exclusive Widget is present
+    -- Check is already done via isExclusive
+    if not isExclusive then
+        local hBorder = Skin:CreateSectionHeader(content, "Border Settings", 600); hBorder:SetPoint("TOPLEFT", 10, y); y = y - 40
+        local lblBS = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); lblBS:SetPoint("TOPLEFT", 10, y - 8); lblBS:SetText("Border Size:"); lblBS:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
+        local slBS = Skin:CreateSlider(content, 1, 10, 1, bar.borderSize or 1, function(v) bar.borderSize = v; WidgetForge:UpdateAvailableBars() end, 150); slBS:SetPoint("TOPLEFT", 90, y)
+        local lblBC = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); lblBC:SetPoint("TOPLEFT", 260, y - 8); lblBC:SetText("Border Color:"); lblBC:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
+        local btnBC = CreateFrame("Button", nil, content, "BackdropTemplate"); btnBC:SetSize(20, 20); btnBC:SetPoint("TOPLEFT", 340, y - 3); Skin:ApplyBackdrop(btnBC); local bc = bar.borderColor or {0.2, 0.2, 0.2, 1}; btnBC:SetBackdropColor(unpack(bc))
+        
+        btnBC:SetScript("OnClick", function() 
+            local oldColor = {bc[1], bc[2], bc[3], bc[4]} 
+            local info = { 
+                r=bc[1], g=bc[2], b=bc[3], opacity=bc[4], 
+                swatchFunc = function(c) 
+                    bar.borderColor = c; 
+                    btnBC:SetBackdropColor(unpack(c)); 
+                    WidgetForge:UpdateAvailableBars() 
+                end,
+                cancelFunc = function()
+                    bar.borderColor = oldColor 
+                    btnBC:SetBackdropColor(unpack(oldColor))
+                    WidgetForge:UpdateAvailableBars()
+                end
+            }; 
+            Skin:ShowColorPicker(info) 
+        end)
 
-    local chkBorder = Skin:CreateCheckbox(content, "Show", bar.showBorder, function(v) bar.showBorder = v; WidgetForge:UpdateAvailableBars() end); chkBorder:SetPoint("TOPLEFT", 430, y - 3)
-    y = y - 60
+        local chkBorder = Skin:CreateCheckbox(content, "Show", bar.showBorder, function(v) bar.showBorder = v; WidgetForge:UpdateAvailableBars() end); chkBorder:SetPoint("TOPLEFT", 430, y - 3)
+        y = y - 40
+    end
 
     -- --- ELEMENTS ---
-    local headEl = Skin:CreateSectionHeader(content, "Bar Elements", 620); headEl:SetPoint("TOPLEFT", 10, y); y = y - 40
-
-    local gridX, gridY = 0, 0
-    for i, typeName in ipairs(Config.ElementTypes) do
-        local btn = Skin:CreateButton(content, typeName, 120, 20)
-        btn:SetPoint("TOPLEFT", 10 + (gridX * 125), y - (gridY * 25))
-        local exists = false
-        for _, e in ipairs(bar.elements) do if e.type == typeName then exists = true; break end end
-        if exists then
-            btn:SetBackdropColor(unpack(Skin.Colors.accent)); btn:SetBackdropBorderColor(1, 1, 1, 1); btn.text:SetTextColor(1, 1, 1, 1); btn:SetScript("OnEnter", nil); btn:SetScript("OnLeave", nil)
-            btn:SetScript("OnClick", function() for idx, e in ipairs(bar.elements) do if e.type == typeName then table.remove(bar.elements, idx); break end end; C_Timer.After(0.05, function() Config:SelectBar(index); WidgetForge:RebuildBarComponents(index) end) end)
-        else
-            btn:SetScript("OnClick", function() table.insert(bar.elements, { type = typeName, label = typeName, color = {1,1,1,1}, font = "Friz Quadrata", size = 14, outline = "OUTLINE" }); C_Timer.After(0.05, function() Config:SelectBar(index); WidgetForge:RebuildBarComponents(index) end) end)
+    local headEl = Skin:CreateSectionHeader(content, "Bar Elements", 600); headEl:SetPoint("TOPLEFT", 10, y); y = y - 40
+    
+    -- [ISOLATION CHECK]
+    local barMode = "EMPTY" -- EMPTY, STANDARD, OVERLAY, STRICT
+    local OverlayTypes = { ["Cursor Ring"] = true, ["Retirement Home"] = true, ["Mythic+ Dashboard"] = true }
+    
+    if bar.elements and #bar.elements > 0 then
+        barMode = "STANDARD" -- Default
+        for _, e in ipairs(bar.elements) do
+            if e.type == "Dragonriding" then 
+                barMode = "STRICT"
+                break 
+            elseif OverlayTypes[e.type] then
+                barMode = "OVERLAY"
+                -- Don't break yet, ensure no mixed states (though blocked by logic)
+            end
         end
-        gridX = gridX + 1; if gridX > 4 then gridX = 0; gridY = gridY + 1 end
+        -- Safety: If mixed Standard + Overlay found (shouldn't happen), Standard takes precedence logic? 
+        -- Actually we enforce isolation on add, so this check is just detection.
     end
-    y = y - (gridY * 25) - 40
+    
+    -- [CATEGORIES DATA]
+    local categories = {
+        { name = "System & Performance", elements = { "FPS", "MS", "Clock" } },
+        { name = "Player Stats", elements = { "Main Stat", "Stamina", "Crit", "Haste", "Mastery", "Versatility", "Avoidance", "Leech", "Speed", "Run Speed", "Dodge", "Parry", "Armor", "Max HP" } },
+        { name = "Progression & Goods", elements = { "XP", "Gold", "Bag Space", "Item Level", "Durability" } },
+        { name = "Navigation", elements = { "Zone", "Coords" } },
+        { name = "Dungeon & Raid", elements = { "Mythic+ Dashboard" } },
+        { name = "Utils", elements = { "Dragonriding", "Cursor Ring", "Combat Timer", "Retirement Home" } }
+    }
+    
+    -- [ACCORDION RENDERING & FILTER LOGIC]
+    Config.AccordionStates = Config.AccordionStates or {} 
+    
+    local accFrameList = {}
+    local activeElementsFrame = CreateFrame("Frame", nil, content, "BackdropTemplate")
+    activeElementsFrame:SetWidth(600)
+    activeElementsFrame:SetHeight(1) 
+    
+    -- Separator Line (Standardized via ForgeSkin)
+    local listSeparator = Skin:CreateSeparator(content, 600) 
+
+    -- Capture starting Y to prevent closure issues if 'y' is modified later in SelectBar
+    local accordionStartY = y 
+    
+    local function UpdateAccordionLayout()
+        local currentY = accordionStartY
+        for _, acc in ipairs(accFrameList) do
+            if acc:IsShown() then
+                acc:SetPoint("TOPLEFT", 10, currentY)
+                currentY = currentY - acc:GetHeight() - 5
+            end
+        end
+        
+        -- Position Separator (Start and End match standard widths)
+        local sepY = currentY - 10
+        listSeparator:ClearAllPoints()
+        listSeparator:SetPoint("TOPLEFT", 10, sepY)
+        
+        -- Move Active Elements List below separator
+        activeElementsFrame:SetPoint("TOPLEFT", 0, currentY - 25)
+        
+        local totalH = math.abs(accordionStartY) + math.abs(currentY - accordionStartY) + activeElementsFrame:GetHeight() + 100
+        content:SetHeight(totalH) 
+    end
+
+    -- [FILTER DROPDOWN] (Multi-Select)
+    -- Initialize selection state if missing
+    if not Config.SelectedElementCategories then
+        Config.SelectedElementCategories = { ["ALL"] = true }
+        for _, c in ipairs(categories) do Config.SelectedElementCategories[c.name] = true end
+    end
+    
+    local filterList = { {text="Show All", value="ALL"} }
+    for _, c in ipairs(categories) do table.insert(filterList, {text=c.name, value=c.name}) end
+    
+    local ddFilter = Skin:CreateMultiDropdown(content, 180, filterList, Config.SelectedElementCategories, function(val, newState)
+        -- Update Accordion Visibility In-Place
+        for _, acc in ipairs(accFrameList) do
+            local isVisible = Config.SelectedElementCategories["ALL"] or Config.SelectedElementCategories[acc.catName]
+            acc:SetShown(isVisible)
+        end
+        UpdateAccordionLayout()
+    end)
+    
+    -- Align Dropdown
+    ddFilter:SetPoint("TOPRIGHT", headEl, "TOPLEFT", 600, 5) 
+
+    for _, cat in ipairs(categories) do
+        -- Create ALL accordions, assume hidden initially then set state based on filter
+
+        -- Prepend Divider via new table to avoid mutating original 'categories'
+        local displayElements = { "Divider" }
+        for _, e in ipairs(cat.elements) do table.insert(displayElements, e) end
+        
+        -- Calculate rows (5 per row)
+        local numRows = math.ceil(#displayElements / 5)
+        local contentH = numRows * 30 + 10 
+        
+        local acc = Skin:CreateAccordion(content, cat.name, contentH, function(expanded) 
+            Config.AccordionStates[cat.name] = expanded
+            UpdateAccordionLayout() 
+        end)
+        acc.catName = cat.name  -- Store for filtering
+        table.insert(accFrameList, acc)
+        
+        -- Initial State
+        local isInitialVisible = Config.SelectedElementCategories["ALL"] or Config.SelectedElementCategories[cat.name]
+        acc:SetShown(isInitialVisible)
+        
+        if Config.AccordionStates[cat.name] then acc:SetExpanded(true) end
+
+        -- Create Buttons
+        local btnX, btnY = 5, -5
+        for i, typeName in ipairs(displayElements) do
+            local isDragonBtn = (typeName == "Dragonriding")
+            local isDivider = (typeName == "Divider")
+            
+            -- Check if active
+            local isActive = false
+            for _, e in ipairs(bar.elements) do 
+                if e.type == typeName then isActive = true; break end 
+            end
+            
+            local btn = Skin:CreateButton(acc.content, typeName, 110, 25) -- Reduced width slightly
+            btn:SetPoint("TOPLEFT", btnX, btnY)
+            
+            -- Styling Helper
+            local function UpdateButtonStyle()
+                if isDivider then
+                    btn:SetBackdropColor(1, 0.8, 0, 1)
+                    btn.text:SetTextColor(1, 1, 1, 1)
+                    btn:SetBackdropBorderColor(0, 0, 0, 1)
+                elseif isDragonBtn then
+                    if isActive then
+                       btn:SetBackdropColor(0, 0.7, 0.7, 1); btn:SetBackdropBorderColor(0, 1, 1, 1)
+                    else
+                       btn:SetBackdropColor(unpack(Skin.Colors.button)); btn:SetBackdropBorderColor(unpack(Skin.Colors.border))
+                    end
+                    btn.text:SetTextColor(1, 1, 1, 1)
+                elseif isActive then
+                    btn:SetBackdropColor(0, 0.7, 1, 0.8) -- Active Blue
+                    btn:SetBackdropBorderColor(0, 0.8, 1, 1)
+                    btn.text:SetTextColor(1, 1, 1, 1)
+                else
+                    btn:SetBackdropColor(unpack(Skin.Colors.button)) -- Default Dark
+                    btn:SetBackdropBorderColor(unpack(Skin.Colors.border)) -- Default Border
+                    btn.text:SetTextColor(1, 1, 1, 1)
+                end
+            end
+            UpdateButtonStyle()
+            
+            -- Hover Effects
+            btn:SetScript("OnEnter", function(self)
+                if not self:IsEnabled() then return end
+                
+                if isDivider then
+                    self:SetBackdropColor(1, 0.9, 0.2, 1)
+                elseif isDragonBtn then
+                    if isActive then self:SetBackdropColor(0, 0.8, 0.8, 1)
+                    else 
+                        self:SetBackdropColor(unpack(Skin.Colors.buttonHover))
+                        self:SetBackdropBorderColor(unpack(Skin.Colors.accent)) -- Blue Border on Hover
+                    end
+                elseif isActive then
+                    self:SetBackdropColor(0.2, 0.8, 1, 0.9)
+                else
+                    -- Standard Button Hover: Darker BG + Blue Border
+                    self:SetBackdropColor(unpack(Skin.Colors.buttonHover))
+                    self:SetBackdropBorderColor(unpack(Skin.Colors.accent)) 
+                end
+            end)
+            
+            btn:SetScript("OnLeave", function(self)
+                UpdateButtonStyle()
+            end)
+            
+            -- Isolation Logic
+            local canAdd = true
+            local btnIsStrict = (typeName == "Dragonriding")
+            local btnIsOverlay = OverlayTypes[typeName]
+            local btnIsDivider = (typeName == "Divider")
+            
+            if barMode == "STRICT" then
+                 if typeName ~= "Dragonriding" then canAdd = false end
+            elseif barMode == "OVERLAY" then
+                 -- Allow other overlays, Block Standard/Strict/Divider
+                 if not btnIsOverlay then canAdd = false end
+            elseif barMode == "STANDARD" then
+                 -- Block Strict/Overlay
+                 if btnIsStrict or btnIsOverlay then canAdd = false end
+            end
+            
+            if not canAdd then
+                btn:SetEnabled(false)
+                btn:SetAlpha(0.5)
+            else
+                btn:SetEnabled(true)
+                btn:SetAlpha(1)
+            end
+            
+            btn:SetScript("OnClick", function()
+                if not canAdd then return end
+                
+                -- Toggle Logic
+                if isActive then
+                    -- Remove
+                    for idx, el in ipairs(bar.elements) do
+                        if el.type == typeName then
+                             table.remove(bar.elements, idx)
+                             break
+                        end
+                    end
+                else
+                    -- Add
+                    local newEl = { type = typeName, size = 14, color = {1, 1, 1, 1}, showIcon = true }
+                    if isDragonBtn then
+                         newEl.widgetWidth = 300; newEl.widgetHeight = 45
+                         newEl.vigorFillColor = {0, 0.85, 0.85, 1}
+                         newEl.speedBarColor = {0.7, 0, 0.7, 1}
+                         newEl.speedTextColor = {1, 1, 1, 1}
+                    elseif btnIsOverlay then
+                         newEl.size = 32 -- Default for overlay
+                         if typeName == "Mythic+ Dashboard" then
+                             newEl.widgetWidth = 350
+                             newEl.widgetHeight = 150
+                         end
+                    elseif btnIsDivider then
+                         newEl.size = 20; newEl.thickness = 2; newEl.dividerMode = "LINE"; newEl.dividerStyle = "VERTICAL"; newEl.offset = 0
+                    end
+                    
+                    table.insert(bar.elements, newEl)
+                end
+                
+                -- Refresh UI
+                Config:SelectBar(index)
+                WidgetForge:UpdateAvailableBars()
+                Config:SelectBar(index) 
+            end)
+            
+            btnX = btnX + 115 -- 110 + 5 pad
+            if i % 5 == 0 then
+                btnX = 5
+                btnY = btnY - 30
+            end
+        end
+    end
+    
+    activeElementsFrame:SetHeight(math.max(1, #bar.elements * 35 + 10))
+    UpdateAccordionLayout() -- Initial Layout Call with correct height
     
     local fontList = {}; for k, v in pairs(Skin.Media.Fonts) do table.insert(fontList, {text=k, value=k, font=v}) end
     local outlineList = { {text="None", value=""}, {text="Outline", value="OUTLINE"}, {text="Thick", value="THICKOUTLINE"}, {text="Mono", value="MONOCHROME"}, {text="Mono+Out", value="MONOCHROME,OUTLINE"} }
 
     Config.ElementRows = {}
     for i, elem in ipairs(bar.elements) do
-        local item = CreateFrame("Frame", nil, content, "BackdropTemplate")
-        item:SetSize(620, 32); item:SetPoint("TOPLEFT", 10, y); Skin:ApplyBackdrop(item, 0.3, 0.5)
+        local item = CreateFrame("Frame", nil, activeElementsFrame, "BackdropTemplate")
+        item:SetSize(600, 32); item:SetPoint("TOPLEFT", 10, -((i-1) * 35))
+        Skin:ApplyBackdrop(item, 0.3, 0.5)
         item.txt = item:CreateFontString(nil, "OVERLAY", "GameFontNormal"); item.txt:SetPoint("LEFT", 8, 0); item.txt:SetText(i..". "..elem.type); item.txt:SetFont(Skin.Constants.FONT_NORMAL, 11, "OUTLINE"); item.txt:SetWidth(110); item.txt:SetJustifyH("LEFT")
 
         local btnRem = Skin:CreateButton(item, "X", 20, 20); btnRem:SetPoint("RIGHT", -10, 0); btnRem.text:SetFont(Skin.Constants.FONT_NORMAL, 10, "OUTLINE")
@@ -688,24 +997,450 @@ function Config:SelectBar(index)
         local btnCol = CreateFrame("Button", nil, item, "BackdropTemplate"); btnCol:SetSize(20, 20); btnCol:SetPoint("RIGHT", dragHandle, "LEFT", -8, 0); Skin:ApplyBackdrop(btnCol); btnCol:SetBackdropColor(unpack(elem.color or {1, 1, 1, 1}))
         btnCol:SetScript("OnClick", function() local oldColor = elem.color or {1, 1, 1, 1}; local info = { r=oldColor[1], g=oldColor[2], b=oldColor[3], opacity=oldColor[4], swatchFunc = function(c) elem.color = c; btnCol:SetBackdropColor(unpack(c)); WidgetForge:RebuildBarComponents(index) end, cancelFunc = function() elem.color = oldColor; btnCol:SetBackdropColor(unpack(oldColor)); WidgetForge:RebuildBarComponents(index) end }; Skin:ShowColorPicker(info) end)
         
-        local slSz = Skin:CreateSlider(item, 8, 50, 1, elem.size, function(v) elem.size = v; WidgetForge:RebuildBarComponents(index) end, 70); slSz:SetPoint("RIGHT", btnCol, "LEFT", -15, 0)
-        local ddOutline = Skin:CreateDropdown(item, 85, outlineList, elem.outline or "OUTLINE", function(v) elem.outline = v; WidgetForge:RebuildBarComponents(index) end); ddOutline:SetPoint("RIGHT", slSz, "LEFT", -10, 0) 
-        local ddFont = Skin:CreateDropdown(item, 100, fontList, elem.font or "Standard", function(v) elem.font = v; WidgetForge:RebuildBarComponents(index) end); ddFont:SetPoint("RIGHT", ddOutline, "LEFT", -10, 0)
-        local chkIcon = Skin:CreateCheckbox(item, "Icon", elem.showIcon, function(v) elem.showIcon = v; WidgetForge:RebuildBarComponents(index) end); chkIcon:SetWidth(45); chkIcon:SetPoint("RIGHT", ddFont, "LEFT", -5, 0); chkIcon.box:SetSize(14, 14); chkIcon.label:SetFont(Skin.Constants.FONT_NORMAL, 10, "OUTLINE")
-        local chkTip = Skin:CreateCheckbox(item, "Tip", elem.showTooltip, function(v) elem.showTooltip = v; WidgetForge:RebuildBarComponents(index) end); chkTip:SetWidth(40); chkTip:SetPoint("RIGHT", chkIcon, "LEFT", -5, 0); chkTip.box:SetSize(14, 14); chkTip.label:SetFont(Skin.Constants.FONT_NORMAL, 10, "OUTLINE") 
-        
-        -- [DISABLE TIP IF CLICKTHROUGH]
-        if bar.clickThrough then
-            chkTip:SetAlpha(0.5)
-            chkTip.box:EnableMouse(false)
-            chkTip.label:SetTextColor(0.5, 0.5, 0.5)
+        if elem.type == "Divider" then
+             -- Hide Color Button in main row (moved to settings) 
+             -- Actually, user asked to move everything to settings. 
+             -- But keeping Color here is standard.  User said "Settings diye bi dugme etkle oraya renk ve vertical horziantel ayarı dahil herseyii diverde aryar kısmıan tası"
+             -- So I will HIDE the color button here and move it inside Settings.
+             btnCol:Hide()
+
+             local btnSettings = Skin:CreateButton(item, "Settings", 80, 22)
+             -- Place 'Settings' button where controls usually go
+             btnSettings:SetPoint("RIGHT", dragHandle, "LEFT", -10, 0)
+             btnSettings:SetScript("OnClick", function() Config:OpenElementSettings(index, i, elem) end)
+        elseif elem.type == "Dragonriding" then
+             btnCol:Hide()
+             local btnSettings = Skin:CreateButton(item, "Settings", 80, 22)
+             btnSettings:SetPoint("RIGHT", dragHandle, "LEFT", -10, 0)
+             btnSettings:SetScript("OnClick", function() Config:OpenDragonridingSettings(index, i, elem) end)
+        elseif elem.type == "Cursor Ring" then
+             btnCol:Hide()
+             local btnSettings = Skin:CreateButton(item, "Settings", 80, 22)
+             btnSettings:SetPoint("RIGHT", dragHandle, "LEFT", -10, 0)
+             btnSettings:SetScript("OnClick", function() WidgetForge:OpenCursorRingSettings(index, i, elem) end)
+        elseif elem.type == "Retirement Home" then
+             btnCol:Hide()
+             local btnSettings = Skin:CreateButton(item, "Settings", 80, 22)
+             btnSettings:SetPoint("RIGHT", dragHandle, "LEFT", -10, 0)
+             btnSettings:SetScript("OnClick", function() Config:OpenRetirementHomeSettings(index, i, elem) end)
+
+        elseif elem.type == "Mythic+ Dashboard" then
+             btnCol:Hide()
+             local btnSettings = Skin:CreateButton(item, "Settings", 80, 22)
+             btnSettings:SetPoint("RIGHT", dragHandle, "LEFT", -10, 0)
+             btnSettings:SetScript("OnClick", function() if Config.OpenMythicPlusSettings then Config:OpenMythicPlusSettings(index, i, elem) end end)
+        else
+            -- STANDARD CONTROLS
+            -- Color Button is visible (already created above)
+            
+            local slSz = Skin:CreateSlider(item, 8, 50, 1, elem.size, function(v) elem.size = v; WidgetForge:RebuildBarComponents(index) end, 70); slSz:SetPoint("RIGHT", btnCol, "LEFT", -15, 0)
+            local ddOutline = Skin:CreateDropdown(item, 85, outlineList, elem.outline or "OUTLINE", function(v) elem.outline = v; WidgetForge:RebuildBarComponents(index) end); ddOutline:SetPoint("RIGHT", slSz, "LEFT", -10, 0) 
+            local ddFont = Skin:CreateDropdown(item, 100, fontList, elem.font or "Standard", function(v) elem.font = v; WidgetForge:RebuildBarComponents(index) end); ddFont:SetPoint("RIGHT", ddOutline, "LEFT", -10, 0)
+            local chkIcon = Skin:CreateCheckbox(item, "Icon", elem.showIcon, function(v) elem.showIcon = v; WidgetForge:RebuildBarComponents(index) end); chkIcon:SetWidth(45); chkIcon:SetPoint("RIGHT", ddFont, "LEFT", -5, 0); chkIcon.box:SetSize(14, 14); chkIcon.label:SetFont(Skin.Constants.FONT_NORMAL, 10, "OUTLINE")
+            local chkTip = Skin:CreateCheckbox(item, "Tip", elem.showTooltip, function(v) elem.showTooltip = v; WidgetForge:RebuildBarComponents(index) end); chkTip:SetWidth(40); chkTip:SetPoint("RIGHT", chkIcon, "LEFT", -5, 0); chkTip.box:SetSize(14, 14); chkTip.label:SetFont(Skin.Constants.FONT_NORMAL, 10, "OUTLINE") 
+            
+            -- [DISABLE TIP IF CLICKTHROUGH]
+            if bar.clickThrough then
+                chkTip:SetAlpha(0.5)
+                chkTip.box:EnableMouse(false)
+                chkTip.label:SetTextColor(0.5, 0.5, 0.5)
+            end
+            
+            if elem.type == "Clock" then local fmtList = { {text="24h", value="24h"}, {text="12h", value="12h"} }; local ddFmt = Skin:CreateDropdown(item, 50, fmtList, elem.timeFormat or "24h", function(v) elem.timeFormat = v; WidgetForge:RebuildBarComponents(index) end); ddFmt:SetPoint("RIGHT", chkTip, "LEFT", -5, 0) end
         end
-        
-        if elem.type == "Clock" then local fmtList = { {text="24h", value="24h"}, {text="12h", value="12h"} }; local ddFmt = Skin:CreateDropdown(item, 50, fmtList, elem.timeFormat or "24h", function(v) elem.timeFormat = v; WidgetForge:RebuildBarComponents(index) end); ddFmt:SetPoint("RIGHT", chkTip, "LEFT", -5, 0) end
         y = y - 36 
     end
     content:SetHeight(math.abs(y) + 20)
 end
+
+
+
+function Config:OpenElementSettings(barIndex, elemIndex, elem)
+    local f = Config.ElementSettingsFrame
+    if not f then
+        f = CreateFrame("Frame", "ForgeElementSettings", UIParent, "BackdropTemplate")
+        f:SetSize(250, 310) -- Reduced Width to 250, Height to 310 or keep 290? user said 20px smaller previously.
+        -- User said "ui alt kısmı uzun 20 px ufalt" (bottom part is long, shorten 20px). I did that to 290. 
+        -- Now user says "ayarlar kısmında solda olan bosşuk kadar sagda bosluk kalsın" (let right whitespace = left whitespace).
+        -- So narrowing the frame makes sense.
+        f:SetSize(250, 290)
+        f:SetPoint("CENTER")
+        f:SetFrameStrata("DIALOG") -- Set to DIALOG. High enough to be above Main Menu, and ColorPicker should handle itself (usually popups are smart).
+        f:EnableMouse(true); f:SetMovable(true)
+        Skin:ApplyBackdrop(f); f:SetBackdropColor(0.1, 0.1, 0.1, 0.95); Skin:SetSmartBorder(f, 2, {r=1, g=0.7, b=0, a=1}, "OUTSIDE")
+        
+        -- Title Bar (Draggable)
+        local title = Skin:CreateTitleBar(f, "Divider Settings", function() f:Hide() end)
+        title:RegisterForDrag("LeftButton")
+        title:SetScript("OnDragStart", function() f:StartMoving() end)
+        title:SetScript("OnDragStop", function() f:StopMovingOrSizing() end)
+    
+        Config.ElementSettingsFrame = f
+    else
+        f:Show()
+    end
+
+    -- Use a dedicated content frame to easily clear children
+    if not f.content then 
+        f.content = CreateFrame("Frame", nil, f)
+        f.content:SetAllPoints(f)
+    else
+        -- Clear existing children AND regions to rebuild UI
+        local kids = { f.content:GetChildren() }
+        for _, child in ipairs(kids) do child:Hide(); child:SetParent(nil) end
+        
+        -- Fix for overlapping text labels (FontStrings are Regions, not Children)
+        local regions = { f.content:GetRegions() }
+        for _, rgn in ipairs(regions) do rgn:Hide() end
+    end
+    
+    local y = -50 
+    local content = f.content
+
+    -- 1. Mode Select
+    local lblMode = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); lblMode:SetPoint("TOPLEFT", 20, y-5); lblMode:SetText("Mode:")
+    local modeList = { {text="Graphic Line", value="LINE"}, {text="Text Character", value="TEXT"} }
+    local ddMode = Skin:CreateDropdown(content, 120, modeList, elem.dividerMode or "LINE", function(v) 
+        elem.dividerMode = v; 
+        WidgetForge:RebuildBarComponents(barIndex)
+        Config:OpenElementSettings(barIndex, elemIndex, elem) 
+    end)
+    ddMode:SetPoint("TOPLEFT", 100, y)
+    
+    -- Removed Color Picker from here
+    
+    y = y - 40
+
+    -- 2. Style (Vertical/Horizontal) & Color
+    local lblStyle = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); lblStyle:SetPoint("TOPLEFT", 20, y-5); lblStyle:SetText("Style:")
+    local styleList = { {text="Vertical", value="VERTICAL"}, {text="Horizontal", value="HORIZONTAL"} }
+    
+    -- Shorten Style Dropdown for Color Picker
+    local ddStyle = Skin:CreateDropdown(content, 85, styleList, elem.dividerStyle or "VERTICAL", function(v) 
+        elem.dividerStyle = v 
+        WidgetForge:RebuildBarComponents(barIndex)
+    end)
+    ddStyle:SetPoint("TOPLEFT", 100, y)
+
+    -- Disable Style Dropdown if Mode is TEXT
+    if elem.dividerMode == "TEXT" then
+        ddStyle:SetAlpha(0.5)
+        ddStyle:EnableMouse(false) -- Fixed: ddStyle is the button itself
+        lblStyle:SetTextColor(0.5, 0.5, 0.5)
+    end
+
+    -- Color Picker Button (Moved here, right of Style)
+    local btnCol = CreateFrame("Button", nil, content, "BackdropTemplate")
+    btnCol:SetSize(30, 20); btnCol:SetPoint("LEFT", ddStyle, "RIGHT", 10, 0)
+    Skin:ApplyBackdrop(btnCol); btnCol:SetBackdropColor(unpack(elem.color or {1, 1, 1, 1}))
+    btnCol:SetScript("OnClick", function() 
+        local oldColor = elem.color or {1, 1, 1, 1}
+        local info = { 
+            r=oldColor[1], g=oldColor[2], b=oldColor[3], opacity=oldColor[4], 
+            swatchFunc = function(c) elem.color = c; btnCol:SetBackdropColor(unpack(c)); WidgetForge:RebuildBarComponents(barIndex) end, 
+            cancelFunc = function() elem.color = oldColor; btnCol:SetBackdropColor(unpack(oldColor)); WidgetForge:RebuildBarComponents(barIndex) end 
+        }
+        Skin:ShowColorPicker(info) 
+    end)
+    btnCol:SetFrameStrata("FULLSCREEN_DIALOG") -- Ensure it's on top if needed, though parent is dialog.
+    btnCol:SetFrameLevel(ddStyle:GetFrameLevel() + 5) -- Boost level just in case
+
+    y = y - 40
+
+    if elem.dividerMode == "TEXT" then
+        -- Character Input
+        local lblTxt = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); lblTxt:SetPoint("TOPLEFT", 20, y-5); lblTxt:SetText("Text:")
+        local ebFrame = CreateFrame("Frame", nil, content, "BackdropTemplate")
+        ebFrame:SetSize(120, 25); ebFrame:SetPoint("TOPLEFT", 100, y)
+        Skin:ApplyBackdrop(ebFrame); ebFrame:SetBackdropColor(0,0,0,0.5)
+        local eb = CreateFrame("EditBox", nil, ebFrame)
+        eb:SetAllPoints(ebFrame); eb:SetFont(Skin.Constants.FONT_NORMAL, 12, ""); eb:SetTextInsets(5,5,0,0); eb:SetAutoFocus(false)
+        eb:SetText(elem.dividerText or "|")
+        eb:SetScript("OnTextChanged", function(self) elem.dividerText = self:GetText(); WidgetForge:RebuildBarComponents(barIndex) end)
+        eb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+        y = y - 40
+        
+        -- Size
+        local lblSz = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); lblSz:SetPoint("TOPLEFT", 20, y-5); lblSz:SetText("Size:")
+        local slSz = Skin:CreateSlider(content, 8, 72, 1, elem.size or 12, function(v) elem.size = v; WidgetForge:RebuildBarComponents(barIndex) end, 120)
+        slSz:SetPoint("TOPLEFT", 100, y)
+        y = y - 40
+    else
+        -- Line Settings
+        local lblLen = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); lblLen:SetPoint("TOPLEFT", 20, y-5); lblLen:SetText("Length:")
+        local slLen = Skin:CreateSlider(content, 5, 200, 1, elem.size or 20, function(v) elem.size = v; WidgetForge:RebuildBarComponents(barIndex) end, 120)
+        slLen:SetPoint("TOPLEFT", 100, y)
+        y = y - 40
+
+        local lblThk = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); lblThk:SetPoint("TOPLEFT", 20, y-5); lblThk:SetText("Thickness:")
+        local slThk = Skin:CreateSlider(content, 1, 20, 1, elem.thickness or 2, function(v) elem.thickness = v; WidgetForge:RebuildBarComponents(barIndex) end, 120)
+        slThk:SetPoint("TOPLEFT", 100, y)
+        y = y - 40
+    end
+
+     -- OFFSET (Common)
+    local lblOff = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); lblOff:SetPoint("TOPLEFT", 20, y-5); lblOff:SetText("Offset:")
+    local slOff = Skin:CreateSlider(content, -50, 50, 1, elem.offset or 0, function(v) elem.offset = v; WidgetForge:RebuildBarComponents(barIndex) end, 120)
+    slOff:SetPoint("TOPLEFT", 100, y)
+    y = y - 40
+    
+    local txtHelp = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    txtHelp:SetPoint("TOP", 0, y - 5)
+    txtHelp:SetText("Use Offset to nudge the Divider pos.")
+    
+    f:Show()
+end
+
+-- =========================================================================
+--  DRAGONRIDING SETTINGS POPUP
+-- =========================================================================
+function Config:OpenDragonridingSettings(barIndex, elemIndex, elem)
+    local f = Config.DragonSettingsFrame
+    if not f then
+        f = CreateFrame("Frame", "ForgeDragonSettings", UIParent, "BackdropTemplate")
+        f:SetSize(550, 600)  -- WIDENED
+        f:SetPoint("CENTER")
+        f:SetFrameStrata("DIALOG")
+        Skin:ApplyBackdrop(f)
+        
+        -- Title Bar (handles dragging)
+        Skin:CreateTitleBar(f, "Dragonriding Settings", function() f:Hide() end)
+        
+        -- Scroll Frame
+        local scroll, content = Skin:CreateScrollFrame(f, 510, 550) -- Adjusted for new width
+        scroll:SetPoint("TOPLEFT", 20, -40)
+        scroll:SetPoint("BOTTOMRIGHT", -5, 20)
+        f.scroll = scroll
+        f.content = content
+        
+        f.controls = {}
+        Config.DragonSettingsFrame = f
+        
+        -- ESC key closes only this popup (not the main config behind it)
+        f:SetPropagateKeyboardInput(true)
+        f:SetScript("OnKeyDown", function(self, key)
+            if key == "ESCAPE" then
+                self:SetPropagateKeyboardInput(false)
+                self:Hide()
+            else
+                self:SetPropagateKeyboardInput(true)
+            end
+        end)
+        f:HookScript("OnShow", function(self) self:EnableKeyboard(true) end)
+        f:HookScript("OnHide", function(self) self:EnableKeyboard(false) end)
+    end
+    f:Show()
+    
+    local lastY = -10
+    local col1X = 10
+    local col2X = 260 -- Second column start
+    local isRight = false -- Toggle for column placement
+    
+    -- Helper to create sliders using Skin (Compact for 2-col)
+    local function AddSlider(key, label, minVal, maxVal, step, forceFullRow)
+        local width = 220 
+        local x = isRight and col2X or col1X
+        
+        if forceFullRow then 
+            width = 460; isRight = false; x = col1X 
+        end
+        
+        local s = f.controls[key]
+        if not s then
+            -- Create label manually to position it better? Skin:CreateSlider creates its own label usually or we can rely on AddLabel
+            -- Skin:CreateSlider(parent, min, max, step, val, func, width)
+            -- We'll add a separate label above it to save horizontal space? Or just trust the process.
+            -- Let's stick to standard flow: Label above Slider.
+            
+            local lbl = f.content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            lbl:SetText(label)
+            f.controls[key.."_lbl"] = lbl
+            
+            s = Skin:CreateSlider(f.content, minVal, maxVal, step, elem[key] or 0, function(val)
+                if elem[key] ~= val then
+                    elem[key] = val
+                    WidgetForge:RebuildBarComponents(barIndex)
+                end
+            end, width)
+            f.controls[key] = s
+        else
+            s:SetWidth(width)
+            s:SetValue(elem[key] or 0)
+            s.callback = function(val)
+                 if elem[key] ~= val then elem[key] = val; WidgetForge:RebuildBarComponents(barIndex) end
+            end
+        end
+        
+        local lbl = f.controls[key.."_lbl"]
+        lbl:ClearAllPoints(); lbl:SetPoint("TOPLEFT", x, lastY)
+        s:ClearAllPoints(); s:SetPoint("TOPLEFT", x, lastY - 15)
+        
+        if forceFullRow then
+             lastY = lastY - 50 -- Increased from 45
+        else
+             if isRight then lastY = lastY - 50 end -- Increased from 45
+             isRight = not isRight
+        end
+    end
+    
+    -- Helper to create Checkboxes
+    local function AddCheck(key, label)
+        local x = isRight and col2X or col1X
+        local c = f.controls[key]
+        if not c then
+            c = Skin:CreateCheckbox(f.content, label, elem[key] == true, function(val)
+                elem[key] = val
+                WidgetForge:RebuildBarComponents(barIndex)
+            end)
+            f.controls[key] = c
+        else
+            c:SetChecked(elem[key] == true)
+            c.callback = function(val) elem[key] = val; WidgetForge:RebuildBarComponents(barIndex) end
+        end
+        c:ClearAllPoints()
+        c:SetPoint("TOPLEFT", x, lastY)
+        
+        if isRight then lastY = lastY - 35 end -- Increased from 30
+        isRight = not isRight
+    end
+    
+    -- Helper to create Color Pickers
+    local function AddColor(key, label)
+        local x = isRight and col2X or col1X
+        local c = f.controls[key]
+        if not c then
+            c = Skin:CreateColorPicker(f.content, label, elem[key] or {1,1,1,1}, function(val)
+                elem[key] = val
+                WidgetForge:UpdateBarValues(barIndex)
+                WidgetForge:RebuildBarComponents(barIndex)
+            end, 230)
+            f.controls[key] = c
+        else
+            c:Hide() 
+            c = Skin:CreateColorPicker(f.content, label, elem[key] or {1,1,1,1}, function(val)
+                elem[key] = val
+                WidgetForge:UpdateBarValues(barIndex)
+                WidgetForge:RebuildBarComponents(barIndex)
+            end, 230)
+            f.controls[key] = c
+        end
+        c:ClearAllPoints()
+        c:SetPoint("TOPLEFT", x, lastY)
+        c:Show()
+        
+        if isRight then lastY = lastY - 50 end -- Increased from 40
+        isRight = not isRight
+    end
+    
+    -- Header Helper
+    local function AddHeader(text)
+        if isRight then lastY = lastY - 50; isRight = false end -- Force new line
+        Skin:CreateSectionHeader(f.content, text, 480):SetPoint("TOPLEFT", 10, lastY)
+        lastY = lastY - 45 -- Increased from 35
+    end
+
+    -- === INITIALIZE DEFAULTS ===
+    if elem.widgetWidth == nil then elem.widgetWidth = 300 end
+    if elem.vigorHeight == nil then elem.vigorHeight = 14 end
+    if elem.speedHeight == nil then elem.speedHeight = 14 end
+    if elem.verticalPadding == nil then elem.verticalPadding = 4 end
+    if elem.cellGap == nil then elem.cellGap = 4 end
+    if elem.vigorBorderSize == nil then elem.vigorBorderSize = 1 end
+    -- if elem.speedBorderSize == nil then elem.speedBorderSize = 1 end -- Default checked by nil check below
+    if elem.bgPaddingX == nil then elem.bgPaddingX = 5 end
+    if elem.bgPaddingY == nil then elem.bgPaddingY = 5 end
+    if elem.inactiveAlpha == nil then elem.inactiveAlpha = 0.3 end -- Default Alpha
+    
+    -- === CONTROLS ===
+    lastY = -10
+    isRight = false
+    
+    AddHeader("Dimensions")
+    AddSlider("widgetWidth", "Total Width", 100, 800, 10, true) -- Full Row
+    AddSlider("vigorHeight", "Vigor Bar Height", 4, 60, 1)
+    AddSlider("speedHeight", "Speed Bar Height", 4, 60, 1)
+    AddSlider("verticalPadding", "Row Spacing", 0, 30, 1)
+    AddSlider("cellGap", "Vigor Cell Gap", 0, 20, 1)
+    
+    AddHeader("Visibility")
+    
+    -- Dropdown (Col 1)
+    -- Dropdown (Col 1)
+    local lblVis = f.controls["lblVis"]
+    if not lblVis then
+        lblVis = f.content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        lblVis:SetPoint("TOPLEFT", 10, lastY) 
+        lblVis:SetText("Not Mounted Behavior")
+        f.controls["lblVis"] = lblVis
+    else
+        lblVis:SetPoint("TOPLEFT", 10, lastY) -- Ensure position is updated if layout changes
+    end
+    
+    local ddVis = f.controls["ddVis"]
+    if not ddVis then
+        ddVis = Skin:CreateDropdown(f.content, 140, {
+            {text="Always Show", value="ALWAYS_SHOW"},
+            {text="Semi-Transparent", value="DIMMED"},
+            {text="Hidden", value="HIDDEN"}
+        }, elem.inactiveBehavior or "DIMMED", nil) -- Callback set below
+        ddVis:SetFrameLevel(f:GetFrameLevel() + 5) 
+        f.controls["ddVis"] = ddVis
+    end
+    
+    -- Update for current bar/element
+    ddVis:SetValue(elem.inactiveBehavior or "DIMMED")
+    ddVis.callback = function(v)
+        elem.inactiveBehavior = v
+        f.controls["inactiveAlpha"]:SetShown(v == "DIMMED")
+        f.controls["inactiveAlpha_lbl"]:SetShown(v == "DIMMED")
+        WidgetForge:RebuildBarComponents(barIndex)
+    end
+    ddVis:ClearAllPoints()
+    ddVis:SetPoint("TOPLEFT", 10, lastY - 15)
+    
+    -- Transparency Slider (Col 2)
+    isRight = true 
+    
+    AddSlider("inactiveAlpha", "Transparency (0-1)", 0.0, 1.0, 0.05)
+    
+    -- Post-Add Adjustment
+    local isDimmed = (elem.inactiveBehavior == "DIMMED" or elem.inactiveBehavior == nil)
+    f.controls["inactiveAlpha"]:SetShown(isDimmed)
+    f.controls["inactiveAlpha_lbl"]:SetShown(isDimmed)
+    
+    -- Reduce spacing gap
+    lastY = lastY - 20 -- Reduced from 40 to close the gap
+
+    AddHeader("Layout & Background")
+    AddCheck("swapPositions", "Swap Positions (Top/Bottom)")
+    AddCheck("showSpeedText", "Show Speed Text")
+    
+    -- spacer
+    if isRight then lastY = lastY - 30; isRight = false end
+    
+    AddSlider("bgPaddingX", "Background Padding X (Width)", 0, 100, 1)
+    AddSlider("bgPaddingY", "Background Padding Y (Height)", 0, 50, 1)
+    AddColor("bgColor", "Background Box Color")
+    if isRight then lastY = lastY - 40; isRight = false end -- Ensure clean break
+
+    AddHeader("Vigor Bar Appearance")
+    AddSlider("vigorBorderSize", "Vigor Border Size", 0, 10, 1)
+    AddColor("vigorBorderColor", "Vigor Border Color")
+    AddColor("vigorFillColor", "Vigor Fill Color")
+    AddColor("vigorEmptyColor", "Vigor Empty Color")
+    
+    AddHeader("Speed Bar Appearance")
+    AddSlider("speedBorderSize", "Speed Border Size", 0, 10, 1)
+    AddColor("speedBorderColor", "Speed Border Color")
+    AddColor("speedBarColor", "Speed Bar Color")
+    AddColor("speedEmptyColor", "Speed Empty Color")
+    AddColor("speedTextColor", "Speed Text Color")
+
+    -- Clean up bottom space
+    if isRight then lastY = lastY - 40 end
+    f.content:SetHeight(math.abs(lastY) + 50)
+end
+
 
 SLASH_WIDGETFORGE1 = "/wf"
 SlashCmdList["WIDGETFORGE"] = function() 

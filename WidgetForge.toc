@@ -1,14 +1,17 @@
-## Interface: 120000
+## Interface: 120000, 120001
 ## Title: Widget Forge
 ## Notes: Advanced customizable stat bars and widgets
-## Author: YourName
-## Version: 1.0.0
+## Author: Fevka
+## Version: 1.1.0
 ## SavedVariables: WidgetForgeDB
 
 WidgetConstants.lua
-ForgeSerializer.lua
+Libs\ForgeSerializer.lua
 WidgetUtils.lua
-ForgeSkin.lua
+Libs\ForgeSkin.lua
 WidgetForgeConfig.lua
 WidgetStats.lua
 WidgetForge.lua
+Widgets\WidgetForge_CursorRing.lua
+Widgets\WidgetForge_RetirementHome.lua
+Widgets\WidgetForge_MythicPlus.lua

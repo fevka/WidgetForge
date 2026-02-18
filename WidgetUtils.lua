@@ -47,7 +47,7 @@ function WidgetForgeUtils:ValidateBarConfig(bar)
     bar.name = bar.name or "Unnamed Bar"
     bar.width = math.max(50, math.min(1000, bar.width or 250))
     bar.height = math.max(10, math.min(500, bar.height or 30))
-    bar.padding = math.max(0, math.min(100, bar.padding or 10))
+    bar.padding = math.max(-50, math.min(100, bar.padding or 10))
     bar.bgColor = self:ValidateColor(bar.bgColor)
     bar.borderColor = self:ValidateColor(bar.borderColor)
     bar.elements = bar.elements or {}

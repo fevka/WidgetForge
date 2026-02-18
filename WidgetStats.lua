@@ -10,8 +10,10 @@ Stats.Data = {
     ["Strength"] = "0", ["Agility"] = "0", ["Intellect"] = "0",
     ["Stamina"] = "0", ["Crit"] = "0%", ["Haste"] = "0%",
     ["Mastery"] = "0%", ["Versatility"] = "0%", ["Avoidance"] = "0%",
-    ["Leech"] = "0%", ["Speed"] = "0%", ["Dodge"] = "0%", ["Parry"] = "0%",
-    ["Main Stat"] = "0"
+    ["Leech"] = "0%", ["Speed"] = "0%", ["Run Speed"] = "0%", ["Dodge"] = "0%", ["Parry"] = "0%",
+    ["Main Stat"] = "0", ["Armor"] = "0", ["Max HP"] = "0",
+    -- Dragonriding / Skyriding
+    ["DragonVigor"] = 0, ["DragonVigorMax"] = 0, ["DragonSpeed"] = 0, ["DragonActive"] = false
 }
 -- Helper mappings
 Stats.ActiveMainStat = "Strength" -- Default
@@ -116,6 +118,50 @@ function Stats:UpdatePolledStats(elapsed)
     else
         Stats.Data["Combat Timer"] = "00:00"
     end
+
+    -- 6. Run Speed (Dynamic)
+    local unitSpeed = GetUnitSpeed("player")
+    if unitSpeed then
+        Stats.Data["Run Speed"] = string.format("%.0f%%", (unitSpeed / 7) * 100)
+    else
+        Stats.Data["Run Speed"] = "0%"
+    end
+
+    -- 7. Dragonriding / Skyriding Data (Falcon Logic)
+    -- Vigor (Spell ID 372608 is the Vigor resource tracker)
+    local vigorData = C_Spell.GetSpellCharges(372608)
+    if vigorData then
+        local current = vigorData.currentCharges or 0
+        local max = vigorData.maxCharges or 6
+        -- Calculate fractional progress if recharging
+        local fractional = 0
+        local now = GetTime()
+        if vigorData.cooldownStartTime and vigorData.cooldownDuration and vigorData.cooldownDuration > 0 then
+            fractional = (now - vigorData.cooldownStartTime) / vigorData.cooldownDuration
+            if fractional < 0 then fractional = 0 end
+            if fractional > 1 then fractional = 1 end
+        end
+        
+        -- If full, fractional is 0 (or 1 depending on logic, but usually we just want current)
+        -- Falcon logic: if recharging, add fractional. 
+        if current < max then
+             Stats.Data["DragonVigor"] = current + fractional
+        else
+             Stats.Data["DragonVigor"] = current
+        end
+        Stats.Data["DragonVigorMax"] = max
+    else
+        Stats.Data["DragonVigor"] = 0
+        Stats.Data["DragonVigorMax"] = 0
+    end
+
+    -- Speed (Forward Speed from Gliding Info)
+    local isGliding, canGlide, forwardSpeed = C_PlayerInfo.GetGlidingInfo()
+    Stats.Data["DragonSpeed"] = forwardSpeed or 0
+    
+    -- Active State (Bonus Bar 11 is Dragonriding)
+    local isSkyriding = (GetBonusBarIndex() == 11)
+    Stats.Data["DragonActive"] = isSkyriding
 end
 
 -- Called on Events (Efficient)
@@ -164,7 +210,9 @@ function Stats:UpdateEventStat(event, arg1)
         local _, avg = GetAverageItemLevel()
         Stats.Data["Item Level"] = floor(avg)
         -- Re-check durability on equip change
-        Stats:UpdateEventStat("UPDATE_INVENTORY_DURABILITY") 
+        Stats:UpdateEventStat("UPDATE_INVENTORY_DURABILITY")
+        -- Force update stats (Leech, Speed, etc change with gear)
+        self:UpdateCharacterStats()
     end
     
     if event == "PLAYER_SPECIALIZATION_CHANGED" or event == "PLAYER_ENTERING_WORLD" then
@@ -180,12 +228,30 @@ function Stats:UpdateEventStat(event, arg1)
 end
 
 function Stats:UpdateCharacterStats()
-    -- Primary
-    local _, vStr = UnitStat("player", 1); Stats.Data["Strength"] = vStr
-    local _, vAgi = UnitStat("player", 2); Stats.Data["Agility"] = vAgi
-    local _, vInt = UnitStat("player", 3); Stats.Data["Intellect"] = vInt
-    local _, vSta = UnitStat("player", 4); Stats.Data["Stamina"] = vSta
+    -- Helper for formatting
+    local function Fmt(val)
+        if not val then return "0" end
+        return BreakUpLargeNumbers(val)
+    end
+
+    -- Primary Stats: WoW API indices: 1=Str, 2=Agi, 3=Sta, 4=Int
+    Stats.Data["Strength"] = Fmt(UnitStat("player", 1))
+    Stats.Data["Agility"] = Fmt(UnitStat("player", 2))
+    Stats.Data["Stamina"] = Fmt(UnitStat("player", 3))
+    Stats.Data["Intellect"] = Fmt(UnitStat("player", 4))
     
+    -- Armor: Pick the highest return value (2nd is effective with gear)
+    local a1, a2, a3, a4 = UnitArmor("player")
+    local armorVal = 0
+    if a1 and type(a1) == "number" then armorVal = math.max(armorVal, a1) end
+    if a2 and type(a2) == "number" then armorVal = math.max(armorVal, a2) end
+    if a3 and type(a3) == "number" then armorVal = math.max(armorVal, a3) end
+    if a4 and type(a4) == "number" then armorVal = math.max(armorVal, a4) end
+    Stats.Data["Armor"] = Fmt(armorVal)
+    
+    -- Max HP
+    Stats.Data["Max HP"] = Fmt(UnitHealthMax("player"))
+
     -- Main Stat Dynamic Update
     Stats.Data["Main Stat"] = Stats.Data[Stats.ActiveMainStat] or "0"
 
@@ -196,7 +262,7 @@ function Stats:UpdateCharacterStats()
     Stats.Data["Versatility"] = string.format("%.1f%%", GetCombatRatingBonus(CR_VERSATILITY_DAMAGE_DONE) + GetVersatilityBonus(CR_VERSATILITY_DAMAGE_DONE))
     Stats.Data["Avoidance"] = string.format("%.1f%%", GetAvoidance())
     Stats.Data["Leech"] = string.format("%.1f%%", GetLifesteal())
-    Stats.Data["Speed"] = string.format("%.1f%%", GetUnitSpeed("player") / 7 * 100)
+    Stats.Data["Speed"] = string.format("%.1f%%", GetSpeed()) -- Tertiary Stat
     Stats.Data["Dodge"] = string.format("%.1f%%", GetDodgeChance())
     Stats.Data["Parry"] = string.format("%.1f%%", GetParryChance())
 end
@@ -256,9 +322,12 @@ function Stats:GetStat(statType)
     elseif statType == "Versatility" then lbl = "Vers"
     elseif statType == "Avoidance" then lbl = "Avoid"
     elseif statType == "Leech" then lbl = "Leech"
-    elseif statType == "Speed" then lbl = "Spd"
+    elseif statType == "Speed" then lbl = "Speed"
+    elseif statType == "Run Speed" then lbl = "Run"
     elseif statType == "Dodge" then lbl = "Dodg"
     elseif statType == "Parry" then lbl = "Pry"
+    elseif statType == "Armor" then lbl = "Armor"
+    elseif statType == "Max HP" then lbl = "HP"
     end
     
     return val or "", lbl
