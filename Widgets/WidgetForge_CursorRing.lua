@@ -1,3 +1,12 @@
+local addonName, addon = ...
+if not _G.WidgetForge then _G.WidgetForge = {} end
+if not _G.WidgetForge.CursorRing then _G.WidgetForge.CursorRing = {} end
+
+-- Local alias for the module
+local CursorRing = _G.WidgetForge.CursorRing
+-- Link to internal addon table if needed
+addon.CursorRing = CursorRing
+
 local Skin = ForgeSkin
 
 -- ===========================================================================
@@ -6,6 +15,7 @@ local Skin = ForgeSkin
 function WidgetForge:CreateCursorRing(bar, config)
     local f = CreateFrame("Frame", nil, bar)
     f:SetAllPoints()
+    f.config = config -- [FIX] Store config for settings lookup
     
     -- Hide the parent bar since Cursor Ring follows mouse (no bar needed)
     -- [MODIFIED] Do not hide bar blindly, as other widgets might be on it (e.g. M+ Dashboard)
@@ -198,8 +208,8 @@ function WidgetForge:CreateCursorRing(bar, config)
         end
     end
     
-    -- Show/Hide inner ring based on config
-    if config.showInnerRing == false then
+    -- Show/Hide inner ring based on config (Override if in preview mode)
+    if config.showInnerRing == false and not f.previewMode then
         innerRing:Hide()
     else
         innerRing:Show()
@@ -379,90 +389,75 @@ function WidgetForge:CreateCursorRing(bar, config)
 end
 
 -- ===========================================================================
--- CURSOR RING SETTINGS POPUP
+-- CURSOR RING SETTINGS (Unified Slide-In Panel)
 -- ===========================================================================
-function WidgetForge:OpenCursorRingSettings(barIndex, elemIndex, elem)
-    local f = WidgetForge.CursorRingSettingsFrame
-    if not f then
-        f = CreateFrame("Frame", "ForgeCursorRingSettings", UIParent, "BackdropTemplate")
-        f:SetSize(540, 600) -- Same width as Dragonriding settings
-        f:SetPoint("CENTER")
-        f:SetFrameStrata("DIALOG")
-        f:EnableMouse(true); f:SetMovable(true)
-        Skin:ApplyBackdrop(f)
-        
-        Skin:CreateTitleBar(f, "Cursor Ring Settings", function() f:Hide() end)
-        
-        local content = CreateFrame("Frame", nil, f)
-        content:SetPoint("TOPLEFT", 20, -40)
-        content:SetPoint("BOTTOMRIGHT", -20, 20)
-        f.content = content
-        
-        WidgetForge.CursorRingSettingsFrame = f
-        
-        -- ESC key closes only this popup (not the main config behind it)
-        f:SetPropagateKeyboardInput(true)
-        f:SetScript("OnKeyDown", function(self, key)
-            if key == "ESCAPE" then
-                self:SetPropagateKeyboardInput(false)
-                self:Hide()
-            else
-                self:SetPropagateKeyboardInput(true)
-            end
-        end)
-        f:HookScript("OnShow", function(self) self:EnableKeyboard(true) end)
-        f:HookScript("OnHide", function(self) self:EnableKeyboard(false) end)
-    end
+function WidgetForge.CursorRing:CreateSettings(panel)
+    local elem = panel.config
+    local f = panel
+    local targetBarIdx = panel.barIndex
     
-    -- Clear old content via Builder Release
-    if f.builder then
-        f.builder:Release()
-    end
-    
-    f:Show()
-    
-    -- Real-time visual refresh: finds the active cursor ring widget and calls UpdateVisuals
-    local function RefreshCursorRing()
+    -- Helper to find widget
+    local function FindWidgets(callback)
         local bars = WidgetForge:GetBarFrames()
-        if bars and bars[barIndex] then
-            local barFrame = bars[barIndex]
+        
+        -- Optimized search if barIndex is known
+        if targetBarIdx and bars[targetBarIdx] then
+             local bar = bars[targetBarIdx]
+             if bar.customWidgets then
+                 for _, cw in ipairs(bar.customWidgets) do
+                     -- Strict match OR Type match fallback
+                     if cw.config == elem or (cw.config and cw.config.type == "Cursor Ring") then
+                         callback(cw)
+                     end
+                 end
+             end
+             return
+        end
+        
+        -- Fallback global search
+        for _, barFrame in pairs(bars) do
             if barFrame.customWidgets then
                 for _, cw in ipairs(barFrame.customWidgets) do
-                    if cw.UpdateVisuals then
-                        cw:UpdateVisuals(elem)
-                    end
+                     if cw.config == elem then
+                         callback(cw)
+                     end
                 end
             end
         end
     end
-    
-    -- Show inner circle as preview when settings are open
-    f.activeBarIndex = barIndex
-    local bars = WidgetForge:GetBarFrames()
-    if bars and bars[barIndex] and bars[barIndex].customWidgets then
-        for _, cw in ipairs(bars[barIndex].customWidgets) do
-            if cw.ShowPreview then cw:ShowPreview() end
+
+    -- Real-time visual refresh
+    local function Refresh()
+        if elem then
+            FindWidgets(function(cw)
+                if cw.UpdateVisuals then cw:UpdateVisuals(elem) end
+            end)
         end
     end
-    
-    -- Set OnHide to cleanup preview (only once, uses stored barIndex)
-    if not f.hidePreviewHooked then
-        f.hidePreviewHooked = true
-        f:HookScript("OnHide", function()
-            local idx = f.activeBarIndex
-            if idx then
-                local brs = WidgetForge:GetBarFrames()
-                if brs and brs[idx] and brs[idx].customWidgets then
-                    for _, cw in ipairs(brs[idx].customWidgets) do
-                        if cw.HidePreview then cw:HidePreview() end
-                    end
-                end
+
+    -- Preview Logic (Inner Ring)
+    local function TogglePreview(show)
+        FindWidgets(function(cw)
+            if cw.ShowPreview then 
+                if show then cw:ShowPreview() else cw:HidePreview() end
             end
         end)
     end
     
-    -- Initialize Builder
-    local sb = WidgetForgeUtils:CreateSettingsBuilder(f.content)
+    -- Enable Preview on Open
+    TogglePreview(true)
+    
+    -- Hook for cleanup on close (Config needs to support this or we hook OnHide manually)
+    -- Config:OpenCursorRingSettings will likely handle panel setup, but we need to ensure cleanup happens.
+    -- We can hook panel's OnHide, but need to ensure we don't stack hooks.
+    -- Best approach: Store the cleanup closure on the panel and call it when switching/closing.
+    f.onCloseWidgetSpecific = function()
+        TogglePreview(false)
+        f.onCloseWidgetSpecific = nil -- clear self
+    end
+    
+    -- Initialize Builder on f.content
+    local sb = f.builder or WidgetForgeUtils:CreateSettingsBuilder(f.content)
     f.builder = sb
     
     -- === INITIALIZE DEFAULTS ===
@@ -480,31 +475,31 @@ function WidgetForge:OpenCursorRingSettings(barIndex, elemIndex, elem)
     
     -- --- Outer Ring ---
     sb:AddHeader("Outer Ring")
-    sb:AddColor("ringColor", "Ring Color:", {0, 0.8, 1, 1}, elem, RefreshCursorRing)
-    sb:AddSlider("ringSize", "Ring Size:", 16, 256, 4, 64, elem, RefreshCursorRing)
+    sb:AddColor("ringColor", "Ring Color:", {0, 0.8, 1, 1}, elem, Refresh)
+    sb:AddSlider("ringSize", "Ring Size:", 16, 256, 4, 64, elem, Refresh)
     
     -- --- Inner Ring (GCD / Cast) ---
     sb:AddHeader("Inner Ring (GCD / Cast)")
-    sb:AddCheckbox("showInnerRing", "Enable Inner Ring", true, elem, RefreshCursorRing)
-    sb:AddColor("innerRingColor", "Inner Ring Color:", {1, 0.8, 0, 1}, elem, RefreshCursorRing)
-    sb:AddSlider("innerRingSize", "Inner Ring Size:", 8, 200, 2, 38, elem, RefreshCursorRing)
+    sb:AddCheckbox("showInnerRing", "Enable Inner Ring", true, elem, Refresh)
+    sb:AddColor("innerRingColor", "Inner Ring Color:", {1, 0.8, 0, 1}, elem, Refresh)
+    sb:AddSlider("innerRingSize", "Inner Ring Size:", 8, 200, 2, 38, elem, Refresh)
     sb:AddDropdown("innerRingMode", "Tracking Mode:", {
         {text = "GCD Only", value = "GCD"},
         {text = "Cast Only", value = "CAST"},
         {text = "Both", value = "BOTH"}
-    }, "GCD", elem, RefreshCursorRing)
+    }, "GCD", elem, Refresh)
     
     -- --- Cursor Trail ---
     sb:AddHeader("Cursor Trail")
-    sb:AddCheckbox("trailEnabled", "Enable Trail", false, elem, RefreshCursorRing)
-    sb:AddColor("trailColor", "Trail Color:", {1, 1, 1, 1}, elem, RefreshCursorRing)
-    sb:AddSlider("trailDuration", "Trail Duration:", 0.1, 2.0, 0.05, 0.5, elem, RefreshCursorRing)
-    sb:AddSlider("trailDensity", "Trail Density:", 0.001, 0.05, 0.001, 0.005, elem, RefreshCursorRing)
-    sb:AddSlider("trailScale", "Trail Scale:", 0.1, 3.0, 0.1, 1.0, elem, RefreshCursorRing)
+    sb:AddCheckbox("trailEnabled", "Enable Trail", false, elem, Refresh)
+    sb:AddColor("trailColor", "Trail Color:", {1, 1, 1, 1}, elem, Refresh)
+    sb:AddSlider("trailDuration", "Trail Duration:", 0.1, 2.0, 0.05, 0.5, elem, Refresh)
+    sb:AddSlider("trailDensity", "Trail Density:", 0.001, 0.05, 0.001, 0.005, elem, Refresh)
+    sb:AddSlider("trailScale", "Trail Scale:", 0.1, 3.0, 0.1, 1.0, elem, Refresh)
     
     -- --- Visibility ---
     sb:AddHeader("Visibility")
-    sb:AddSlider("transparency", "Transparency:", 0.1, 1.0, 0.05, 1.0, elem, RefreshCursorRing, true) -- Force Full Row
+    sb:AddSlider("transparency", "Transparency:", 0.1, 1.0, 0.05, 1.0, elem, Refresh, true)
     
     sb:Finish()
 end

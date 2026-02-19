@@ -26,7 +26,43 @@ local defaults = {
     size = 32,
     shape = "Circle",
     thickness = 4, 
+    behavior = "ALWAYS", -- [NEW]
 }
+
+-- Visibility Logic
+local function UpdateVisibility(config)
+    if not config then return end
+    
+    -- Force show if in preview mode (Settings Open)
+    if f.previewMode then
+        f:Show()
+        return
+    end
+    
+    local mode = config.behavior or "ALWAYS"
+    local show = false
+    
+    if mode == "ALWAYS" then
+        show = true
+    elseif mode == "COMBAT" then
+         -- UnitAffectingCombat is more reliable for visual states than InCombatLockdown
+        show = UnitAffectingCombat("player")
+    elseif mode == "INSTANCE" then
+        local inInstance, instanceType = IsInInstance()
+        show = (inInstance and (instanceType == "party" or instanceType == "raid" or instanceType == "scenario" or instanceType == "arena"))
+    elseif mode == "COMBAT_INSTANCE" then
+        local inInstance, instanceType = IsInInstance()
+        local isInstance = (inInstance and (instanceType == "party" or instanceType == "raid" or instanceType == "scenario" or instanceType == "arena"))
+        show = UnitAffectingCombat("player") or isInstance
+    end
+    
+    if show then f:Show() else f:Hide() end
+end
+
+-- Event Handling for Visibility
+f:SetScript("OnEvent", function(self, event)
+    if self.config then UpdateVisibility(self.config) end
+end)
 
 -- Shape Logic
 -- We handle texture selection AND sizing logic here (called by UpdateVisuals)
@@ -40,11 +76,11 @@ local function ApplyShape(config)
     dot:SetAllPoints(f)
     dot2:Hide()
     
-    if shape == "Square (Border)" then
+    if shape == "Square (Border)" or shape == "Square" then
         dot:SetTexture("Interface\\AddOns\\WidgetForge\\media\\square_emty.tga")
         dot:SetTexCoord(0, 1, 0, 1)
         
-    elseif shape == "Square (Filled)" or shape == "Square" then
+    elseif shape == "Square (Filled)" then
         dot:SetTexture("Interface\\AddOns\\WidgetForge\\media\\square_full.tga")
         dot:SetTexCoord(0, 1, 0, 1)
 
@@ -52,12 +88,8 @@ local function ApplyShape(config)
         dot:SetTexture("Interface\\AddOns\\WidgetForge\\media\\circle_full.tga")
         dot:SetTexCoord(0, 1, 0, 1)
         
-    elseif shape == "Circle" then
+    elseif shape == "Circle" or shape == "Dot" then
         dot:SetTexture("Interface\\AddOns\\WidgetForge\\media\\circle.tga")
-        dot:SetTexCoord(0, 1, 0, 1)
-        
-    elseif shape == "Dot" then
-        dot:SetTexture("Interface\\AddOns\\WidgetForge\\media\\dot.tga")
         dot:SetTexCoord(0, 1, 0, 1)
         
     elseif shape == "Cross" then
@@ -85,8 +117,14 @@ function RetirementHome:Load(bar, config)
         bar:SetAlpha(0)
         bar:EnableMouse(false)
     end
+    
+    f:RegisterEvent("PLAYER_REGEN_DISABLED")
+    f:RegisterEvent("PLAYER_REGEN_ENABLED")
+    f:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+    f:RegisterEvent("PLAYER_ENTERING_WORLD")
+    
     self:UpdateVisuals(config)
-    f:Show()
+    -- f:Show() -- Handled by UpdateVisibility
     return f
 end
 
@@ -110,10 +148,14 @@ function RetirementHome:UpdateVisuals(config)
     local y = config.y or 0
     f:ClearAllPoints()
     f:SetPoint("CENTER", UIParent, "CENTER", x, y)
+    
+    -- Visibility
+    UpdateVisibility(config)
 end
 
 function RetirementHome:Unload()
     f:Hide()
+    f:UnregisterAllEvents()
     if f.parentBar then
         f.parentBar:SetAlpha(1)
         f.parentBar:EnableMouse(true)
@@ -123,11 +165,13 @@ end
 
 -- Settings Preview helpers
 function RetirementHome:ShowPreview()
-    -- Always visible
+    f.previewMode = true
+    UpdateVisibility(f.config)
 end
 
 function RetirementHome:HidePreview()
-    -- No op
+    f.previewMode = false
+    UpdateVisibility(f.config)
 end
 
 -- Attach Methods to Frame for Interface Compatibility
@@ -169,18 +213,37 @@ function RetirementHome:CreateSettings(parentFrame)
         RetirementHome:UpdateVisuals(f.config)
     end
 
-    -- Row 1: Shape (Full Width)
-    sb:AddDropdown("shape", "Dot Shape", {"Dot", "Circle", "Circle (Filled)", "Square (Border)", "Square (Filled)", "Cross"}, "Circle", f.config, OnShapeChange)
-    
-    -- Row 2: Size (Matches X Offset) + Color (Matches Y Offset)
-    sb:AddSlider("size", "Size (8-128)", 8, 128, 1, 32, f.config, OnUpdate)
+    -- Row 1: Shape + Color
+    sb:AddDropdown("shape", "Shape", {"Circle", "Circle (Filled)", "Square", "Square (Filled)", "Cross"}, "Circle", f.config, OnShapeChange)
     sb:AddColor("color", "Color", f.config.color, f.config, OnUpdate)
     
-    -- Row 3: X (Left) + Y (Right)
-    sb:AddSlider("x", "X Offset (-50 to 50)", -50, 50, 1, 0, f.config, OnUpdate)
-    sb:AddSlider("y", "Y Offset (-50 to 50)", -50, 50, 1, 0, f.config, OnUpdate)
+    -- Row 2: Behavior (Full Width?) - Let's use AddDropdown but maybe it fits in 1 col?
+    -- User said "altında behavior olsun" (let behavior be under it).
+    -- If Row 1 has 2 cols (Shape, Color), then "Under it" means Row 2.
+    -- Option 1: Behavior + Size on Row 2? 
+    -- User: "onun devamında size". Meaning Behavior, then Size.
+    -- Let's put Behavior on Row 2 (Left), Size on Row 2 (Right)? Or Behavior Full Width?
+    -- "dot shape ve color secimi yanı sırada olsun" -> Row 1: Shape, Color.
+    -- "altında behavior olsun" -> Row 2 starts with Behavior.
+    -- "onun devamında size" -> Next is Size.
+    -- So Row 2: Behavior (Left), Size (Right).
     
-    -- Row 4: Thickness (Full Width, Conditional)
+    local behaviorOpts = {
+        {text="Always Show", value="ALWAYS"},
+        {text="Combat Only", value="COMBAT"},
+        {text="Instance Only", value="INSTANCE"},
+        {text="Combat + Instance", value="COMBAT_INSTANCE"}
+    }
+    sb:AddDropdown("behavior", "Visibility", behaviorOpts, "ALWAYS", f.config, OnUpdate)
+    
+    -- Size (Right of Behavior)
+    sb:AddSlider("size", "Size (8-128)", 8, 128, 1, 32, f.config, OnUpdate)
+    
+    -- Row 3: X + Y
+    sb:AddSlider("x", "X Offset", -50, 50, 1, 0, f.config, OnUpdate)
+    sb:AddSlider("y", "Y Offset", -50, 50, 1, 0, f.config, OnUpdate)
+    
+    -- Row 4: Thickness (Conditional)
     if f.config.shape == "Cross" then
         sb:AddSlider("thickness", "Line Thickness (Cross)", 1, 20, 1, 4, f.config, OnUpdate, true)
     end
@@ -188,49 +251,4 @@ function RetirementHome:CreateSettings(parentFrame)
     sb:Finish()
 end
 
--- Inject into Config
-if _G.ForgeConfig then
-    function _G.ForgeConfig:OpenRetirementHomeSettings(barIndex, elemIndex, elem)
-        local f = _G.ForgeRetirementHomeSettings
-        if not f then
-            f = CreateFrame("Frame", "ForgeRetirementHomeSettings", UIParent, "BackdropTemplate")
-            f:SetSize(450, 250) -- Matches standard height
-            f:SetPoint("CENTER")
-            f:SetFrameStrata("DIALOG")
-            f:EnableMouse(true); f:SetMovable(true)
-            Skin:ApplyBackdrop(f)
-            
-            -- Use Skin TitleBar (handles close)
-            local title = Skin:CreateTitleBar(f, "Retirement Home", function() f:Hide() end)
-            title:RegisterForDrag("LeftButton")
-            title:SetScript("OnDragStart", function() f:StartMoving() end)
-            title:SetScript("OnDragStop", function() f:StopMovingOrSizing() end)
-            
-            -- Content area
-            local content = CreateFrame("Frame", nil, f)
-            content:SetPoint("TOPLEFT", 0, -40) -- Increased top padding
-            content:SetPoint("BOTTOMRIGHT", 0, 0)
-            f.content = content
-            f.controls = {}
-            
-            -- Keep ESC Close logic
-            f:EnableKeyboard(true)
-            f:SetPropagateKeyboardInput(true)
-            f:SetScript("OnKeyDown", function(self, key)
-                if key == "ESCAPE" then self:SetPropagateKeyboardInput(false); self:Hide() else self:SetPropagateKeyboardInput(true) end
-            end)
-            f:HookScript("OnShow", function(self) self:EnableKeyboard(true) end)
-            f:HookScript("OnHide", function(self) self:EnableKeyboard(false) end)
-        end
-        
-        f.config = elem
-        f:Show()
-        
-        -- Clear old controls via Builder
-        if f.builder then
-             f.builder:Release()
-        end
-        
-        RetirementHome:CreateSettings(f)
-    end
-end
+-- Settings injection removed (Migrated to WidgetForgeConfig.lua)

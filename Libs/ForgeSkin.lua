@@ -208,8 +208,11 @@ function Skin:CreateSlider(parent, min, max, step, value, callback, width)
         if pct < 0 then pct = 0 end; if pct > 1 then pct = 1 end
         self.thumb:SetPoint("CENTER", self.track, "LEFT", pct * w, 0)
         self.fill:SetWidth(math.max(1, pct * (w - 2)))
-        local text = (val < 1) and string.format("%.1f", val) or string.format("%.0f", val)
-        if not edit:HasFocus() then edit:SetText(text) end
+        
+        local fmt = self.valueFormat or (self.step and self.step < 0.01 and "%.3f" or (self.step and self.step < 0.1 and "%.2f" or (val < 1 and "%.1f" or "%.0f")))
+        local text = string.format(fmt, val)
+        
+        if not self.editBox:HasFocus() then self.editBox:SetText(text) end
         if self.callback then self.callback(val) end
     end
     local function UpdateFromMouse()
@@ -361,7 +364,7 @@ function Skin:CreateDropdown(parent, width, items, selectedValue, callback)
     listContainer:SetFrameStrata("TOOLTIP") 
     listContainer:SetClampedToScreen(true)
     listContainer:SetPoint("TOPLEFT", dd, "BOTTOMLEFT", 0, -2)
-    listContainer:SetWidth(width)
+    listContainer:SetPoint("TOPRIGHT", dd, "BOTTOMRIGHT", 0, -2)
     self:ApplyBackdrop(listContainer, 0.95, 1)
     listContainer:SetBackdropBorderColor(unpack(Skin.Colors.accent))
     listContainer:Hide()
@@ -577,7 +580,7 @@ function Skin:CreateMultiDropdown(parent, width, items, selectedMap, callback)
     listContainer:SetFrameStrata("TOOLTIP") 
     listContainer:SetClampedToScreen(true)
     listContainer:SetPoint("TOPLEFT", dd, "BOTTOMLEFT", 0, -2)
-    listContainer:SetWidth(width)
+    listContainer:SetPoint("TOPRIGHT", dd, "BOTTOMRIGHT", 0, -2)
     self:ApplyBackdrop(listContainer, 0.95, 1)
     listContainer:SetBackdropBorderColor(unpack(Skin.Colors.accent))
     listContainer:Hide()
@@ -911,13 +914,12 @@ function Skin:CreateAccordion(parent, title, contentHeight, onToggle)
     header.text:SetPoint("LEFT", 10, 0)
     header.text:SetText(title)
     
-    -- Arrow Button (Using Skin:CreateButton to match X alignment)
-    -- Just a visual element, pass clicks to header
-    header.toggleBtn = Skin:CreateButton(header, "+", 20, 20)
-    header.toggleBtn:SetPoint("RIGHT", -10, 0)
-    header.toggleBtn.text:SetFont("Fonts\\FRIZQT__.TTF", 12, "OUTLINE") 
-    header.toggleBtn.text:SetPoint("CENTER", 1, 0) -- Shifted 1px right
-    header.toggleBtn:EnableMouse(false) -- Let header handle clicks
+    -- Arrow Icon
+    header.arrow = header:CreateTexture(nil, "OVERLAY")
+    header.arrow:SetSize(18, 18)
+    header.arrow:SetPoint("RIGHT", -10, 0)
+    header.arrow:SetTexture("Interface\\AddOns\\WidgetForge\\media\\plus.tga")
+    header.arrow:SetVertexColor(1, 1, 1, 1)
     
     -- Content Frame
     local content = CreateFrame("Frame", nil, frame, "BackdropTemplate")
@@ -932,10 +934,11 @@ function Skin:CreateAccordion(parent, title, contentHeight, onToggle)
     
     local function UpdateArrow()
         if frame.expanded then
-            header.toggleBtn.text:SetText("-")
+            header.arrow:SetTexture("Interface\\AddOns\\WidgetForge\\media\\minus.tga")
         else
-            header.toggleBtn.text:SetText("+")
+            header.arrow:SetTexture("Interface\\AddOns\\WidgetForge\\media\\plus.tga")
         end
+        header.arrow:SetVertexColor(1, 1, 1, 1)
     end
 
     header:SetScript("OnClick", function()
@@ -959,8 +962,8 @@ function Skin:CreateAccordion(parent, title, contentHeight, onToggle)
     -- Since we use a real button now, providing click feedback on the whole header might be redundant or needs different handling.
     -- We force the feedback manually because the button itself is disabled.
     
-    header:SetScript("OnMouseDown", function() header.toggleBtn.text:SetPoint("CENTER", 2, -1) end) -- Adjust for press (1+1, -1)
-    header:SetScript("OnMouseUp", function() header.toggleBtn.text:SetPoint("CENTER", 1, 0) end)   -- Restore offset (1, 0)
+    -- header:SetScript("OnMouseDown", function() header.toggleBtn.text:SetPoint("CENTER", 2, -1) end) -- Adjust for press (1+1, -1)
+    -- header:SetScript("OnMouseUp", function() header.toggleBtn.text:SetPoint("CENTER", 1, 0) end)   -- Restore offset (1, 0)
     
     -- Use this function to force state
     function frame:SetExpanded(expanded)
@@ -1406,6 +1409,172 @@ function Skin:CreateGripHandle(parent, width, height)
     end)
     
     return d
+end
+
+-- =========================================================================
+--  SLIDE-IN PANEL (Reusable Component)
+-- =========================================================================
+function Skin:CreateSlidePanel(parent, width, height, anchorInfo)
+    local panel = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    
+    -- Configurable sizes
+    local w = width or 640
+    local h = height or 550
+    local targetW = w + 2 -- 2px wider (based on user request)
+    local targetX = anchorInfo and anchorInfo.x or -9 
+    local targetY = anchorInfo and anchorInfo.y or -40
+    
+    panel:SetSize(1, h) -- Start hidden/collapsed
+    panel:SetPoint("TOPRIGHT", parent, "TOPRIGHT", targetX, targetY)
+    
+    -- Ensure on TOP of everything
+    panel:SetFrameStrata("DIALOG")
+    
+    -- Standard Backdrop
+    Skin:ApplyBackdrop(panel, 0.1, 0.1) 
+    panel:SetBackdropColor(0.05, 0.05, 0.05, 0.98) 
+    
+    -- Custom Border for visual control (User requested 60% alpha random colors)
+    local cb = CreateFrame("Frame", nil, panel, "BackdropTemplate")
+    cb:SetFrameStrata("DIALOG")
+    cb:SetFrameLevel(panel:GetFrameLevel() + 100)
+    cb:SetAllPoints(panel)
+    cb:SetBackdrop({ edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1, bgFile = nil })
+    cb:SetBackdropBorderColor(1, 1, 1, 0.5)
+    panel.customBorder = cb
+    
+    -- Clipping
+    if panel.SetClipsChildren then panel:SetClipsChildren(true) end
+    
+    -- Inner Container (Fixed Size)
+    local inner = CreateFrame("Frame", nil, panel, "BackdropTemplate")
+    inner:SetSize(w, h - 2)
+    inner:SetPoint("TOPRIGHT", -1, -1)
+    
+    Skin:ApplyBackdrop(inner, 0.1, 0.1) 
+    inner:SetBackdropColor(0.05, 0.05, 0.05, 0.98) 
+    Skin:SetSmartBorder(inner, 1)
+    
+    -- Header
+    local header = CreateFrame("Frame", nil, inner, "BackdropTemplate")
+    header:SetSize(w, 40)
+    header:SetPoint("TOPLEFT", 0, 0)
+    header:SetPoint("TOPRIGHT", 0, 0)
+    Skin:ApplyBackdrop(header); header:SetBackdropColor(0.15, 0.15, 0.15, 1)
+    
+    header.title = header:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    header.title:SetPoint("LEFT", 15, 0)
+    header.title:SetText("Settings")
+    
+    -- Close Button (Red "Back")
+    local btnClose = Skin:CreateButton(header, "Back", 80, 25)
+    btnClose:SetPoint("RIGHT", -10, 0)
+    
+    local redColor = {0.8, 0.1, 0.1, 1}
+    local redHover = {1, 0.2, 0.2, 1}
+    btnClose:SetBackdropColor(unpack(redColor))
+    btnClose:SetBackdropBorderColor(0.5, 0, 0, 1)
+    btnClose:SetScript("OnEnter", function(self) self:SetBackdropColor(unpack(redHover)) end)
+    btnClose:SetScript("OnLeave", function(self) self:SetBackdropColor(unpack(redColor)) end)
+    
+    btnClose:SetScript("OnClick", function() 
+        if panel.onCloseHandler then
+            panel.onCloseHandler(panel)
+        else
+            Skin:ToggleSlidePanel(panel, false) 
+        end
+    end)
+    
+    -- Content Container (Scrollable)
+    local scroll, content = Skin:CreateScrollFrame(inner, w - 4, 10) -- Initial height 10, grows with content
+    scroll:SetPoint("TOPLEFT", 0, -50)
+    scroll:SetPoint("BOTTOMRIGHT", 0, 10)
+    
+    -- Fix ScrollBar visibility handling if needed or auto-managed by Skin
+    -- Skin:CreateScrollFrame manages basic setup.
+    
+    -- ESC Handling (Animation support)
+    panel:EnableKeyboard(true)
+    panel:SetPropagateKeyboardInput(true)
+    panel:SetScript("OnKeyDown", function(self, key)
+        if key == "ESCAPE" then
+            self:SetPropagateKeyboardInput(false) 
+            if self.onCloseHandler then
+                self.onCloseHandler(self)
+            else
+                Skin:ToggleSlidePanel(self, false)
+            end
+        else
+            self:SetPropagateKeyboardInput(true)
+        end
+    end)
+    
+    panel.header = header
+    panel.inner = inner
+    panel.scroll = scroll
+    panel.content = content
+    panel.targetWidth = targetW
+    
+    panel:Hide()
+    return panel
+end
+
+function Skin:ToggleSlidePanel(panel, show)
+    if not panel then return end
+    
+    if show then
+        if panel.isSlideOpen then return end
+        panel:Show()
+        panel.isSlideOpen = true
+        
+        -- Animation: Grow
+        local t = 0
+        local duration = 0.35
+        local startW = 1
+        local endW = panel.targetWidth or 642
+        
+        -- Random Border Color (Alpha 0.5)
+        local r, g, b = math.random(), math.random(), math.random()
+        if panel.customBorder then
+             panel.customBorder:SetBackdropBorderColor(r, g, b, 0.5)
+        end
+        
+        panel:SetScript("OnUpdate", function(self, elapsed)
+             t = t + elapsed
+             if t >= duration then
+                 self:SetWidth(endW)
+                 self:SetScript("OnUpdate", nil)
+                 return
+             end
+             local progress = 1 - math.pow(1 - t/duration, 3) -- Cubic Ease Out
+             self:SetWidth(startW + (endW - startW) * progress)
+        end)
+    else
+        if not panel.isSlideOpen then return end
+        panel.isSlideOpen = false
+        
+        -- Main Frame ESC restore logic could be handled by caller if needed, 
+        -- but since we consume ESC only when panel is focused, it should be fine.
+        -- If specific main frame needs restoration to UISpecialFrames, caller should handle or we pass callback.
+        
+        -- Animation: Shrink
+        local t = 0
+        local duration = 0.25
+        local startW = panel:GetWidth()
+        local endW = 1
+        
+        panel:SetScript("OnUpdate", function(self, elapsed)
+             t = t + elapsed
+             if t >= duration then
+                 self:Hide()
+                 self:SetWidth(1)
+                 self:SetScript("OnUpdate", nil)
+                 return
+             end
+             local progress = (t/duration) * (t/duration) -- Quadratic Ease In
+             self:SetWidth(startW + (endW - startW) * progress)
+        end)
+    end
 end
 
 local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)

@@ -2,7 +2,7 @@
 ## Title: Widget Forge
 ## Notes: Advanced customizable stat bars and widgets
 ## Author: Fevka
-## Version: 1.1.0
+## Version: 1.1.1
 ## SavedVariables: WidgetForgeDB
 
 WidgetConstants.lua

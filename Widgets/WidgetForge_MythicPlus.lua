@@ -878,62 +878,93 @@ function MPlus:TogglePreview(state)
     MPlus:UpdateUI()
 end
 
-    -- Inject into Config
-if _G.ForgeConfig then
-    function _G.ForgeConfig:OpenMythicPlusSettings(barIndex, elemIndex, elem)
-        local Skin = _G.ForgeSkin
-        local f = _G.ForgeMythicPlusSettings
-        if not f then
-            f = CreateFrame("Frame", "ForgeMythicPlusSettings", UIParent, "BackdropTemplate")
-            f:SetSize(540, 620) -- Compact, no scroll
-            f:SetPoint("CENTER")
-            f:SetFrameStrata("DIALOG")
-            f:EnableMouse(true); f:SetMovable(true)
-            Skin:ApplyBackdrop(f)
-            
-            local title = Skin:CreateTitleBar(f, "Mythic+ Dashboard Settings", function() f:Hide() end)
-            title:RegisterForDrag("LeftButton")
-            title:SetScript("OnDragStart", function() f:StartMoving() end)
-            title:SetScript("OnDragStop", function() f:StopMovingOrSizing() end)
-            
-            local content = CreateFrame("Frame", nil, f)
-            content:SetPoint("TOPLEFT", 0, -40)
-            content:SetPoint("BOTTOMRIGHT", 0, 0)
-            f.content = content
-            
-            f:HookScript("OnShow", function() MPlus:TogglePreview(true) end)
-            f:HookScript("OnHide", function() MPlus:TogglePreview(false) end)
-            
-            -- ESC Key Support
-            f:SetPropagateKeyboardInput(true)
 
-            f:SetScript("OnKeyDown", function(self, key)
-                if key == "ESCAPE" then
-                    self:SetPropagateKeyboardInput(false)
-                    self:Hide()
-                else
-                    self:SetPropagateKeyboardInput(true)
-                end
-            end)
-        end
-        
-        f.config = elem
-        f:Show()
-        
-        -- Clean ScrollChild
-        if f.builder then
-             f.builder:Release()
-        end
-        local kids = { f.content:GetChildren() }
-        for _, child in ipairs(kids) do child:Hide(); child:SetParent(nil) end
-        local rgns = { f.content:GetRegions() }
-        for _, r in ipairs(rgns) do r:Hide() end
-        
-        MPlus:CreateSettings(f)
+
+
+
+
+function MPlus:CreateSettings(parentFrame)
+    print("DEBUG: MPlus:CreateSettings Called") 
+    -- Ensure initialized
+    MPlus:Init()
+    
+    local f = parentFrame
+    local elem = f.config
+    print("DEBUG: elem is", elem)-- AGGRESSIVE DB INIT TO PREVENT EMPTY PANEL
+    if not _G.WidgetForgeDB then _G.WidgetForgeDB = {} end
+    if not _G.WidgetForgeDB.MythicPlus then
+        _G.WidgetForgeDB.MythicPlus = {
+            History = {},
+            Settings = {
+                showEnemyForcesAbsolute = true,
+                autoKeystone = true,
+                autoCloseBags = true,
+                hideBlizzardTracker = true,
+                customThresholds = { 90, 80, 60 } 
+            }
+        }
     end
+    MPlus.config = _G.WidgetForgeDB.MythicPlus
+    
+    local globalSets = MPlus.config.Settings
+    -- If Settings is somehow nil (e.g. corrupted SavedVars), reset it
+    if not globalSets then
+        MPlus.config.Settings = {
+            showEnemyForcesAbsolute = true,
+            autoKeystone = true,
+            autoCloseBags = true,
+            hideBlizzardTracker = true,
+            customThresholds = { 90, 80, 60 } 
+        }
+        globalSets = MPlus.config.Settings
+    end
+    print("DEBUG: globalSets is", globalSets)
+
+    -- Initialize Builder on f.content
+    local sb = f.builder or WidgetForgeUtils:CreateSettingsBuilder(f.content)
+    f.builder = sb 
+    
+    local function OnGlobalUpdate()
+        -- Global settings usually take effect on next event, no immediate visual update needed
+        -- except maybe Hide Tracker
+        if globalSets.hideBlizzardTracker then
+             if ObjectiveTrackerFrame and MPlus.activeRun then ObjectiveTrackerFrame:Hide() end
+        else
+             if ObjectiveTrackerFrame then ObjectiveTrackerFrame:Show() end
+        end
+    end
+    
+    local function OnVisualUpdate()
+        if MPlus.frame and elem and elem.scale then 
+            MPlus.frame:SetScale(elem.scale) 
+        end
+        if WidgetForge.RebuildBarComponents then
+            WidgetForge:RebuildBarComponents(f.barIndex) -- Trigger save/refresh
+        end
+    end
+    
+    -- Row 1: Dashboard Options Header
+    sb:AddHeader("Dashboard Options")
+    
+    -- Row 2: Auto Keystone & Auto Close Bags
+    sb:AddCheckbox("autoKeystone", "Auto Slot Keystone", globalSets.autoKeystone, globalSets, OnGlobalUpdate)
+    sb:AddCheckbox("autoCloseBags", "Auto Close Bags", globalSets.autoCloseBags, globalSets, OnGlobalUpdate)
+    
+    -- Row 3: Tracker Visibility & Enemy Forces
+    sb:AddCheckbox("hideBlizzardTracker", "Hide Default Tracker", globalSets.hideBlizzardTracker, globalSets, OnGlobalUpdate)
+    sb:AddCheckbox("showEnemyForcesAbsolute", "Show Absolute Enemy Forces", globalSets.showEnemyForcesAbsolute, globalSets, OnGlobalUpdate)
+    
+    -- Row 4: Visuals Header
+    sb:AddHeader("Visuals")
+    
+    -- Row 5: Scale (Local Element Setting)
+    if elem then
+        elem.scale = elem.scale or 1.0
+        sb:AddSlider("scale", "Scale (0.5 - 2.0)", 0.5, 2.0, 0.05, elem.scale, elem, OnVisualUpdate)
+    end
+    
+    sb:Finish()
 end
-
-
 
 -- Hook ADDON_LOADED for early initialization if possible
 local fEvents = CreateFrame("Frame")

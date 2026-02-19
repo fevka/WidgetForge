@@ -1,6 +1,14 @@
 local addonName, addon = ...
-addon.Dragonriding = {}
-local Dragonriding = addon.Dragonriding
+
+-- Ensure global table exists (just in case)
+if not _G.WidgetForge then _G.WidgetForge = {} end
+
+-- Initialize Module in Global Table
+_G.WidgetForge.Dragonriding = {}
+local Dragonriding = _G.WidgetForge.Dragonriding
+
+-- Also link to addon-private table (for internal consistency)
+addon.Dragonriding = Dragonriding
 
 -- Variables
 Dragonriding.frame = nil
@@ -351,69 +359,49 @@ function Dragonriding:CreateSettings(parentFrame)
     sb:AddColor("speedEmptyColor", "Speed Empty Color", {0.15, 0.15, 0.15, 1}, f.config, Refresh)
     sb:AddColor("speedTextColor", "Speed Text Color", {1, 1, 1, 1}, f.config, Refresh)
     
-    -- 5. Behavior Settings (New Addition, moved to bottom to not break flow)
+    -- 5. Behavior Settings
     sb:AddHeader("Advanced Behavior")
+    
+    -- Visibility Dropdown (Left)
     sb:AddDropdown("inactiveBehavior", "When Not Dragonriding:", {
         {text = "Dimmed (Default)", value = "DIMMED"},
         {text = "Always Show", value = "ALWAYS_SHOW"},
         {text = "Hidden", value = "HIDDEN"}
     }, "DIMMED", f.config, function(v)
         f.config.inactiveBehavior = v
-        Refresh()
-        -- Re-open to refresh transparency slider visibility?
-        -- SB doesn't support dynamic refresh of structure yet.
-        -- Config:OpenDragonridingSettings(...) would work.
+        
+        -- Refresh panel to update Transparency slider state
         if _G.ForgeConfig then
-             -- Delay slightly to avoid script recursion issues
              C_Timer.After(0.1, function() 
                 if f:IsShown() then _G.ForgeConfig:OpenDragonridingSettings(nil, nil, f.config) end
              end)
         end
     end)
     
+    -- Transparency Slider (Right) - Only relevant if DIMMED
+    sb:AddSlider("inactiveAlpha", "Transparency (Dimmed)", 0, 1, 0.05, 0.2, f.config, Refresh)
+    
+    -- Apply "Disabled" visual state if not DIMMED
+    local lastControl = sb.controls[#sb.controls] -- The slider we just added
+    if f.config.inactiveBehavior ~= "DIMMED" then
+        if lastControl then
+            lastControl:SetAlpha(0.5)
+            lastControl:EnableMouse(false)
+            if lastControl.track then lastControl.track:EnableMouse(false) end
+            if lastControl.thumb then lastControl.thumb:EnableMouse(false) end
+            if lastControl.editBox then lastControl.editBox:EnableMouse(false); lastControl.editBox:ClearFocus() end
+        end
+    else
+        if lastControl then
+            lastControl:SetAlpha(1)
+            lastControl:EnableMouse(true)
+            if lastControl.track then lastControl.track:EnableMouse(true) end
+            if lastControl.thumb then lastControl.thumb:EnableMouse(true) end
+            if lastControl.editBox then lastControl.editBox:EnableMouse(true) end
+        end
+    end
+    
     sb:Finish()
 end
 
--- Inject into Config
-if _G.ForgeConfig then
-    function _G.ForgeConfig:OpenDragonridingSettings(barIndex, elemIndex, elem)
-        local f = _G.ForgeDragonridingSettings
-        if not f then
-            f = CreateFrame("Frame", "ForgeDragonridingSettings", UIParent, "BackdropTemplate")
-            f:SetSize(540, 600)
-            f:SetPoint("CENTER")
-            f:SetFrameStrata("DIALOG")
-            f:EnableMouse(true); f:SetMovable(true)
-            local Skin = _G.ForgeSkin
-            if Skin then Skin:ApplyBackdrop(f) end
-            
-            if Skin then
-                local title = Skin:CreateTitleBar(f, "Dragonriding Settings", function() f:Hide() end)
-                title:RegisterForDrag("LeftButton")
-                title:SetScript("OnDragStart", function() f:StartMoving() end)
-                title:SetScript("OnDragStop", function() f:StopMovingOrSizing() end)
-            end
-            
-            -- [NEW] SCROLLFRAME SUPPORT
-            local scroll, content = Skin:CreateScrollFrame(f, 500, 550)
-            scroll:SetPoint("TOPLEFT", 20, -40)
-            scroll:SetPoint("BOTTOMRIGHT", -5, 20)
-            
-            f.scrollInfo = scroll -- Store reference if needed
-            f.content = content
-            
-            f:SetPropagateKeyboardInput(true)
-            f:SetScript("OnKeyDown", function(self, key)
-                if key == "ESCAPE" then self:Hide() else self:SetPropagateKeyboardInput(true) end
-            end)
-        end
-        f.config = elem
-        f:Show()
-        
-        -- Reset scroll position
-        if f.scrollInfo then f.scrollInfo:SetVerticalScroll(0) end
-        
-        if f.builder then f.builder:Release() end
-        Dragonriding:CreateSettings(f)
-    end
-end
+-- Settings injection moved to WidgetForgeConfig.lua to use unified Slide-In Panel

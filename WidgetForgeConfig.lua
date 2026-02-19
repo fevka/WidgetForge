@@ -32,7 +32,7 @@ Config.ElementTypes = {
     "Crit", "Haste", "Mastery", "Versatility", 
     "Avoidance", "Leech", "Speed", "Run Speed", "Dodge", "Parry", "Armor", "Max HP",
     "Gold", "Zone", "Coords", "Item Level", "Combat Timer", "XP",
-    "Dragonriding"
+    "Dragonriding", "Dummy"
 }
 
 Config.Presets = {
@@ -327,9 +327,19 @@ function Config:RefreshBarList()
             
             btn:SetScript("OnClick", function() Config:SelectBar(i) end)
             
-            local btnDel = Skin:CreateButton(btn, "X", 20, 20)
+            local btnDel = CreateFrame("Button", nil, btn)
+            btnDel:SetSize(20, 20)
             btnDel:SetPoint("RIGHT", -5, 0)
-            btnDel.text:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
+            
+            local icon = btnDel:CreateTexture(nil, "OVERLAY")
+            icon:SetSize(18, 18) -- Match Accordion Size
+            icon:SetPoint("CENTER")
+            icon:SetTexture("Interface\\AddOns\\WidgetForge\\media\\close.tga")
+            icon:SetVertexColor(1, 1, 1, 1) -- Match Accordion Color (1.0)
+            
+            btnDel:SetScript("OnEnter", function() icon:SetVertexColor(1, 0.2, 0.2, 1) end) -- Hover: Red
+            btnDel:SetScript("OnLeave", function() icon:SetVertexColor(1, 1, 1, 1) end)
+            
             btnDel:SetScript("OnClick", function() 
                 table.remove(WidgetForgeDB.bars, i)
                 Config:RefreshBarList()
@@ -628,12 +638,12 @@ end
     
     -- [ISOLATION CHECK]
     local barMode = "EMPTY" -- EMPTY, STANDARD, OVERLAY, STRICT
-    local OverlayTypes = { ["Cursor Ring"] = true, ["Retirement Home"] = true, ["Mythic+ Dashboard"] = true }
+    local OverlayTypes = { ["Cursor Ring"] = true, ["Retirement Home"] = true } -- Removed Mythic+ Dashboard from OverlayTypes
     
     if bar.elements and #bar.elements > 0 then
         barMode = "STANDARD" -- Default
         for _, e in ipairs(bar.elements) do
-            if e.type == "Dragonriding" then 
+            if e.type == "Dragonriding" or e.type == "Mythic+ Dashboard" then 
                 barMode = "STRICT"
                 break 
             elseif OverlayTypes[e.type] then
@@ -652,7 +662,7 @@ end
         { name = "Progression & Goods", elements = { "XP", "Gold", "Bag Space", "Item Level", "Durability" } },
         { name = "Navigation", elements = { "Zone", "Coords" } },
         { name = "Dungeon & Raid", elements = { "Mythic+ Dashboard" } },
-        { name = "Utils", elements = { "Dragonriding", "Cursor Ring", "Combat Timer", "Retirement Home" } }
+        { name = "Utils", elements = { "Dragonriding", "Cursor Ring", "Combat Timer", "Retirement Home", "Dummy" } }
     }
     
     -- [ACCORDION RENDERING & FILTER LOGIC]
@@ -803,12 +813,12 @@ end
             
             -- Isolation Logic
             local canAdd = true
-            local btnIsStrict = (typeName == "Dragonriding")
+            local btnIsStrict = (typeName == "Dragonriding" or typeName == "Mythic+ Dashboard")
             local btnIsOverlay = OverlayTypes[typeName]
             local btnIsDivider = (typeName == "Divider")
             
             if barMode == "STRICT" then
-                 if typeName ~= "Dragonriding" then canAdd = false end
+                 if typeName ~= exclusiveType then canAdd = false end
             elseif barMode == "OVERLAY" then
                  -- Allow other overlays, Block Standard/Strict/Divider
                  if not btnIsOverlay then canAdd = false end
@@ -885,7 +895,17 @@ end
         Skin:ApplyBackdrop(item, 0.3, 0.5)
         item.txt = item:CreateFontString(nil, "OVERLAY", "GameFontNormal"); item.txt:SetPoint("LEFT", 8, 0); item.txt:SetText(i..". "..elem.type); item.txt:SetFont(Skin.Constants.FONT_NORMAL, 11, "OUTLINE"); item.txt:SetWidth(110); item.txt:SetJustifyH("LEFT")
 
-        local btnRem = Skin:CreateButton(item, "X", 20, 20); btnRem:SetPoint("RIGHT", -10, 0); btnRem.text:SetFont(Skin.Constants.FONT_NORMAL, 10, "OUTLINE")
+        local btnRem = CreateFrame("Button", nil, item)
+        btnRem:SetSize(20, 20); btnRem:SetPoint("RIGHT", -10, 0)
+        
+        local icon = btnRem:CreateTexture(nil, "OVERLAY")
+        icon:SetSize(18, 18); icon:SetPoint("CENTER")
+        icon:SetTexture("Interface\\AddOns\\WidgetForge\\media\\close.tga")
+        icon:SetVertexColor(1, 1, 1, 1)
+        
+        btnRem:SetScript("OnEnter", function() icon:SetVertexColor(1, 0.2, 0.2, 1) end)
+        btnRem:SetScript("OnLeave", function() icon:SetVertexColor(1, 1, 1, 1) end)
+        
         btnRem:SetScript("OnClick", function() table.remove(bar.elements, i); Config:SelectBar(index); WidgetForge:RebuildBarComponents(index) end)
         
         local dragHandle = Skin:CreateGripHandle(item, 20, 20); dragHandle:SetPoint("RIGHT", btnRem, "LEFT", -4, 0); dragHandle:EnableMouse(true); dragHandle:RegisterForDrag("LeftButton")
@@ -1017,7 +1037,7 @@ end
              btnCol:Hide()
              local btnSettings = Skin:CreateButton(item, "Settings", 80, 22)
              btnSettings:SetPoint("RIGHT", dragHandle, "LEFT", -10, 0)
-             btnSettings:SetScript("OnClick", function() WidgetForge:OpenCursorRingSettings(index, i, elem) end)
+             btnSettings:SetScript("OnClick", function() Config:OpenCursorRingSettings(index, i, elem) end)
         elseif elem.type == "Retirement Home" then
              btnCol:Hide()
              local btnSettings = Skin:CreateButton(item, "Settings", 80, 22)
@@ -1028,7 +1048,16 @@ end
              btnCol:Hide()
              local btnSettings = Skin:CreateButton(item, "Settings", 80, 22)
              btnSettings:SetPoint("RIGHT", dragHandle, "LEFT", -10, 0)
-             btnSettings:SetScript("OnClick", function() if Config.OpenMythicPlusSettings then Config:OpenMythicPlusSettings(index, i, elem) end end)
+             btnSettings:SetScript("OnClick", function() 
+                print("DEBUG: Clicked M+ Settings Button")
+                print("DEBUG: Config.OpenMythicPlusSettings exists:", Config.OpenMythicPlusSettings ~= nil)
+                if Config.OpenMythicPlusSettings then Config:OpenMythicPlusSettings(index, i, elem) end 
+             end)
+        elseif elem.type == "Dummy" then
+             btnCol:Hide()
+             local btnSettings = Skin:CreateButton(item, "Settings", 80, 22)
+             btnSettings:SetPoint("RIGHT", dragHandle, "LEFT", -10, 0)
+             btnSettings:SetScript("OnClick", function() Config:OpenDummySettings(index, i, elem) end)
         else
             -- STANDARD CONTROLS
             -- Color Button is visible (already created above)
@@ -1194,253 +1223,311 @@ end
 -- =========================================================================
 --  DRAGONRIDING SETTINGS POPUP
 -- =========================================================================
-function Config:OpenDragonridingSettings(barIndex, elemIndex, elem)
-    local f = Config.DragonSettingsFrame
-    if not f then
-        f = CreateFrame("Frame", "ForgeDragonSettings", UIParent, "BackdropTemplate")
-        f:SetSize(550, 600)  -- WIDENED
-        f:SetPoint("CENTER")
-        f:SetFrameStrata("DIALOG")
-        Skin:ApplyBackdrop(f)
-        
-        -- Title Bar (handles dragging)
-        Skin:CreateTitleBar(f, "Dragonriding Settings", function() f:Hide() end)
-        
-        -- Scroll Frame
-        local scroll, content = Skin:CreateScrollFrame(f, 510, 550) -- Adjusted for new width
-        scroll:SetPoint("TOPLEFT", 20, -40)
-        scroll:SetPoint("BOTTOMRIGHT", -5, 20)
-        f.scroll = scroll
-        f.content = content
-        
-        f.controls = {}
-        Config.DragonSettingsFrame = f
-        
-        -- ESC key closes only this popup (not the main config behind it)
-        f:SetPropagateKeyboardInput(true)
-        f:SetScript("OnKeyDown", function(self, key)
-            if key == "ESCAPE" then
-                self:SetPropagateKeyboardInput(false)
-                self:Hide()
-            else
-                self:SetPropagateKeyboardInput(true)
-            end
-        end)
-        f:HookScript("OnShow", function(self) self:EnableKeyboard(true) end)
-        f:HookScript("OnHide", function(self) self:EnableKeyboard(false) end)
-    end
-    f:Show()
-    
-    local lastY = -10
-    local col1X = 10
-    local col2X = 260 -- Second column start
-    local isRight = false -- Toggle for column placement
-    
-    -- Helper to create sliders using Skin (Compact for 2-col)
-    local function AddSlider(key, label, minVal, maxVal, step, forceFullRow)
-        local width = 220 
-        local x = isRight and col2X or col1X
-        
-        if forceFullRow then 
-            width = 460; isRight = false; x = col1X 
-        end
-        
-        local s = f.controls[key]
-        if not s then
-            -- Create label manually to position it better? Skin:CreateSlider creates its own label usually or we can rely on AddLabel
-            -- Skin:CreateSlider(parent, min, max, step, val, func, width)
-            -- We'll add a separate label above it to save horizontal space? Or just trust the process.
-            -- Let's stick to standard flow: Label above Slider.
-            
-            local lbl = f.content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-            lbl:SetText(label)
-            f.controls[key.."_lbl"] = lbl
-            
-            s = Skin:CreateSlider(f.content, minVal, maxVal, step, elem[key] or 0, function(val)
-                if elem[key] ~= val then
-                    elem[key] = val
-                    WidgetForge:RebuildBarComponents(barIndex)
-                end
-            end, width)
-            f.controls[key] = s
-        else
-            s:SetWidth(width)
-            s:SetValue(elem[key] or 0)
-            s.callback = function(val)
-                 if elem[key] ~= val then elem[key] = val; WidgetForge:RebuildBarComponents(barIndex) end
-            end
-        end
-        
-        local lbl = f.controls[key.."_lbl"]
-        lbl:ClearAllPoints(); lbl:SetPoint("TOPLEFT", x, lastY)
-        s:ClearAllPoints(); s:SetPoint("TOPLEFT", x, lastY - 15)
-        
-        if forceFullRow then
-             lastY = lastY - 50 -- Increased from 45
-        else
-             if isRight then lastY = lastY - 50 end -- Increased from 45
-             isRight = not isRight
-        end
-    end
-    
-    -- Helper to create Checkboxes
-    local function AddCheck(key, label)
-        local x = isRight and col2X or col1X
-        local c = f.controls[key]
-        if not c then
-            c = Skin:CreateCheckbox(f.content, label, elem[key] == true, function(val)
-                elem[key] = val
-                WidgetForge:RebuildBarComponents(barIndex)
-            end)
-            f.controls[key] = c
-        else
-            c:SetChecked(elem[key] == true)
-            c.callback = function(val) elem[key] = val; WidgetForge:RebuildBarComponents(barIndex) end
-        end
-        c:ClearAllPoints()
-        c:SetPoint("TOPLEFT", x, lastY)
-        
-        if isRight then lastY = lastY - 35 end -- Increased from 30
-        isRight = not isRight
-    end
-    
-    -- Helper to create Color Pickers
-    local function AddColor(key, label)
-        local x = isRight and col2X or col1X
-        local c = f.controls[key]
-        if not c then
-            c = Skin:CreateColorPicker(f.content, label, elem[key] or {1,1,1,1}, function(val)
-                elem[key] = val
-                WidgetForge:UpdateBarValues(barIndex)
-                WidgetForge:RebuildBarComponents(barIndex)
-            end, 230)
-            f.controls[key] = c
-        else
-            c:Hide() 
-            c = Skin:CreateColorPicker(f.content, label, elem[key] or {1,1,1,1}, function(val)
-                elem[key] = val
-                WidgetForge:UpdateBarValues(barIndex)
-                WidgetForge:RebuildBarComponents(barIndex)
-            end, 230)
-            f.controls[key] = c
-        end
-        c:ClearAllPoints()
-        c:SetPoint("TOPLEFT", x, lastY)
-        c:Show()
-        
-        if isRight then lastY = lastY - 50 end -- Increased from 40
-        isRight = not isRight
-    end
-    
-    -- Header Helper
-    local function AddHeader(text)
-        if isRight then lastY = lastY - 50; isRight = false end -- Force new line
-        Skin:CreateSectionHeader(f.content, text, 480):SetPoint("TOPLEFT", 10, lastY)
-        lastY = lastY - 45 -- Increased from 35
-    end
+-- Old Dragonriding Settings Popup Removed (Migrated to Slide-In Panel)
 
-    -- === INITIALIZE DEFAULTS ===
-    if elem.widgetWidth == nil then elem.widgetWidth = 300 end
-    if elem.vigorHeight == nil then elem.vigorHeight = 14 end
-    if elem.speedHeight == nil then elem.speedHeight = 14 end
-    if elem.verticalPadding == nil then elem.verticalPadding = 4 end
-    if elem.cellGap == nil then elem.cellGap = 4 end
-    if elem.vigorBorderSize == nil then elem.vigorBorderSize = 1 end
-    -- if elem.speedBorderSize == nil then elem.speedBorderSize = 1 end -- Default checked by nil check below
-    if elem.bgPaddingX == nil then elem.bgPaddingX = 5 end
-    if elem.bgPaddingY == nil then elem.bgPaddingY = 5 end
-    if elem.inactiveAlpha == nil then elem.inactiveAlpha = 0.3 end -- Default Alpha
+
+
+-- =========================================================================
+--  SLIDE-IN SETTINGS PANEL ARCHITECTURE
+-- =========================================================================
+function Config:GetSlidePanel()
+    if Config.SlidePanel then return Config.SlidePanel end
     
-    -- === CONTROLS ===
-    lastY = -10
-    isRight = false
+    local Skin = _G.ForgeSkin
+    local parent = Config.Frame
+    local panel = Skin:CreateSlidePanel(parent, 640, 550, {x = -9, y = -40})
     
-    AddHeader("Dimensions")
-    AddSlider("widgetWidth", "Total Width", 100, 800, 10, true) -- Full Row
-    AddSlider("vigorHeight", "Vigor Bar Height", 4, 60, 1)
-    AddSlider("speedHeight", "Speed Bar Height", 4, 60, 1)
-    AddSlider("verticalPadding", "Row Spacing", 0, 30, 1)
-    AddSlider("cellGap", "Vigor Cell Gap", 0, 20, 1)
-    
-    AddHeader("Visibility")
-    
-    -- Dropdown (Col 1)
-    -- Dropdown (Col 1)
-    local lblVis = f.controls["lblVis"]
-    if not lblVis then
-        lblVis = f.content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        lblVis:SetPoint("TOPLEFT", 10, lastY) 
-        lblVis:SetText("Not Mounted Behavior")
-        f.controls["lblVis"] = lblVis
-    else
-        lblVis:SetPoint("TOPLEFT", 10, lastY) -- Ensure position is updated if layout changes
+    -- Assign Application-Level Handler
+    panel.onCloseHandler = function(self)
+        Config:ToggleSlidePanel(false)
     end
     
-    local ddVis = f.controls["ddVis"]
-    if not ddVis then
-        ddVis = Skin:CreateDropdown(f.content, 140, {
-            {text="Always Show", value="ALWAYS_SHOW"},
-            {text="Semi-Transparent", value="DIMMED"},
-            {text="Hidden", value="HIDDEN"}
-        }, elem.inactiveBehavior or "DIMMED", nil) -- Callback set below
-        ddVis:SetFrameLevel(f:GetFrameLevel() + 5) 
-        f.controls["ddVis"] = ddVis
-    end
-    
-    -- Update for current bar/element
-    ddVis:SetValue(elem.inactiveBehavior or "DIMMED")
-    ddVis.callback = function(v)
-        elem.inactiveBehavior = v
-        f.controls["inactiveAlpha"]:SetShown(v == "DIMMED")
-        f.controls["inactiveAlpha_lbl"]:SetShown(v == "DIMMED")
-        WidgetForge:RebuildBarComponents(barIndex)
-    end
-    ddVis:ClearAllPoints()
-    ddVis:SetPoint("TOPLEFT", 10, lastY - 15)
-    
-    -- Transparency Slider (Col 2)
-    isRight = true 
-    
-    AddSlider("inactiveAlpha", "Transparency (0-1)", 0.0, 1.0, 0.05)
-    
-    -- Post-Add Adjustment
-    local isDimmed = (elem.inactiveBehavior == "DIMMED" or elem.inactiveBehavior == nil)
-    f.controls["inactiveAlpha"]:SetShown(isDimmed)
-    f.controls["inactiveAlpha_lbl"]:SetShown(isDimmed)
-    
-    -- Reduce spacing gap
-    lastY = lastY - 20 -- Reduced from 40 to close the gap
-
-    AddHeader("Layout & Background")
-    AddCheck("swapPositions", "Swap Positions (Top/Bottom)")
-    AddCheck("showSpeedText", "Show Speed Text")
-    
-    -- spacer
-    if isRight then lastY = lastY - 30; isRight = false end
-    
-    AddSlider("bgPaddingX", "Background Padding X (Width)", 0, 100, 1)
-    AddSlider("bgPaddingY", "Background Padding Y (Height)", 0, 50, 1)
-    AddColor("bgColor", "Background Box Color")
-    if isRight then lastY = lastY - 40; isRight = false end -- Ensure clean break
-
-    AddHeader("Vigor Bar Appearance")
-    AddSlider("vigorBorderSize", "Vigor Border Size", 0, 10, 1)
-    AddColor("vigorBorderColor", "Vigor Border Color")
-    AddColor("vigorFillColor", "Vigor Fill Color")
-    AddColor("vigorEmptyColor", "Vigor Empty Color")
-    
-    AddHeader("Speed Bar Appearance")
-    AddSlider("speedBorderSize", "Speed Border Size", 0, 10, 1)
-    AddColor("speedBorderColor", "Speed Border Color")
-    AddColor("speedBarColor", "Speed Bar Color")
-    AddColor("speedEmptyColor", "Speed Empty Color")
-    AddColor("speedTextColor", "Speed Text Color")
-
-    -- Clean up bottom space
-    if isRight then lastY = lastY - 40 end
-    f.content:SetHeight(math.abs(lastY) + 50)
+    Config.SlidePanel = panel
+    return panel
 end
 
+function Config:ToggleSlidePanel(show)
+    local panel = Config:GetSlidePanel()
+    local Skin = _G.ForgeSkin
+    
+    -- App-Specific ESC Management Logic (Wrapper)
+    if show then
+        -- Remove Main Frame from ESC list so ESC only closes the SlidePanel
+        local mainFrameName = Config.Frame and Config.Frame:GetName()
+        if mainFrameName then
+             for i=#UISpecialFrames, 1, -1 do
+                 if UISpecialFrames[i] == mainFrameName then
+                     table.remove(UISpecialFrames, i)
+                 end
+             end
+        end
+    else
+        -- Add Main Frame back to ESC list if valid
+        if Config.Frame then
+            local mainFrameName = Config.Frame:GetName()
+            if mainFrameName and not tContains(UISpecialFrames, mainFrameName) then
+                table.insert(UISpecialFrames, mainFrameName)
+            end
+        end
+        
+        -- Execute Widget-Specific Cleanup if exists
+        if panel.onCloseWidgetSpecific then
+            panel.onCloseWidgetSpecific()
+            panel.onCloseWidgetSpecific = nil
+        end
+    end
+    
+    -- Delegate Animation to Skin
+    Skin:ToggleSlidePanel(panel, show)
+end
+
+
+function Config:OpenDragonridingSettings(barIndex, elemIndex, elem)
+    local panel = Config:GetSlidePanel()
+    local wasShown = panel:IsShown()
+    
+    -- If switching contexts while open, ensure cleanup runs
+    if wasShown and panel.onCloseWidgetSpecific then
+        panel.onCloseWidgetSpecific()
+        panel.onCloseWidgetSpecific = nil
+    end
+    
+    Config:ToggleSlidePanel(true)
+    
+    -- Setup Panel basic properties
+    panel.header.title:SetText("Dragonriding Settings")
+    panel.config = elem
+    
+    -- Reset Scroll only on fresh open
+    if not wasShown and panel.scroll then 
+        panel.scroll:SetVerticalScroll(0) 
+    end
+    
+    -- Clear content frame
+    local content = panel.content
+    local kids = {content:GetChildren()}
+    for _, k in ipairs(kids) do k:Hide() end
+    local regions = {content:GetRegions()}
+    for _, r in ipairs(regions) do r:Hide() end
+    
+    -- Reset Builder if exists
+    if panel.builder then 
+        if panel.builder.Release then panel.builder:Release() end
+        panel.builder = nil 
+    end
+    
+    -- Delegate to Widget's own settings generator
+    if _G.WidgetForge and _G.WidgetForge.Dragonriding and _G.WidgetForge.Dragonriding.CreateSettings then
+        _G.WidgetForge.Dragonriding:CreateSettings(panel)
+    end
+end
+
+function Config:OpenCursorRingSettings(barIndex, elemIndex, elem)
+    local panel = Config:GetSlidePanel()
+    local wasShown = panel:IsShown()
+    
+    -- If switching contexts while open, ensure cleanup runs
+    if wasShown and panel.onCloseWidgetSpecific then
+        panel.onCloseWidgetSpecific()
+        panel.onCloseWidgetSpecific = nil
+    end
+    
+    Config:ToggleSlidePanel(true)
+    
+    -- Setup Panel basic properties
+    panel.header.title:SetText("Cursor Ring Settings")
+    panel.config = elem
+    panel.barIndex = barIndex -- Context for finding widget instance
+    
+    -- Reset Scroll only on fresh open
+    if not wasShown and panel.scroll then 
+        panel.scroll:SetVerticalScroll(0) 
+    end
+    
+    -- Clear content frame
+    local content = panel.content
+    local kids = {content:GetChildren()}
+    for _, k in ipairs(kids) do k:Hide() end
+    local regions = {content:GetRegions()}
+    for _, r in ipairs(regions) do r:Hide() end
+    
+    -- Reset Builder if exists
+    if panel.builder then 
+        if panel.builder.Release then panel.builder:Release() end
+        panel.builder = nil 
+    end
+    
+    -- Delegate to Widget's own settings generator
+    if _G.WidgetForge and _G.WidgetForge.CursorRing and _G.WidgetForge.CursorRing.CreateSettings then
+        _G.WidgetForge.CursorRing:CreateSettings(panel)
+    end
+end
+
+function Config:OpenRetirementHomeSettings(barIndex, elemIndex, elem)
+    local panel = Config:GetSlidePanel()
+    local wasShown = panel:IsShown()
+    
+    -- If switching contexts while open, ensure cleanup runs
+    if wasShown and panel.onCloseWidgetSpecific then
+        panel.onCloseWidgetSpecific()
+        panel.onCloseWidgetSpecific = nil
+    end
+    
+    Config:ToggleSlidePanel(true)
+    
+    -- Setup Panel basic properties
+    panel.header.title:SetText("Retirement Home Settings")
+    panel.config = elem
+    panel.barIndex = barIndex
+    
+    -- Reset Scroll only on fresh open
+    if not wasShown and panel.scroll then 
+        panel.scroll:SetVerticalScroll(0) 
+    end
+    
+    -- Clear content frame
+    local content = panel.content
+    local kids = {content:GetChildren()}
+    for _, k in ipairs(kids) do k:Hide() end
+    local regions = {content:GetRegions()}
+    for _, r in ipairs(regions) do r:Hide() end
+    
+    -- Reset Builder if exists
+    if panel.builder then 
+        if panel.builder.Release then panel.builder:Release() end
+        panel.builder = nil 
+    end
+    
+    -- Delegate to Widget's own settings generator
+    if _G.WidgetForge and _G.WidgetForge.RetirementHome and _G.WidgetForge.RetirementHome.CreateSettings then
+        _G.WidgetForge.RetirementHome:CreateSettings(panel)
+    end
+end
+
+function Config:OpenMythicPlusSettings(barIndex, elemIndex, elem)
+    print("DEBUG: Config:OpenMythicPlusSettings Called")
+    local panel = Config:GetSlidePanel()
+    local wasShown = panel:IsShown()
+    
+    -- If switching contexts while open, ensure cleanup runs
+    if wasShown and panel.onCloseWidgetSpecific then
+        panel.onCloseWidgetSpecific()
+        panel.onCloseWidgetSpecific = nil
+    end
+    
+    Config:ToggleSlidePanel(true)
+    
+    -- Setup Panel basic properties
+    panel.header.title:SetText("Mythic+ Dashboard Settings")
+    panel.config = elem
+    panel.barIndex = barIndex
+    
+    -- Reset Scroll only on fresh open
+    if not wasShown and panel.scroll then 
+        panel.scroll:SetVerticalScroll(0) 
+    end
+    
+    -- Clear content frame
+    local content = panel.content
+    local kids = {content:GetChildren()}
+    for _, k in ipairs(kids) do k:Hide() end
+    local regions = {content:GetRegions()}
+    for _, r in ipairs(regions) do r:Hide() end
+    
+    -- Reset Builder if exists
+    if panel.builder then 
+        if panel.builder.Release then panel.builder:Release() end
+        panel.builder = nil 
+    end
+    
+    -- Delegate to Widget's own settings generator
+    if _G.WidgetForge and _G.WidgetForge.MythicPlus and _G.WidgetForge.MythicPlus.CreateSettings then
+        _G.WidgetForge.MythicPlus:CreateSettings(panel)
+    end
+end
+
+
+function Config:OpenDummySettings(barIndex, elemIndex, elem)
+    Config:ToggleSlidePanel(true)
+    local panel = Config:GetSlidePanel()
+    local content = panel.content
+    
+    -- Clear Content
+    local kids = {content:GetChildren()}
+    for _, k in ipairs(kids) do k:Hide() end
+    local regions = {content:GetRegions()}
+    for _, r in ipairs(regions) do r:Hide() end
+    
+    -- Setup Settings UI for Dummy
+    panel.header.title:SetText("Dummy Widget Settings")
+    
+    local Skin = _G.ForgeSkin
+    
+    -- Example Controls
+    local y = -20
+    Skin:CreateSectionHeader(content, "Test Controls", 600):SetPoint("TOPLEFT", 10, y)
+    y = y - 40
+    
+    -- Text Input
+    local lbl = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    lbl:SetPoint("TOPLEFT", 20, y+5)
+    lbl:SetText("Display Text:")
+    
+    local ebFrame = CreateFrame("Frame", nil, content, "BackdropTemplate")
+    ebFrame:SetSize(200, 30)
+    ebFrame:SetPoint("LEFT", lbl, "RIGHT", 10, 0)
+    Skin:ApplyBackdrop(ebFrame)
+    
+    local eb = CreateFrame("EditBox", nil, ebFrame)
+    eb:SetAllPoints(ebFrame); eb:SetTextInsets(5,5,0,0); eb:SetFontObject(ChatFontNormal)
+    eb:SetAutoFocus(false)
+    eb:SetText(elem.text or "DUMMY WIDGET")
+    eb:SetScript("OnTextChanged", function(self) 
+        elem.text = self:GetText()
+        WidgetForge:RebuildBarComponents(barIndex)
+    end)
+    
+    y = y - 50
+    
+    -- Color
+    local lblC = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    lblC:SetPoint("TOPLEFT", 20, y+5)
+    lblC:SetText("Background Color:")
+    
+    local btnC = CreateFrame("Button", nil, content, "BackdropTemplate")
+    btnC:SetSize(30, 30)
+    btnC:SetPoint("LEFT", lblC, "RIGHT", 10, 0)
+    Skin:ApplyBackdrop(btnC)
+    local col = elem.color or {0.5, 0.5, 0.5, 0.5}
+    btnC:SetBackdropColor(unpack(col))
+    
+    btnC:SetScript("OnClick", function()
+        Skin:ShowColorPicker({
+            r=col[1], g=col[2], b=col[3], opacity=col[4],
+            swatchFunc = function(c) 
+                elem.color = c
+                btnC:SetBackdropColor(unpack(c))
+                WidgetForge:RebuildBarComponents(barIndex)
+            end,
+            cancelFunc = function()
+                 btnC:SetBackdropColor(unpack(col))
+                 elem.color = col
+                 WidgetForge:RebuildBarComponents(barIndex)
+            end
+        })
+    end)
+    
+    y = y - 60
+    
+    local txt = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    txt:SetPoint("TOPLEFT", 20, y)
+    txt:SetWidth(500)
+    txt:SetJustifyH("LEFT")
+    txt:SetText("This panel slides in from the right side, covering the main configuration area without being a separate popup window. This allows for a more integrated settings experience.")
+    
+    -- Update Content Height for Scrolling
+    if content.SetHeight then content:SetHeight(math.abs(y) + 100) end
+end
 
 SLASH_WIDGETFORGE1 = "/wf"
 SlashCmdList["WIDGETFORGE"] = function() 

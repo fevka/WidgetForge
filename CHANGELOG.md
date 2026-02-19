@@ -1,6 +1,23 @@
 # Widget Forge - Changelog
 
-## v1.1.0 (2026-02-17)
+## v1.1.1 (2026-02-19)
+
+### ✨ Settings Migration & Polish
+-   **Retirement Home Widget**:
+    -   Settings moved to the unified **Slide-In Panel** for a consistent experience.
+    -   **New Visibility Options**: Added "Combat Only" and "Instance Only" behaviors.
+    -   **Refined Layout**: Shape, Color, Size, and Offsets are now logically grouped and aligned.
+    -   **Cleanup**: Removed redundant "Dot" shape and renamed "Square (Border)" to "Square".
+-   **Cursor Ring Widget**:
+    -   Migrated to Slide-In Panel with **Real-time Preview** support.
+    -   Fixed transparency and visibility logic to prevent conflicts.
+
+### 🐛 Bug Fixes
+-   **Dropdown Menus**: Fixed an alignment issue where dropdown lists would not match the button width. They now expand correctly to fit the container.
+-   **Combat Logic**: updated visual combat detection to use `UnitAffectingCombat` for better reliability.
+-   **Slider Precision**: Sliders now correctly display small decimal values (e.g., 0.005) instead of rounding to zero.
+
+
 
 ### ✨ Dragonriding Widget Overhaul
 - **Dedicated UI**: Completely redesigned the Dragonriding Settings window with a wider, 2-column layout for easier configuration.

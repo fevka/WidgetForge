@@ -179,8 +179,21 @@ function WidgetForgeUtils:CreateSettingsBuilder(canvas)
     sb.canvas = canvas
     sb.controls = {} -- List of controls currently in use by this builder
     sb.y = -10
-    sb.col1 = 10
-    sb.col2 = 260
+    
+    -- Dynamic Grid System
+    -- Panel Width ~640, ScrollBar ~25-30. Content Width ~600-610.
+    -- We want 2 columns with ~20px gap.
+    -- User Requested +3px padding on sides.
+    local totalW = 600
+    local colW = 290
+    local gap = 20
+    local sidePad = 3
+    
+    sb.col1 = 10 + sidePad
+    sb.col2 = 10 + sidePad + colW + gap
+    sb.colWidth = colW
+    sb.fullWidth = (colW * 2) + gap
+    
     sb.isRight = false
     return sb
 end
@@ -227,16 +240,20 @@ function SB:AddHeader(text)
     if h.text then h.text:SetText(text) end
     h:SetPoint("TOPLEFT", 10, self.y)
     
+    -- Update Width
+    h:SetWidth(self.fullWidth)
+    if h.line then h.line:SetWidth(self.fullWidth) end
+    
     table.insert(self.controls, h)
     self.y = self.y - 45
 end
 
 function SB:AddSlider(key, label, minVal, maxVal, step, defaultVal, configTable, callback, forceFullRow)
-    local width = 220
+    local width = self.colWidth
     local x = self.isRight and self.col2 or self.col1
     
     if forceFullRow then
-        width = 460; self.isRight = false; x = self.col1
+        width = self.fullWidth; self.isRight = false; x = self.col1
     end
     
     local val = configTable[key]
@@ -249,6 +266,13 @@ function SB:AddSlider(key, label, minVal, maxVal, step, defaultVal, configTable,
         sl.label:SetPoint("BOTTOMLEFT", sl, "TOPLEFT", 0, 5)
         return sl
     end, self.canvas)
+    
+    -- Reset State (Fix for pool)
+    s:SetAlpha(1)
+    s:EnableMouse(true)
+    if s.track then s.track:EnableMouse(true) end
+    if s.thumb then s.thumb:EnableMouse(true) end
+    if s.editBox then s.editBox:EnableMouse(true) end
     
     s.type = "Slider"
     s:SetWidth(width)
@@ -297,7 +321,7 @@ function SB:AddCheckbox(key, label, defaultVal, configTable, callback)
         if callback then callback(v) end
     end
     
-    c:SetPoint("TOPLEFT", x, self.y)
+    c:SetPoint("TOPLEFT", x, self.y - 10)
     table.insert(self.controls, c)
     
     if self.isRight then self.y = self.y - 35 end
@@ -312,7 +336,7 @@ function SB:AddColor(key, label, defaultVal, configTable, callback)
     local c = GetControl(Pool.colors, function(p)
         -- Manual Color Picker Button Construction
         local btn = CreateFrame("Button", nil, p, "BackdropTemplate")
-        btn:SetSize(220, 30) -- Match slider width
+        btn:SetSize(200, 30) -- Placeholder, resized below
         
         -- Swatch (Control)
         btn.swatch = btn:CreateTexture(nil, "ARTWORK")
@@ -330,12 +354,13 @@ function SB:AddColor(key, label, defaultVal, configTable, callback)
         btn.label:SetPoint("LEFT", btn.swatch, "RIGHT", 10, 0)
         btn.label:SetJustifyH("LEFT")
         btn.label:SetWordWrap(false)
-        btn.label:SetWidth(170) -- 220 - 40 (swatch) - 10 (gap)
         
         return btn
     end, self.canvas)
     
     c.type = "Color"
+    c:SetWidth(self.colWidth)
+    if c.label then c.label:SetWidth(self.colWidth - 40) end
     c.label:SetText(label)
     
     c:SetScript("OnClick", function()
@@ -360,8 +385,8 @@ function SB:AddColor(key, label, defaultVal, configTable, callback)
     -- Init Visuals
     if val then c.swatch:SetColorTexture(unpack(val)) end
     
-    -- Position: Match Slider's y-15 offset
-    c:SetPoint("TOPLEFT", x, self.y - 15)
+    -- Position: Match Checkbox alignment (y-10)
+    c:SetPoint("TOPLEFT", x, self.y - 10)
     table.insert(self.controls, c)
     
     -- Height: Match Slider's 50px consumption
@@ -380,6 +405,8 @@ function SB:AddDropdown(key, label, items, defaultVal, configTable, callback)
     end, self.canvas)
     
     d.type = "Dropdown"
+    d:SetWidth(self.colWidth)
+    if d.text then d.text:SetWidth(self.colWidth - 25) end
     
     -- Label
     if not d.label then
@@ -405,5 +432,5 @@ end
 
 function SB:Finish()
     if self.isRight then self.y = self.y - 50 end
-    self.canvas:SetHeight(math.abs(self.y) + 50)
+    self.canvas:SetHeight(math.abs(self.y) + 10)
 end
