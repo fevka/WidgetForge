@@ -334,28 +334,33 @@ function SB:AddColor(key, label, defaultVal, configTable, callback)
     local val = configTable[key] or defaultVal
     
     local c = GetControl(Pool.colors, function(p)
-        -- Manual Color Picker Button Construction
-        local btn = CreateFrame("Button", nil, p, "BackdropTemplate")
-        btn:SetSize(200, 30) -- Placeholder, resized below
+        -- Row Container (Change from Button to Frame to disable row-wide clicking)
+        local row = CreateFrame("Frame", nil, p, "BackdropTemplate")
+        row:SetSize(200, 30) 
         
-        -- Swatch (Control)
-        btn.swatch = btn:CreateTexture(nil, "ARTWORK")
-        btn.swatch:SetSize(25, 25) -- Square style as requested
-        btn.swatch:SetPoint("LEFT", 0, 0)
-        btn.swatch:SetColorTexture(1, 1, 1, 1)
+        -- Swatch (Visual Color Box)
+        row.swatch = row:CreateTexture(nil, "ARTWORK")
+        row.swatch:SetSize(25, 25)
+        row.swatch:SetPoint("LEFT", 0, 0)
+        row.swatch:SetColorTexture(1, 1, 1, 1)
         
-        -- Swatch Border
-        btn.swatchBd = CreateFrame("Frame", nil, btn, "BackdropTemplate")
-        btn.swatchBd:SetAllPoints(btn.swatch)
-        if ForgeSkin.ApplyBackdrop then ForgeSkin:ApplyBackdrop(btn.swatchBd, 0, 1) end
+        -- Swatch Border/Button (The only interactive part)
+        local swatchBtn = CreateFrame("Button", nil, row, "BackdropTemplate")
+        swatchBtn:SetAllPoints(row.swatch)
+        if ForgeSkin.ApplyBackdrop then ForgeSkin:ApplyBackdrop(swatchBtn, 0, 1) end
+        row.swatchBtn = swatchBtn
         
-        -- Label (Moved Right to match user request)
-        btn.label = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        btn.label:SetPoint("LEFT", btn.swatch, "RIGHT", 10, 0)
-        btn.label:SetJustifyH("LEFT")
-        btn.label:SetWordWrap(false)
+        -- Swatch Hover Effect
+        swatchBtn:SetScript("OnEnter", function(self) self:SetBackdropBorderColor(unpack(ForgeSkin.Colors.accent)) end)
+        swatchBtn:SetScript("OnLeave", function(self) self:SetBackdropBorderColor(unpack(ForgeSkin.Colors.border)) end)
         
-        return btn
+        -- Label (Moved Right)
+        row.label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.label:SetPoint("LEFT", row.swatch, "RIGHT", 10, 0)
+        row.label:SetJustifyH("LEFT")
+        row.label:SetWordWrap(false)
+        
+        return row
     end, self.canvas)
     
     c.type = "Color"
@@ -363,7 +368,7 @@ function SB:AddColor(key, label, defaultVal, configTable, callback)
     if c.label then c.label:SetWidth(self.colWidth - 40) end
     c.label:SetText(label)
     
-    c:SetScript("OnClick", function()
+    c.swatchBtn:SetScript("OnClick", function()
         local current = configTable[key] or defaultVal
         local info = {
             r = current[1], g = current[2], b = current[3], opacity = current[4],
@@ -379,7 +384,7 @@ function SB:AddColor(key, label, defaultVal, configTable, callback)
                 if callback then callback(current) end
             end
         }
-        ForgeSkin:ShowColorPicker(info)
+        ForgeSkin:ShowColorPicker(info) 
     end)
     
     -- Init Visuals

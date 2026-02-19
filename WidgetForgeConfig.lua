@@ -858,8 +858,8 @@ end
                     elseif btnIsOverlay then
                          newEl.size = 32 -- Default for overlay
                          if typeName == "Mythic+ Dashboard" then
-                             newEl.widgetWidth = 350
-                             newEl.widgetHeight = 150
+                             newEl.widgetWidth = 340
+                             newEl.widgetHeight = 260
                          end
                     elseif btnIsDivider then
                          newEl.size = 20; newEl.thickness = 2; newEl.dividerMode = "LINE"; newEl.dividerStyle = "VERTICAL"; newEl.offset = 0
@@ -1049,8 +1049,6 @@ end
              local btnSettings = Skin:CreateButton(item, "Settings", 80, 22)
              btnSettings:SetPoint("RIGHT", dragHandle, "LEFT", -10, 0)
              btnSettings:SetScript("OnClick", function() 
-                print("DEBUG: Clicked M+ Settings Button")
-                print("DEBUG: Config.OpenMythicPlusSettings exists:", Config.OpenMythicPlusSettings ~= nil)
                 if Config.OpenMythicPlusSettings then Config:OpenMythicPlusSettings(index, i, elem) end 
              end)
         elseif elem.type == "Dummy" then
@@ -1405,7 +1403,6 @@ function Config:OpenRetirementHomeSettings(barIndex, elemIndex, elem)
 end
 
 function Config:OpenMythicPlusSettings(barIndex, elemIndex, elem)
-    print("DEBUG: Config:OpenMythicPlusSettings Called")
     local panel = Config:GetSlidePanel()
     local wasShown = panel:IsShown()
     

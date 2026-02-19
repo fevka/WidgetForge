@@ -320,14 +320,6 @@ function Dragonriding:CreateSettings(parentFrame)
     -- Row 2: SpeedH, Gap
     -- Row 3: VertPad, [HERE IS TRANSPARENCY]
     
-    local behaviorStr = f.config.inactiveBehavior or "DIMMED"
-    if behaviorStr == "DIMMED" then
-        sb:AddSlider("inactiveAlpha", "Transparency (0-1)", 0, 1, 0.05, 0.3, f.config, Refresh)
-    else
-        -- Need to fill the slot to maintain grid? Or just leave empty?
-        -- SB doesn't support "AddEmpty". 
-        -- Just let it flow. The user wants structure.
-    end
 
     -- 2. Layout & Background
     sb:AddHeader("Layout & Background")
@@ -381,12 +373,13 @@ function Dragonriding:CreateSettings(parentFrame)
     -- Transparency Slider (Right) - Only relevant if DIMMED
     sb:AddSlider("inactiveAlpha", "Transparency (Dimmed)", 0, 1, 0.05, 0.2, f.config, Refresh)
     
-    -- Apply "Disabled" visual state if not DIMMED
-    local lastControl = sb.controls[#sb.controls] -- The slider we just added
-    if f.config.inactiveBehavior ~= "DIMMED" then
+    -- Apply "Disabled" visual state if not DIMMED (Default is DIMMED)
+    local lastControl = sb.controls[#sb.controls] 
+    local currentBehavior = f.config.inactiveBehavior or "DIMMED"
+    
+    if currentBehavior ~= "DIMMED" then
         if lastControl then
             lastControl:SetAlpha(0.5)
-            lastControl:EnableMouse(false)
             if lastControl.track then lastControl.track:EnableMouse(false) end
             if lastControl.thumb then lastControl.thumb:EnableMouse(false) end
             if lastControl.editBox then lastControl.editBox:EnableMouse(false); lastControl.editBox:ClearFocus() end
@@ -394,7 +387,6 @@ function Dragonriding:CreateSettings(parentFrame)
     else
         if lastControl then
             lastControl:SetAlpha(1)
-            lastControl:EnableMouse(true)
             if lastControl.track then lastControl.track:EnableMouse(true) end
             if lastControl.thumb then lastControl.thumb:EnableMouse(true) end
             if lastControl.editBox then lastControl.editBox:EnableMouse(true) end

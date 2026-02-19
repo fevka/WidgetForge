@@ -267,18 +267,34 @@ function WidgetForge:RebuildBarComponents(index)
     local justify = conf.justify or "CENTER"
     local isSplit = (conf.layout == "VERTICAL" and justify ~= "CENTER")
 
-    -- [EXCLUSIVE CHECK]
+    -- [EXCLUSIVE & OVERLAY LOGIC]
+    local OverlayTypes = { ["Cursor Ring"] = true, ["Retirement Home"] = true }
+    local StrictTypes = { ["Mythic+ Dashboard"] = true, ["Dragonriding"] = true }
+    
     local exclusiveType = nil
     for _, e in ipairs(conf.elements) do
-        if e.type == "Mythic+ Dashboard" or e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" then
+        if StrictTypes[e.type] or OverlayTypes[e.type] then
             exclusiveType = e.type
             break
         end
     end
     
     for i, elem in ipairs(conf.elements) do
-        if exclusiveType and elem.type ~= exclusiveType then
-            -- Hide Peers in Exclusive Mode
+        -- Isolation Logic:
+        -- 1. If we have a STRICT widget, hide EVERYTHING else (Standard + Other Custom)
+        -- 2. If we have an OVERLAY widget, hide only STANDARD widgets (allow multiple overlays)
+        local shouldHide = false
+        if exclusiveType then
+            if StrictTypes[exclusiveType] then
+                if elem.type ~= exclusiveType then shouldHide = true end
+            elseif OverlayTypes[exclusiveType] then
+                -- Hide only standard stats and dividers if current isn't an overlay
+                if not OverlayTypes[elem.type] and elem.type ~= "Divider" then shouldHide = true end
+            end
+        end
+
+        if shouldHide then
+            -- Hide Peers
             if f.textsVal[i] then f.textsVal[i]:Hide() end
             if f.textsLbl[i] then f.textsLbl[i]:Hide() end
             if f.icons[i] then f.icons[i]:Hide() end
@@ -304,27 +320,34 @@ function WidgetForge:RebuildBarComponents(index)
             end
         elseif elem.type == "Cursor Ring" then
             -- Create/Load once
-            local ring = WidgetForge:CreateCursorRing(f, elem)
-            table.insert(f.customWidgets, ring)
+            pcall(function()
+                local ring = WidgetForge:CreateCursorRing(f, elem)
+                if ring then table.insert(f.customWidgets, ring) end
+            end)
         elseif elem.type == "Retirement Home" then
             if WidgetForge.RetirementHome then
-                 local cw = WidgetForge.RetirementHome:Load(f, elem)
-                 if cw then table.insert(f.customWidgets, cw) end
+                 pcall(function()
+                     local cw = WidgetForge.RetirementHome:Load(f, elem)
+                     if cw then table.insert(f.customWidgets, cw) end
+                 end)
             end
         elseif elem.type == "Mythic+ Dashboard" then
             if addonTable.MythicPlus then
-                 local cw = addonTable.MythicPlus:Load(f, elem)
-                 if cw then table.insert(f.customWidgets, cw) end
+                 pcall(function()
+                     local cw = addonTable.MythicPlus:Load(f, elem)
+                     if cw then table.insert(f.customWidgets, cw) end
+                 end)
             end
         elseif elem.type == "Dragonriding" then
             if addonTable.Dragonriding then
-                 local cw = addonTable.Dragonriding:Load(f, elem)
-                 if cw then 
-                    table.insert(f.customWidgets, cw)
-                    -- [FIX] Layout loop requires indexed access
-                    if not f.dragonFrames then f.dragonFrames = {} end
-                    f.dragonFrames[i] = cw
-                 end
+                 pcall(function()
+                     local cw = addonTable.Dragonriding:Load(f, elem)
+                     if cw then 
+                        table.insert(f.customWidgets, cw)
+                        if not f.dragonFrames then f.dragonFrames = {} end
+                        f.dragonFrames[i] = cw
+                     end
+                 end)
             end
 
         else
@@ -419,7 +442,7 @@ function WidgetForge:RebuildBarComponents(index)
         if f:IsMouseEnabled() then
             if f.dragButton then f.dragButton:Hide(); f.dragButton = nil end
             local d = Skin:CreateGripHandle(f, 32, 32)
-            d:SetPoint("LEFT", f, "RIGHT", 2, 0)
+            d:SetPoint("LEFT", f, "RIGHT", 40, 0)
             d:SetFrameLevel(f:GetFrameLevel() + 50) 
             d:SetScript("OnMouseDown", function(self, button)
                 if button == "LeftButton" then

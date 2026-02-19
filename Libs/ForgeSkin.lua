@@ -334,6 +334,15 @@ function Skin:CreateDropdown(parent, width, items, selectedValue, callback)
     -- Internal state
     dd.items = items or {}
     dd.callback = callback
+    dd.internalWidth = width
+
+    -- [FIX] Override SetWidth to update internal state and avoid closure-based truncation issues
+    local origSetWidth = dd.SetWidth
+    function dd:SetWidth(w)
+        origSetWidth(self, w)
+        self.internalWidth = w
+        self.text:SetWidth(w - 25)
+    end
     
     -- Helper to find text
     local function GetLabel(val)
@@ -357,7 +366,7 @@ function Skin:CreateDropdown(parent, width, items, selectedValue, callback)
             end
         end
     end
-    SetText(dd.text, GetLabel(selectedValue), width - 25)
+    SetText(dd.text, GetLabel(selectedValue), dd.internalWidth - 25)
 
     -- List Container (Singleton-ish per dropdown, but created new for simplicity with pooling)
     local listContainer = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
@@ -371,7 +380,7 @@ function Skin:CreateDropdown(parent, width, items, selectedValue, callback)
     
     dd:SetScript("OnHide", function() listContainer:Hide() end)
     
-    local listScroll, listChild = Skin:CreateScrollFrame(listContainer, width - 4, 10) 
+    local listScroll, listChild = Skin:CreateScrollFrame(listContainer, dd.internalWidth - 4, 10) 
     listScroll:SetPoint("TOPLEFT", 2, -2); listScroll:SetPoint("BOTTOMRIGHT", -2, 2)
 
     -- Button Pool
@@ -385,13 +394,13 @@ function Skin:CreateDropdown(parent, width, items, selectedValue, callback)
         for _, btn in ipairs(buttonPool) do btn:Hide() end
         
         local h = 0
-        local finalWidth = width - 4
+        local finalWidth = dd.internalWidth - 4
         
         -- Check if we need scrollbar logic mostly to adjust width
         local totalHeight = #items * 20
         local maxH = WIDGETFORGE_CONSTANTS and WIDGETFORGE_CONSTANTS.DROPDOWN_MAX_HEIGHT or 300
         if totalHeight > maxH then
-             finalWidth = width - 16 -- Space for scrollbar
+             finalWidth = dd.internalWidth - 16 -- Space for scrollbar
              listContainer:SetHeight(maxH + 4)
              listScroll:SetHeight(maxH)
              if listScroll.scrollBar then listScroll.scrollBar:Show() end
@@ -436,7 +445,7 @@ function Skin:CreateDropdown(parent, width, items, selectedValue, callback)
             
             btn:SetScript("OnClick", function()
                 dd.text:SetFont(Skin.Constants.FONT_NORMAL, 10, "") 
-                SetText(dd.text, label, width - 25)
+                SetText(dd.text, label, dd.internalWidth - 25)
                 listContainer:Hide()
                 if dd.callback then dd.callback(val) end
             end)
@@ -458,9 +467,9 @@ function Skin:CreateDropdown(parent, width, items, selectedValue, callback)
     -- Public method to select a value programmatically
     function dd:SetValue(val, label)
         if label then
-             SetText(dd.text, label, width - 25)
+             SetText(dd.text, label, self.internalWidth - 25)
         else
-             SetText(dd.text, GetLabel(val), width - 25)
+             SetText(dd.text, GetLabel(val), self.internalWidth - 25)
         end
     end
     
@@ -1429,6 +1438,7 @@ function Skin:CreateSlidePanel(parent, width, height, anchorInfo)
     
     -- Ensure on TOP of everything
     panel:SetFrameStrata("DIALOG")
+    panel:EnableMouse(true)
     
     -- Standard Backdrop
     Skin:ApplyBackdrop(panel, 0.1, 0.1) 
