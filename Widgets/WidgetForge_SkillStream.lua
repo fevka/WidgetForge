@@ -5,7 +5,6 @@
 
 local addonName, addonTable = ...
 
--- Global tabloya modülü dahil et
 if not _G.WidgetForge then _G.WidgetForge = {} end
 _G.WidgetForge.SkillStream = {}
 
@@ -14,15 +13,74 @@ addonTable.SkillStream = SkillStream
 
 SkillStream.Instances = {}
 
+-- EVENT FRAME
+if not SkillStream.eventFrame then
+    SkillStream.eventFrame = CreateFrame("Frame")
+    SkillStream.eventFrame:SetScript("OnEvent", function(_, event, unit, castGUID, spellID)
+        SkillStream:HandleSpellCast(event, unit, castGUID, spellID)
+    end)
+end
+
 -- Pürüzsüz animasyon için Lerp matematiği
 local function Lerp(startValue, endValue, amount)
     return startValue + (endValue - startValue) * amount
 end
 
--- İkonların çerçeve ve yakınlaştırma (Crop) ayarlarını uygulayan yardımcı fonksiyon
-function SkillStream:ApplyStyles(container)
+-- Dinamik İkon Havuzu (Pool) Yönetimi - Rebuild sorununu çözen ana mantık
+function SkillStream:ManagePool(container)
     local elem = container.elem
-    local zoom = elem.iconZoom or 0.08 -- 0.08 varsayılan blizz çerçevesini gizler
+    local limit = elem.iconLimit or 5
+    local size = elem.iconSize or 32
+    local isInteractive = elem.interactive or false
+    
+    container.icons = container.icons or {}
+    
+    -- Limit artırılırsa havuzu esnet
+    while #container.icons < limit + 1 do
+        local f = CreateFrame("Frame", nil, container, "BackdropTemplate")
+        f:SetAlpha(0)
+        
+        f.tex = f:CreateTexture(nil, "ARTWORK")
+        f.tex:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+        
+        f.currentOffset = 0
+        f.targetOffset = 0
+        f.currentAlpha = 0
+        f.targetAlpha = 0
+        f.active = false
+        f.spellID = nil
+        f.hasSpell = false 
+        f.timestamp = 0 
+        
+        f:SetScript("OnEnter", function(self)
+            if not self:GetParent().elem.interactive then return end
+            if self.spellID and self.active and self.currentAlpha > 0.1 then
+                GameTooltip:SetOwner(self, "ANCHOR_BOTTOMRIGHT")
+                GameTooltip:SetSpellByID(self.spellID)
+                GameTooltip:Show()
+            end
+        end)
+        
+        f:SetScript("OnLeave", function(self)
+            if GameTooltip:IsOwned(self) then GameTooltip:Hide() end
+        end)
+        
+        table.insert(container.icons, f)
+    end
+    
+    -- Mevcut ikonların boyutlarını ve etkileşimini güncelle
+    for _, f in ipairs(container.icons) do
+        f:SetSize(size, size)
+        f:EnableMouse(isInteractive)
+    end
+end
+
+-- İkonların çerçeve ve yakınlaştırma (Crop) ayarlarını canlı uygulayan yardımcı fonksiyon
+function SkillStream:ApplyStyles(container)
+    SkillStream:ManagePool(container)
+    
+    local elem = container.elem
+    local zoom = elem.iconZoom or 0.08 
     local bSize = (elem.showBorder ~= false) and (elem.borderSize or 1) or 0
     local bc = elem.borderColor or {0, 0, 0, 1}
     
@@ -35,16 +93,13 @@ function SkillStream:ApplyStyles(container)
 
     for _, f in ipairs(container.icons) do
         f:SetBackdrop(backdrop)
-        f:SetBackdropColor(0, 0, 0, 0.8) -- İkon yüklenene kadar veya arkasında kalacak koyu zemin
+        f:SetBackdropColor(0, 0, 0, 0.8) 
         
         if bSize > 0 then
             f:SetBackdropBorderColor(unpack(bc))
         end
         
-        -- TexCoord ile ikonu yakınlaştır (Kenar kırpma işlemi)
         f.tex:SetTexCoord(zoom, 1 - zoom, zoom, 1 - zoom)
-        
-        -- İkonu çerçevenin içine oturt
         f.tex:ClearAllPoints()
         f.tex:SetPoint("TOPLEFT", f, "TOPLEFT", bSize, -bSize)
         f.tex:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -bSize, bSize)
@@ -56,67 +111,62 @@ function SkillStream:Load(parent, elem)
     container:SetAllPoints(parent)
     container.elem = elem
     
-    local limit = elem.iconLimit or 5
-    local size = elem.iconSize or 32
-    local isInteractive = elem.interactive or false
-    
-    -- Havuz (Pool) Oluşturma
-    container.icons = {}
-    for i = 1, limit + 1 do 
-        -- Çerçeve çizebilmek için BackdropTemplate eklendi
-        local f = CreateFrame("Frame", nil, container, "BackdropTemplate")
-        f:SetSize(size, size)
-        f:SetAlpha(0)
-        
-        f:EnableMouse(isInteractive)
-        
-        f.tex = f:CreateTexture(nil, "ARTWORK")
-        f.tex:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
-        
-        f.currentOffset = 0
-        f.targetOffset = 0
-        f.currentAlpha = 0
-        f.targetAlpha = 0
-        f.active = false
-        f.spellID = nil
-        f.hasSpell = false 
-        f.timestamp = 0 -- Zaman aşımı (Timeout) takibi için eklendi
-        
-        f:SetScript("OnEnter", function(self)
-            if not self:GetParent().elem.interactive then return end
-            if self.spellID and self.active and self.currentAlpha > 0.1 then
-                GameTooltip:SetOwner(self, "ANCHOR_BOTTOMRIGHT")
-                GameTooltip:SetSpellByID(self.spellID)
-                GameTooltip:Show()
-            end
-        end)
-        
-        f:SetScript("OnLeave", function(self)
-            if GameTooltip:IsOwned(self) then
-                GameTooltip:Hide()
-            end
-        end)
-        
-        table.insert(container.icons, f)
-    end
-    
-    -- İlk stili uygula
     SkillStream:ApplyStyles(container)
     
-    -- Animasyon Döngüsü
     container:SetScript("OnUpdate", function(self, elapsed)
+        local isUnlocked = (_G.WidgetForge and _G.WidgetForge.BarsLocked == false) or (_G.EsrefConfigFrame and _G.EsrefConfigFrame:IsShown())
+
         local speed = self.elem.speed or 8 
         local direction = self.elem.direction or "RIGHT_TO_LEFT"
         local spacing = self.elem.spacing or 5
         local iconSize = self.elem.iconSize or 32
         local iconLimit = self.elem.iconLimit or 5
-        local timeout = self.elem.timeout or 10 -- Saniye (0 ise kapalı)
+        local timeout = self.elem.timeout or 10 
         
         local currentTime = GetTime()
         local baseCenterOffset = ((iconLimit - 1) * (iconSize + spacing)) / 2
-        
+
+        -- ==========================================
+        -- PREVIEW MODE (Ayar Menüsü Açıkken Çalışır)
+        -- ==========================================
+        if isUnlocked then
+            local dummyIcons = { 132222, 136243, 132223, 132224, 132225, 135736, 135737, 135738, 135739, 135740, 135741, 135742, 134400 }
+            
+            for i, f in ipairs(self.icons) do
+                if i <= iconLimit then
+                    f:SetAlpha(0.7) 
+                    
+                    if not f.hasSpell then
+                        f.tex:SetTexture(dummyIcons[i] or 134400)
+                    end
+                    
+                    local targetOffset = (i - 1) * (iconSize + spacing)
+                    local realOffset = targetOffset - baseCenterOffset
+                    local x, y = 0, 0
+                    
+                    if direction == "RIGHT_TO_LEFT" then x = -realOffset
+                    elseif direction == "LEFT_TO_RIGHT" then x = realOffset
+                    elseif direction == "TOP_TO_BOTTOM" then y = -realOffset
+                    elseif direction == "BOTTOM_TO_TOP" then y = realOffset
+                    end
+                    
+                    f:ClearAllPoints()
+                    f:SetPoint("CENTER", self, "CENTER", x, y)
+                    
+                    -- Slider kaydırırken ikonların gecikmeli gelmesini (esnemesini) önlemek için anında yapıştır:
+                    f.currentOffset = targetOffset 
+                    f.currentAlpha = 0.7
+                else
+                    f:SetAlpha(0)
+                end
+            end
+            return 
+        end
+
+        -- ==========================================
+        -- NORMAL ÇALIŞMA MODU (Menü Kapalıyken)
+        -- ==========================================
         for i, f in ipairs(self.icons) do
-            -- Zaman Aşımı (Timeout) Kontrolü
             if timeout > 0 and f.active and f.hasSpell then
                 if (currentTime - f.timestamp) > timeout then
                     f.active = false
@@ -156,10 +206,8 @@ function SkillStream:Load(parent, elem)
 
     table.insert(SkillStream.Instances, container)
     
-    if not SkillStream.isListening then
-        SkillStream:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
-        SkillStream:SetScript("OnEvent", SkillStream.OnEvent)
-        SkillStream.isListening = true
+    if #SkillStream.Instances == 1 then
+        SkillStream.eventFrame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
     end
     
     container.Unload = function(self)
@@ -167,15 +215,14 @@ function SkillStream:Load(parent, elem)
             if inst == self then table.remove(SkillStream.Instances, i); break end
         end
         if #SkillStream.Instances == 0 then
-            SkillStream:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED")
-            SkillStream.isListening = false
+            SkillStream.eventFrame:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED")
         end
     end
     
     return container
 end
 
-function SkillStream.OnEvent(self, event, unit, castGUID, spellID)
+function SkillStream:HandleSpellCast(event, unit, castGUID, spellID)
     if unit ~= "player" then return end
     
     local defaultBlacklist = {
@@ -223,7 +270,7 @@ function SkillStream:AddSpell(container, spellID, iconID)
     frame.spellID = spellID
     frame.hasSpell = true 
     frame.active = true
-    frame.timestamp = GetTime() -- Yeteneğin kullanım anını kaydet
+    frame.timestamp = GetTime() 
     
     frame.currentOffset = - (size + spacing) 
     frame.currentAlpha = 0
@@ -253,16 +300,15 @@ function SkillStream:CreateSettings(parentFrame)
     local sb = f.builder or _G.WidgetForgeUtils:CreateSettingsBuilder(f.content)
     f.builder = sb 
     
-    local function Refresh()
+    local function RefreshLive()
         if barIndex and _G.WidgetForge then
-            -- Canlı olarak border ve zoom değişikliklerini uygulamak için
+            -- TİTREME (BLINK) SORUNUNUN ÇÖZÜLDÜĞÜ YER
+            -- Artık WidgetForge:RebuildBarComponents() çağırmıyoruz! Sadece stilleri ve çerçeveyi esnetiyoruz.
             for _, inst in ipairs(SkillStream.Instances) do
                 if inst.elem == elem then
                     SkillStream:ApplyStyles(inst)
                 end
             end
-            
-            _G.WidgetForge:RebuildBarComponents(barIndex)
             _G.WidgetForge:UpdateBarValues(barIndex)
         end
     end
@@ -275,22 +321,22 @@ function SkillStream:CreateSettings(parentFrame)
         {text = "Top to Bottom", value = "TOP_TO_BOTTOM"},
         {text = "Bottom to Top", value = "BOTTOM_TO_TOP"}
     }
-    sb:AddDropdown("direction", "Flow Direction", dirList, "RIGHT_TO_LEFT", elem, Refresh)
+    sb:AddDropdown("direction", "Flow Direction", dirList, "RIGHT_TO_LEFT", elem, RefreshLive)
 
     sb:AddHeader("Icon Settings")
-    sb:AddSlider("iconLimit", "Visible Icon Limit", 3, 20, 1, 5, elem, Refresh)
-    sb:AddSlider("iconSize", "Icon Size", 16, 64, 1, 32, elem, Refresh)
-    sb:AddSlider("spacing", "Icon Spacing", 0, 50, 1, 5, elem, Refresh)
-    sb:AddSlider("speed", "Animation Speed (Smoothness)", 1, 20, 1, 8, elem, Refresh)
+    sb:AddSlider("iconLimit", "Visible Icon Limit", 3, 20, 1, 5, elem, RefreshLive)
+    sb:AddSlider("iconSize", "Icon Size", 16, 64, 1, 32, elem, RefreshLive)
+    sb:AddSlider("spacing", "Icon Spacing", 0, 50, 1, 5, elem, RefreshLive)
+    sb:AddSlider("speed", "Animation Speed (Smoothness)", 1, 20, 1, 8, elem, RefreshLive)
 
     sb:AddHeader("Border & Styling")
-    sb:AddCheckbox("showBorder", "Show Custom Border", true, elem, Refresh)
-    sb:AddSlider("borderSize", "Border Size (Thickness)", 1, 5, 1, 1, elem, Refresh)
-    sb:AddColor("borderColor", "Border Color", {0, 0, 0, 1}, elem, Refresh)
-    sb:AddSlider("iconZoom", "Icon Zoom (Crop Default Blizzard Border)", 0, 0.20, 0.01, 0.08, elem, Refresh)
+    sb:AddCheckbox("showBorder", "Show Custom Border", true, elem, RefreshLive)
+    sb:AddSlider("borderSize", "Border Size (Thickness)", 1, 5, 1, 1, elem, RefreshLive)
+    sb:AddColor("borderColor", "Border Color", {0, 0, 0, 1}, elem, RefreshLive)
+    sb:AddSlider("iconZoom", "Icon Zoom (Crop Default Blizzard Border)", 0, 0.20, 0.01, 0.08, elem, RefreshLive)
 
     sb:AddHeader("Timeout Settings")
-    sb:AddSlider("timeout", "Fade Out Inactive Icons (Seconds, 0 = Off)", 0, 60, 1, 10, elem, Refresh)
+    sb:AddSlider("timeout", "Fade Out Inactive Icons (Seconds, 0 = Off)", 0, 60, 1, 10, elem, RefreshLive)
 
     sb:AddHeader("Interactivity & Filters")
     sb:AddCheckbox("interactive", "Interactive Icons (Show Tooltips)", false, elem, function(v) 
@@ -341,7 +387,7 @@ function SkillStream:CreateSettings(parentFrame)
             if isUserInput then elem.blacklist = self:GetText() end
         end)
         eb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-        eb:SetScript("OnEnterPressed", function(self) self:ClearFocus(); Refresh() end)
+        eb:SetScript("OnEnterPressed", function(self) self:ClearFocus(); RefreshLive() end)
         
         local inst = f.content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         inst:SetPoint("TOPLEFT", 20, bottomY - 55)

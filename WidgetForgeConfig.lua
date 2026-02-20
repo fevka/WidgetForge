@@ -32,7 +32,7 @@ Config.ElementTypes = {
     "Crit", "Haste", "Mastery", "Versatility", 
     "Avoidance", "Leech", "Speed", "Run Speed", "Dodge", "Parry", "Armor", "Max HP",
     "Gold", "Zone", "Coords", "Item Level", "Combat Timer", "XP",
-    "Dragonriding", "Skill Stream", "Dummy", "Guild", "Friends", "Difficulty", "Target Castbar"
+    "Dragonriding", "Skill Stream", "Dummy", "Guild", "Friends", "Difficulty", "Target Castbar", "Talent Loadout", "Custom Code"
 }
 
 Config.Presets = {
@@ -88,7 +88,6 @@ Config.Presets = {
     }}
 }
 
--- --- MAIN CONFIG WINDOW ---
 function Config:OpenConfigWindow()
     if Config.Frame then Config.Frame:Show(); return end
     
@@ -617,15 +616,15 @@ function Config:SelectBar(index)
         end
     end
     
-    -- Target Castbar eklendi
+    -- KATEGORİ DÜZENLEMESİ (Combat Timer ve Difficulty, Dungeon & Raid altında)
     local categories = {
         { name = "System & Performance", elements = { "FPS", "MS", "Clock" } },
         { name = "Player Stats", elements = { "Main Stat", "Stamina", "Crit", "Haste", "Mastery", "Versatility", "Avoidance", "Leech", "Speed", "Run Speed", "Dodge", "Parry", "Armor", "Max HP" } },
         { name = "Progression & Goods", elements = { "XP", "Gold", "Bag Space", "Item Level", "Durability" } },
-        { name = "Navigation", elements = { "Zone", "Coords", "Difficulty" } },
+        { name = "Navigation", elements = { "Zone", "Coords" } },
         { name = "Social", elements = { "Guild", "Friends" } },
-        { name = "Dungeon & Raid", elements = { "Mythic+ Dashboard", "Target Castbar" } },
-        { name = "Utils", elements = { "Dragonriding", "Cursor Ring", "Combat Timer", "Retirement Home", "Skill Stream", "Dummy" } }
+        { name = "Dungeon & Raid", elements = { "Mythic+ Dashboard", "Target Castbar", "Combat Timer", "Difficulty" } },
+        { name = "Utils", elements = { "Dragonriding", "Cursor Ring", "Retirement Home", "Skill Stream", "Dummy", "Talent Loadout", "Custom Code" } }
     }
     
     Config.AccordionStates = Config.AccordionStates or {} 
@@ -808,6 +807,10 @@ function Config:SelectBar(index)
                              newEl.widgetWidth = 340
                              newEl.widgetHeight = 260
                          end
+                    elseif typeName == "Custom Code" then
+                         newEl.widgetWidth = 100
+                         newEl.widgetHeight = 30
+                         newEl.code = "return 'Hello World'"
                     elseif btnIsDivider then
                          newEl.size = 20; newEl.thickness = 2; newEl.dividerMode = "LINE"; newEl.dividerStyle = "VERTICAL"; newEl.offset = 0
                     end
@@ -979,6 +982,11 @@ function Config:SelectBar(index)
              local btnSettings = Skin:CreateButton(item, "Settings", 80, 22)
              btnSettings:SetPoint("RIGHT", dragHandle, "LEFT", -10, 0)
              btnSettings:SetScript("OnClick", function() Config:OpenTargetCastbarSettings(index, i, elem) end)
+        elseif elem.type == "Custom Code" then
+             btnCol:Hide()
+             local btnSettings = Skin:CreateButton(item, "Settings", 80, 22)
+             btnSettings:SetPoint("RIGHT", dragHandle, "LEFT", -10, 0)
+             btnSettings:SetScript("OnClick", function() Config:OpenCustomCodeSettings(index, i, elem) end)
         elseif elem.type == "Cursor Ring" then
              btnCol:Hide()
              local btnSettings = Skin:CreateButton(item, "Settings", 80, 22)
@@ -1183,7 +1191,7 @@ function Config:ToggleSlidePanel(show)
     Skin:ToggleSlidePanel(panel, show)
 end
 
-function Config:OpenDragonridingSettings(barIndex, elemIndex, elem)
+function Config:OpenCustomCodeSettings(barIndex, elemIndex, elem)
     local panel = Config:GetSlidePanel()
     local wasShown = panel:IsShown()
     
@@ -1193,8 +1201,9 @@ function Config:OpenDragonridingSettings(barIndex, elemIndex, elem)
     end
     
     Config:ToggleSlidePanel(true)
-    panel.header.title:SetText("Dragonriding Settings")
+    panel.header.title:SetText("Custom Code Settings")
     panel.config = elem
+    panel.barIndex = barIndex
     
     if not wasShown and panel.scroll then panel.scroll:SetVerticalScroll(0) end
     
@@ -1209,6 +1218,22 @@ function Config:OpenDragonridingSettings(barIndex, elemIndex, elem)
         panel.builder = nil 
     end
     
+    if _G.WidgetForge and _G.WidgetForge.CustomCode and _G.WidgetForge.CustomCode.CreateSettings then
+        _G.WidgetForge.CustomCode:CreateSettings(panel)
+    end
+end
+
+function Config:OpenDragonridingSettings(barIndex, elemIndex, elem)
+    local panel = Config:GetSlidePanel()
+    Config:ToggleSlidePanel(true)
+    panel.header.title:SetText("Dragonriding Settings")
+    panel.config = elem
+    local content = panel.content
+    local kids = {content:GetChildren()}
+    for _, k in ipairs(kids) do k:Hide() end
+    local regions = {content:GetRegions()}
+    for _, r in ipairs(regions) do r:Hide() end
+    if panel.builder then if panel.builder.Release then panel.builder:Release() end panel.builder = nil end
     if _G.WidgetForge and _G.WidgetForge.Dragonriding and _G.WidgetForge.Dragonriding.CreateSettings then
         _G.WidgetForge.Dragonriding:CreateSettings(panel)
     end
@@ -1216,64 +1241,33 @@ end
 
 function Config:OpenSkillStreamSettings(barIndex, elemIndex, elem)
     local panel = Config:GetSlidePanel()
-    local wasShown = panel:IsShown()
-    
-    if wasShown and panel.onCloseWidgetSpecific then
-        panel.onCloseWidgetSpecific()
-        panel.onCloseWidgetSpecific = nil
-    end
-    
     Config:ToggleSlidePanel(true)
     panel.header.title:SetText("Skill Stream Settings")
     panel.config = elem
     panel.barIndex = barIndex
-    
-    if not wasShown and panel.scroll then panel.scroll:SetVerticalScroll(0) end
-    
     local content = panel.content
     local kids = {content:GetChildren()}
     for _, k in ipairs(kids) do k:Hide() end
     local regions = {content:GetRegions()}
     for _, r in ipairs(regions) do r:Hide() end
-    
-    if panel.builder then 
-        if panel.builder.Release then panel.builder:Release() end
-        panel.builder = nil 
-    end
-    
+    if panel.builder then if panel.builder.Release then panel.builder:Release() end panel.builder = nil end
     if _G.WidgetForge and _G.WidgetForge.SkillStream and _G.WidgetForge.SkillStream.CreateSettings then
         _G.WidgetForge.SkillStream:CreateSettings(panel)
     end
 end
 
--- TARGET CASTBAR SETTINGS EKLENDİ
 function Config:OpenTargetCastbarSettings(barIndex, elemIndex, elem)
     local panel = Config:GetSlidePanel()
-    local wasShown = panel:IsShown()
-    
-    if wasShown and panel.onCloseWidgetSpecific then
-        panel.onCloseWidgetSpecific()
-        panel.onCloseWidgetSpecific = nil
-    end
-    
     Config:ToggleSlidePanel(true)
     panel.header.title:SetText("Target Castbar Settings")
     panel.config = elem
     panel.barIndex = barIndex
-    
-    if not wasShown and panel.scroll then panel.scroll:SetVerticalScroll(0) end
-    
     local content = panel.content
     local kids = {content:GetChildren()}
     for _, k in ipairs(kids) do k:Hide() end
     local regions = {content:GetRegions()}
     for _, r in ipairs(regions) do r:Hide() end
-    
-    if panel.builder then 
-        if panel.builder.Release then panel.builder:Release() end
-        panel.builder = nil 
-    end
-    
+    if panel.builder then if panel.builder.Release then panel.builder:Release() end panel.builder = nil end
     if _G.WidgetForge and _G.WidgetForge.TargetCastbar and _G.WidgetForge.TargetCastbar.CreateSettings then
         _G.WidgetForge.TargetCastbar:CreateSettings(panel)
     end
@@ -1281,31 +1275,16 @@ end
 
 function Config:OpenCursorRingSettings(barIndex, elemIndex, elem)
     local panel = Config:GetSlidePanel()
-    local wasShown = panel:IsShown()
-    
-    if wasShown and panel.onCloseWidgetSpecific then
-        panel.onCloseWidgetSpecific()
-        panel.onCloseWidgetSpecific = nil
-    end
-    
     Config:ToggleSlidePanel(true)
     panel.header.title:SetText("Cursor Ring Settings")
     panel.config = elem
     panel.barIndex = barIndex 
-    
-    if not wasShown and panel.scroll then panel.scroll:SetVerticalScroll(0) end
-    
     local content = panel.content
     local kids = {content:GetChildren()}
     for _, k in ipairs(kids) do k:Hide() end
     local regions = {content:GetRegions()}
     for _, r in ipairs(regions) do r:Hide() end
-    
-    if panel.builder then 
-        if panel.builder.Release then panel.builder:Release() end
-        panel.builder = nil 
-    end
-    
+    if panel.builder then if panel.builder.Release then panel.builder:Release() end panel.builder = nil end
     if _G.WidgetForge and _G.WidgetForge.CursorRing and _G.WidgetForge.CursorRing.CreateSettings then
         _G.WidgetForge.CursorRing:CreateSettings(panel)
     end
@@ -1313,31 +1292,16 @@ end
 
 function Config:OpenRetirementHomeSettings(barIndex, elemIndex, elem)
     local panel = Config:GetSlidePanel()
-    local wasShown = panel:IsShown()
-    
-    if wasShown and panel.onCloseWidgetSpecific then
-        panel.onCloseWidgetSpecific()
-        panel.onCloseWidgetSpecific = nil
-    end
-    
     Config:ToggleSlidePanel(true)
     panel.header.title:SetText("Retirement Home Settings")
     panel.config = elem
     panel.barIndex = barIndex
-    
-    if not wasShown and panel.scroll then panel.scroll:SetVerticalScroll(0) end
-    
     local content = panel.content
     local kids = {content:GetChildren()}
     for _, k in ipairs(kids) do k:Hide() end
     local regions = {content:GetRegions()}
     for _, r in ipairs(regions) do r:Hide() end
-    
-    if panel.builder then 
-        if panel.builder.Release then panel.builder:Release() end
-        panel.builder = nil 
-    end
-    
+    if panel.builder then if panel.builder.Release then panel.builder:Release() end panel.builder = nil end
     if _G.WidgetForge and _G.WidgetForge.RetirementHome and _G.WidgetForge.RetirementHome.CreateSettings then
         _G.WidgetForge.RetirementHome:CreateSettings(panel)
     end
@@ -1345,31 +1309,16 @@ end
 
 function Config:OpenMythicPlusSettings(barIndex, elemIndex, elem)
     local panel = Config:GetSlidePanel()
-    local wasShown = panel:IsShown()
-    
-    if wasShown and panel.onCloseWidgetSpecific then
-        panel.onCloseWidgetSpecific()
-        panel.onCloseWidgetSpecific = nil
-    end
-    
     Config:ToggleSlidePanel(true)
     panel.header.title:SetText("Mythic+ Dashboard Settings")
     panel.config = elem
     panel.barIndex = barIndex
-    
-    if not wasShown and panel.scroll then panel.scroll:SetVerticalScroll(0) end
-    
     local content = panel.content
     local kids = {content:GetChildren()}
     for _, k in ipairs(kids) do k:Hide() end
     local regions = {content:GetRegions()}
     for _, r in ipairs(regions) do r:Hide() end
-    
-    if panel.builder then 
-        if panel.builder.Release then panel.builder:Release() end
-        panel.builder = nil 
-    end
-    
+    if panel.builder then if panel.builder.Release then panel.builder:Release() end panel.builder = nil end
     if _G.WidgetForge and _G.WidgetForge.MythicPlus and _G.WidgetForge.MythicPlus.CreateSettings then
         _G.WidgetForge.MythicPlus:CreateSettings(panel)
     end
@@ -1379,29 +1328,23 @@ function Config:OpenDummySettings(barIndex, elemIndex, elem)
     Config:ToggleSlidePanel(true)
     local panel = Config:GetSlidePanel()
     local content = panel.content
-    
     local kids = {content:GetChildren()}
     for _, k in ipairs(kids) do k:Hide() end
     local regions = {content:GetRegions()}
     for _, r in ipairs(regions) do r:Hide() end
-    
     panel.header.title:SetText("Dummy Widget Settings")
-    
+    -- (İçerik buradadır)
     local Skin = _G.ForgeSkin
-    
     local y = -20
     Skin:CreateSectionHeader(content, "Test Controls", 600):SetPoint("TOPLEFT", 10, y)
     y = y - 40
-    
     local lbl = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     lbl:SetPoint("TOPLEFT", 20, y+5)
     lbl:SetText("Display Text:")
-    
     local ebFrame = CreateFrame("Frame", nil, content, "BackdropTemplate")
     ebFrame:SetSize(200, 30)
     ebFrame:SetPoint("LEFT", lbl, "RIGHT", 10, 0)
     Skin:ApplyBackdrop(ebFrame)
-    
     local eb = CreateFrame("EditBox", nil, ebFrame)
     eb:SetAllPoints(ebFrame); eb:SetTextInsets(5,5,0,0); eb:SetFontObject(ChatFontNormal)
     eb:SetAutoFocus(false)
@@ -1410,20 +1353,16 @@ function Config:OpenDummySettings(barIndex, elemIndex, elem)
         elem.text = self:GetText()
         WidgetForge:RebuildBarComponents(barIndex)
     end)
-    
     y = y - 50
-    
     local lblC = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     lblC:SetPoint("TOPLEFT", 20, y+5)
     lblC:SetText("Background Color:")
-    
     local btnC = CreateFrame("Button", nil, content, "BackdropTemplate")
     btnC:SetSize(30, 30)
     btnC:SetPoint("LEFT", lblC, "RIGHT", 10, 0)
     Skin:ApplyBackdrop(btnC)
     local col = elem.color or {0.5, 0.5, 0.5, 0.5}
     btnC:SetBackdropColor(unpack(col))
-    
     btnC:SetScript("OnClick", function()
         Skin:ShowColorPicker({
             r=col[1], g=col[2], b=col[3], opacity=col[4],
@@ -1439,15 +1378,12 @@ function Config:OpenDummySettings(barIndex, elemIndex, elem)
             end
         })
     end)
-    
     y = y - 60
-    
     local txt = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     txt:SetPoint("TOPLEFT", 20, y)
     txt:SetWidth(500)
     txt:SetJustifyH("LEFT")
     txt:SetText("This panel slides in from the right side, covering the main configuration area without being a separate popup window. This allows for a more integrated settings experience.")
-    
     if content.SetHeight then content:SetHeight(math.abs(y) + 100) end
 end
 

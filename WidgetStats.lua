@@ -14,9 +14,12 @@ Stats.Data = {
     ["Main Stat"] = "0", ["Armor"] = "0", ["Max HP"] = "0",
     -- Dragonriding / Skyriding
     ["DragonVigor"] = 0, ["DragonVigorMax"] = 0, ["DragonSpeed"] = 0, ["DragonActive"] = false,
-    -- Social
+    -- Social & Navigation
     ["Guild"] = "0", ["Friends"] = "0",
-    ["Difficulty"] = "World"
+    ["Difficulty"] = "World",
+    -- Talent Loadout
+    ["Talent Loadout"] = "Default", 
+    ["Talent Loadout Icon"] = 132222
 }
 -- Helper mappings
 Stats.ActiveMainStat = "Strength" -- Default
@@ -49,6 +52,7 @@ function Stats:Initialize()
     f:RegisterEvent("PLAYER_XP_UPDATE")
     f:RegisterEvent("UPDATE_INVENTORY_DURABILITY")
     f:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+    f:RegisterEvent("TRAIT_CONFIG_UPDATED") -- Talent Değişimi Eventi
     
     -- Difficulty Events
     f:RegisterEvent("PLAYER_DIFFICULTY_CHANGED")
@@ -169,6 +173,46 @@ end
 
 function Stats:UpdateEventStat(event, arg1)
     
+    -- TALENT LOADOUT EX - WEAKAURA SPOOFING (Ar-Ge Çalışması)
+    if event == "PLAYER_ENTERING_WORLD" then
+        if not Stats.WaHooked then
+            -- Eğer WeakAuras kuruluysa kanca at, değilse sahte bir WA yaratıp tuzağa düşür
+            if _G.WeakAuras and _G.WeakAuras.ScanEvents then
+                hooksecurefunc(_G.WeakAuras, "ScanEvents", function(ev, name, icon)
+                    if ev == "TalentLoadoutEx" then
+                        Stats.Data["Talent Loadout"] = tostring(name)
+                        if icon then Stats.Data["Talent Loadout Icon"] = icon end
+                        if WidgetForge and WidgetForge.UpdateAvailableBars then WidgetForge:UpdateAvailableBars() end
+                    end
+                end)
+            else
+                _G.WeakAuras = _G.WeakAuras or {}
+                _G.WeakAuras.ScanEvents = function(ev, name, icon)
+                    if ev == "TalentLoadoutEx" then
+                        Stats.Data["Talent Loadout"] = tostring(name)
+                        if icon then Stats.Data["Talent Loadout Icon"] = icon end
+                        if WidgetForge and WidgetForge.UpdateAvailableBars then WidgetForge:UpdateAvailableBars() end
+                    end
+                end
+            end
+            Stats.WaHooked = true
+        end
+    end
+
+    -- STANDART TALENT LOADOUT KONTROLÜ (Fallback)
+    if event == "TRAIT_CONFIG_UPDATED" or event == "PLAYER_ENTERING_WORLD" then
+        if C_ClassTalents and C_ClassTalents.GetActiveConfigID then
+            local configID = C_ClassTalents.GetActiveConfigID()
+            if configID then
+                local info = C_Traits.GetConfigInfo(configID)
+                if info then
+                    -- Talent Loadout Ex eklentisi bu ismi ezeceği için burası sadece yedek plan olarak kalır
+                    Stats.Data["Talent Loadout"] = info.name
+                end
+            end
+        end
+    end
+
     if event == "PLAYER_MONEY" or event == "PLAYER_ENTERING_WORLD" then
         Stats.Data["Gold"] = GetMoneyString(GetMoney())
     end
@@ -341,6 +385,7 @@ function Stats:GetStat(statType)
     elseif statType == "Guild" then lbl = "Guild"
     elseif statType == "Friends" then lbl = "Friends"
     elseif statType == "Difficulty" then lbl = "Diff"
+    elseif statType == "Talent Loadout" then lbl = "Talent"
     end
     
     return val or "", lbl
@@ -356,6 +401,15 @@ function Stats:AddTooltip(owner, statType, elemData)
     
     local added = false
     
+    if statType == "Talent Loadout" then
+        GameTooltip:AddLine("Active Talent Loadout", 1, 1, 1)
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine("Displays your current talent build.", 1, 0.8, 0)
+        GameTooltip:AddLine("Fully supports standard WoW API and", 0.7, 0.7, 0.7)
+        GameTooltip:AddLine("'Talent Loadout Ex' addon data.", 0.7, 0.7, 0.7)
+        added = true
+    end
+
     if statType == "Zone" or statType == "Coords" then
         local mapID = C_Map.GetBestMapForUnit("player")
         if mapID then

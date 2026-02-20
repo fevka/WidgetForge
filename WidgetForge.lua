@@ -38,7 +38,7 @@ WidgetForge.StatIcons = {
     ["Parry"] = "Interface\\Icons\\Ability_Parry",
     ["Target Name"] = "Interface\\Icons\\Ability_Hunter_SniperShot",
     ["Target HP"] = "Interface\\Icons\\Spell_Holy_SealOfSacrifice",
-    ["Main Stat"] = "Interface\\Icons\\Spell_Holy_DivineSpirit", -- Generic Stat Icon
+    ["Main Stat"] = "Interface\\Icons\\Spell_Holy_DivineSpirit", 
     ["Run Speed"] = "Interface\\Icons\\Ability_Rogue_Sprint",
     ["Armor"] = "Interface\\Icons\\INV_Chest_Plate03",
     ["Max HP"] = "Interface\\Icons\\Spell_Holy_SealOfSacrifice",
@@ -48,7 +48,9 @@ WidgetForge.StatIcons = {
     ["Guild"] = "Interface\\Icons\\INV_Shirt_GuildTabard_01",
     ["Friends"] = "Interface\\Icons\\Achievement_GuildPerk_EverybodysFriend",
     ["Difficulty"] = "Interface\\Icons\\INV_Misc_Bone_Skull_02",
-    ["Target Castbar"] = "Interface\\Icons\\Spell_Holy_AshesToAshes"
+    ["Target Castbar"] = "Interface\\Icons\\Spell_Holy_AshesToAshes",
+    ["Talent Loadout"] = "Interface\\Icons\\Spell_ChargePositive",
+    ["Custom Code"] = "Interface\\Icons\\Trade_Engineering"
 }
 
 -- --- HELPER FUNCTIONS ---
@@ -58,11 +60,8 @@ end
 
 -- --- BAR MANAGEMENT ---
 
--- [SAFETY] Barın bu karakterle alakasını kontrol eden MERKEZİ fonksiyon.
 function WidgetForge:IsBarRelevant(conf)
     if not conf then return false end
-    
-    -- Scope yoksa Globaldir, herkese görünür.
     if not conf.scope then return true end
 
     local function normalize(str)
@@ -169,7 +168,10 @@ function WidgetForge:UpdateAvailableBars()
             local isExclusive = false
             if conf.elements then
                 for _, e in ipairs(conf.elements) do
-                    if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" then isExclusive = true; break end
+                    if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" then 
+                        isExclusive = true
+                        break 
+                    end
                 end
             end
 
@@ -214,6 +216,7 @@ function WidgetForge:RebuildBarComponents(index)
     if not f.textsLbl then f.textsLbl = {} end
     if not f.icons then f.icons = {} end
     if not f.dragonFrames then f.dragonFrames = {} end
+    if not f.codeFrames then f.codeFrames = {} end
     
     if f.customWidgets then
         for _, cw in ipairs(f.customWidgets) do
@@ -230,6 +233,7 @@ function WidgetForge:RebuildBarComponents(index)
     for _, h in pairs(f.hitboxes or {}) do h:Hide() end
     if f.dividers then for _, d in pairs(f.dividers) do d:Hide() end end
     for _, df in pairs(f.dragonFrames) do df:Hide() end
+    for _, cf in pairs(f.codeFrames) do cf:Hide() end
     
     local isLocked = not f:IsMouseEnabled()
     local clickThrough = conf.clickThrough
@@ -239,7 +243,6 @@ function WidgetForge:RebuildBarComponents(index)
     local justify = conf.justify or "CENTER"
     local isSplit = (conf.layout == "VERTICAL" and justify ~= "CENTER")
 
-    -- [EXCLUSIVE & OVERLAY LOGIC YENİLENDİ]
     local OverlayTypes = { ["Cursor Ring"] = true, ["Retirement Home"] = true }
     local StrictTypes = { ["Mythic+ Dashboard"] = true, ["Dragonriding"] = true, ["Skill Stream"] = true, ["Target Castbar"] = true }
     
@@ -268,6 +271,7 @@ function WidgetForge:RebuildBarComponents(index)
             if f.hitboxes and f.hitboxes[i] then f.hitboxes[i]:Hide() end
             if f.dividers and f.dividers[i] then f.dividers[i]:Hide() end
             if f.dragonFrames and f.dragonFrames[i] then f.dragonFrames[i]:Hide() end
+            if f.codeFrames and f.codeFrames[i] then f.codeFrames[i]:Hide() end
         elseif elem.type == "Divider" then
             if elem.dividerMode == "TEXT" then
                 if not f.textsVal[i] then f.textsVal[i] = f:CreateFontString(nil, "OVERLAY") end
@@ -327,6 +331,17 @@ function WidgetForge:RebuildBarComponents(index)
                      if cw then table.insert(f.customWidgets, cw) end
                  end)
             end
+        elseif elem.type == "Custom Code" then
+            if addonTable.CustomCode then
+                 pcall(function()
+                     local cw = addonTable.CustomCode:Load(f, elem)
+                     if cw then 
+                        table.insert(f.customWidgets, cw) 
+                        if not f.codeFrames then f.codeFrames = {} end
+                        f.codeFrames[i] = cw
+                     end
+                 end)
+            end
         else
             if not f.textsVal[i] then f.textsVal[i] = f:CreateFontString(nil, "OVERLAY") end
             local tVal = f.textsVal[i]
@@ -360,6 +375,12 @@ function WidgetForge:RebuildBarComponents(index)
                 local typeToIcon = elem.type
                 if typeToIcon == "Main Stat" then typeToIcon = ForgeStats.ActiveMainStat or "Strength" end
                 local iconPath = WidgetForge.StatIcons[typeToIcon] or "Interface\\Icons\\INV_Misc_QuestionMark"
+                
+                -- Dinamik Talent Loadout Icon Desteği
+                if typeToIcon == "Talent Loadout" and ForgeStats.Data and ForgeStats.Data["Talent Loadout Icon"] then
+                    iconPath = ForgeStats.Data["Talent Loadout Icon"]
+                end
+
                 icon:Show()
                 icon:SetTexture(iconPath)
                 icon:SetSize(elem.size, elem.size) 
@@ -567,6 +588,16 @@ function WidgetForge:UpdateBarValues(index)
                 if i > 1 then totalW = totalW + conf.padding end
                 if i > 1 then totalW = totalW + conf.padding end
             end
+        elseif elem.type == "Custom Code" then
+            local wW = elem.widgetWidth or 100
+            local wH = elem.widgetHeight or 30
+            if conf.layout == "VERTICAL" then
+                totalH = totalH + wH
+                if i > 1 then totalH = totalH + conf.padding end
+            else
+                totalW = totalW + wW
+                if i > 1 then totalW = totalW + conf.padding end
+            end
         elseif elem.type == "Skill Stream" then
             local limit = elem.iconLimit or 5
             local size = elem.iconSize or 32
@@ -602,7 +633,13 @@ function WidgetForge:UpdateBarValues(index)
             
             local tVal = f.textsVal[i]
             if tVal then
-                local iconWidth = (elem.showIcon and f.icons[i]) and (elem.size + 4) or 0
+                local icon = f.icons[i]
+                
+                if icon and elem.type == "Talent Loadout" and ForgeStats.Data["Talent Loadout Icon"] then
+                    icon:SetTexture(ForgeStats.Data["Talent Loadout Icon"])
+                end
+
+                local iconWidth = (elem.showIcon and icon) and (elem.size + 4) or 0
                 
                 local fullTextVal = valStr
                 if isSplit then
@@ -695,6 +732,8 @@ function WidgetForge:UpdateBarValues(index)
                  elemHeight = elem.widgetHeight or 45
             elseif elem.type == "Target Castbar" then
                  elemHeight = elem.widgetHeight or 30
+            elseif elem.type == "Custom Code" then
+                 elemHeight = elem.widgetHeight or 30
             elseif elem.type == "Skill Stream" then
                  local limit = elem.iconLimit or 5
                  local size = elem.iconSize or 32
@@ -737,7 +776,14 @@ function WidgetForge:UpdateBarValues(index)
                 end
                 currentY = currentY - elemHeight
                 if i < #conf.elements then currentY = currentY - conf.padding end
-            elseif elem.type == "Dragonriding" or elem.type == "Skill Stream" or elem.type == "Target Castbar" then
+            elseif elem.type == "Dragonriding" or elem.type == "Skill Stream" or elem.type == "Target Castbar" or elem.type == "Custom Code" then
+                if elem.type == "Custom Code" then
+                    local cf = f.codeFrames and f.codeFrames[i]
+                    if cf then
+                        cf:ClearAllPoints()
+                        cf:SetPoint("CENTER", f, "CENTER", 0, placementY)
+                    end
+                end
                 currentY = currentY - elemHeight
                 if i < #conf.elements then currentY = currentY - conf.padding end
             else
@@ -888,6 +934,13 @@ function WidgetForge:UpdateBarValues(index)
             elseif elem.type == "Target Castbar" then
                  local wW = conf.width or 300
                  currentX = currentX + wW + conf.padding
+            elseif elem.type == "Custom Code" then
+                 local cf = f.codeFrames and f.codeFrames[i]
+                 if cf then
+                     cf:ClearAllPoints()
+                     cf:SetPoint("LEFT", f, "CENTER", placementX, currentY)
+                 end
+                 currentX = currentX + (elem.widgetWidth or 100) + conf.padding
             elseif elem.type == "Skill Stream" then
                  local limit = elem.iconLimit or 5
                  local size = elem.iconSize or 32
