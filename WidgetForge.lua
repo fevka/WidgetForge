@@ -43,7 +43,10 @@ WidgetForge.StatIcons = {
     ["Armor"] = "Interface\\Icons\\INV_Chest_Plate03",
     ["Max HP"] = "Interface\\Icons\\Spell_Holy_SealOfSacrifice",
     ["Dragonriding"] = "Interface\\Icons\\Ability_DragonRiding_Vigor01",
-    ["Retirement Home"] = "Interface\\Icons\\Ability_Hunter_EagleEye"
+    ["Retirement Home"] = "Interface\\Icons\\Ability_Hunter_EagleEye",
+    ["Skill Stream"] = "Interface\\Icons\\Spell_Arcane_ArcaneTorrent",
+    ["Guild"] = "Interface\\Icons\\INV_Shirt_GuildTabard_01",
+    ["Friends"] = "Interface\\Icons\\Achievement_GuildPerk_EverybodysFriend"
 }
 
 
@@ -119,12 +122,6 @@ function WidgetForge:SetBarsLocked(locked)
                     end
                 else
                     -- If Unlocked (Config Mode):
-                    -- Disable hitboxes to allow dragging the bar via Grip or background without interference?
-                    -- Or keep them enabled to preview tooltips?
-                    -- Usually better to keep enabled or follow clickThrough? 
-                    -- Let's keep them enabled so user can see tooltips while configuring if they want, 
-                    -- UNLESS clickThrough is on? No, in config mode we might want to edit.
-                    -- Actually, GripHandle is separate. Let's force Enable for tooltips in config mode.
                     hb:EnableMouse(true)
                 end
             end
@@ -153,8 +150,6 @@ function WidgetForge:UpdateAvailableBars()
                 f:SetMovable(true)
                 f:EnableMouse(false) -- Default Locked
                 
-                -- [MOVED] Drag Logic is in Rebuild/Init, handled by GripHandle now.
-                
                 -- SmartBorder Interaction
                 f:SetScript("OnEnter", function(self) 
                     if not self:IsMouseEnabled() then return end
@@ -182,11 +177,11 @@ function WidgetForge:UpdateAvailableBars()
             f:ClearAllPoints()
             f:SetPoint(conf.point or "CENTER", UIParent, conf.relativePoint or conf.point or "CENTER", conf.x or 100, conf.y or 0)
             
-            -- Check Exclusive Mode (Dragonriding / Cursor Ring)
+            -- Check Exclusive Mode (Dragonriding / Cursor Ring / Skill Stream)
             local isExclusive = false
             if conf.elements then
                 for _, e in ipairs(conf.elements) do
-                    if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" then isExclusive = true; break end
+                    if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" then isExclusive = true; break end
                 end
             end
 
@@ -251,14 +246,6 @@ function WidgetForge:RebuildBarComponents(index)
     if f.dividers then for _, d in pairs(f.dividers) do d:Hide() end end
     for _, df in pairs(f.dragonFrames) do df:Hide() end
     
-    -- [CLICK THROUGH CHECK]
-    -- We need to ensure hitboxes respect clickThrough even during rebuild
-    -- But SetBarsLocked handles the main toggle. Here we just create them.
-    -- We can set default state here, but SetBarsLocked will override when called.
-    -- However, Rebuild is called strictly during Config (Unlocked) usually, or Init (Locked).
-    -- So we should check IsMouseEnabled of parent? No, logic is complex.
-    -- Let's stick to creating them, and letting SetBarsLocked/Update loop handle state if needed.
-    -- Actually, simple check:
     local isLocked = not f:IsMouseEnabled()
     local clickThrough = conf.clickThrough
     local hbEnabled = true
@@ -269,7 +256,7 @@ function WidgetForge:RebuildBarComponents(index)
 
     -- [EXCLUSIVE & OVERLAY LOGIC]
     local OverlayTypes = { ["Cursor Ring"] = true, ["Retirement Home"] = true }
-    local StrictTypes = { ["Mythic+ Dashboard"] = true, ["Dragonriding"] = true }
+    local StrictTypes = { ["Mythic+ Dashboard"] = true, ["Dragonriding"] = true, ["Skill Stream"] = true }
     
     local exclusiveType = nil
     for _, e in ipairs(conf.elements) do
@@ -280,15 +267,12 @@ function WidgetForge:RebuildBarComponents(index)
     end
     
     for i, elem in ipairs(conf.elements) do
-        -- Isolation Logic:
-        -- 1. If we have a STRICT widget, hide EVERYTHING else (Standard + Other Custom)
-        -- 2. If we have an OVERLAY widget, hide only STANDARD widgets (allow multiple overlays)
+        -- Isolation Logic
         local shouldHide = false
         if exclusiveType then
             if StrictTypes[exclusiveType] then
                 if elem.type ~= exclusiveType then shouldHide = true end
             elseif OverlayTypes[exclusiveType] then
-                -- Hide only standard stats and dividers if current isn't an overlay
                 if not OverlayTypes[elem.type] and elem.type ~= "Divider" then shouldHide = true end
             end
         end
@@ -303,7 +287,6 @@ function WidgetForge:RebuildBarComponents(index)
             if f.dragonFrames and f.dragonFrames[i] then f.dragonFrames[i]:Hide() end
         elseif elem.type == "Divider" then
             if elem.dividerMode == "TEXT" then
-                -- Divider as Text
                 if not f.textsVal[i] then f.textsVal[i] = f:CreateFontString(nil, "OVERLAY") end
                 local tVal = f.textsVal[i]
                 tVal:Show()
@@ -311,7 +294,6 @@ function WidgetForge:RebuildBarComponents(index)
                 tVal:SetTextColor(unpack(elem.color or {1, 1, 1, 1}))
                 tVal:SetText(elem.dividerText or "|")
             else
-                -- Divider as Line (Graphic)
                 if not f.dividers then f.dividers = {} end
                 if not f.dividers[i] then f.dividers[i] = f:CreateTexture(nil, "OVERLAY") end
                 local div = f.dividers[i]
@@ -319,7 +301,6 @@ function WidgetForge:RebuildBarComponents(index)
                 div:SetColorTexture(unpack(elem.color or {1, 1, 1, 1}))
             end
         elseif elem.type == "Cursor Ring" then
-            -- Create/Load once
             pcall(function()
                 local ring = WidgetForge:CreateCursorRing(f, elem)
                 if ring then table.insert(f.customWidgets, ring) end
@@ -349,34 +330,34 @@ function WidgetForge:RebuildBarComponents(index)
                      end
                  end)
             end
-
+        elseif elem.type == "Skill Stream" then
+            if addonTable.SkillStream then
+                 pcall(function()
+                     local cw = addonTable.SkillStream:Load(f, elem)
+                     if cw then table.insert(f.customWidgets, cw) end
+                 end)
+            end
         else
             -- Standard Element
-            -- Value Text
             if not f.textsVal[i] then f.textsVal[i] = f:CreateFontString(nil, "OVERLAY") end
             local tVal = f.textsVal[i]
             tVal:Show()
             local fontPath = Skin.Media.Fonts[elem.font] or "Fonts\\FRIZQT__.TTF"
             tVal:SetFont(fontPath, elem.size, elem.outline)
             
-            -- [SAFETY] Logic: If font is invalid, GetStringWidth usually returns 0 or errors later.
-            -- We test it here.
             tVal:SetText("test")
             if tVal:GetStringWidth() == 0 then
-                 -- Fallback
                  tVal:SetFont("Fonts\\FRIZQT__.TTF", elem.size, elem.outline)
             end
-            tVal:SetText("") -- Reset
+            tVal:SetText("")
 
             tVal:SetTextColor(unpack(elem.color or {1, 1, 1, 1}))
             
-            -- Label Text
             if isSplit then
                  if not f.textsLbl[i] then f.textsLbl[i] = f:CreateFontString(nil, "OVERLAY") end
                  local tLbl = f.textsLbl[i]
                  tLbl:Show()
-                 tLbl:SetFont(fontPath, elem.size, elem.outline) -- Use same font
-                 -- Safety check for label too
+                 tLbl:SetFont(fontPath, elem.size, elem.outline) 
                  tLbl:SetText("test")
                  if tLbl:GetStringWidth() == 0 then tLbl:SetFont("Fonts\\FRIZQT__.TTF", elem.size, elem.outline) end
                  tLbl:SetText("")
@@ -384,7 +365,6 @@ function WidgetForge:RebuildBarComponents(index)
                  tLbl:SetTextColor(unpack(elem.color or {1, 1, 1, 1}))
             end
     
-            -- Icon
             if elem.showIcon then
                 if not f.icons[i] then f.icons[i] = f:CreateTexture(nil, "OVERLAY") end
                 local icon = f.icons[i]
@@ -396,11 +376,9 @@ function WidgetForge:RebuildBarComponents(index)
                 icon:SetSize(elem.size, elem.size) 
             end
     
-            -- HitBox
             if not f.hitboxes then f.hitboxes = {} end
             if not f.hitboxes[i] then 
                 local hb = CreateFrame("Frame", nil, f)
-                -- hb:EnableMouse(true) -- Handled by SetBarsLocked logic mostly, but set initial:
                 hb:EnableMouse(hbEnabled)
                 hb:SetScript("OnEnter", function(self)
                     if not elem.showTooltip then return end 
@@ -451,7 +429,6 @@ function WidgetForge:RebuildBarComponents(index)
                     local s = f:GetEffectiveScale()
                     self.startX, self.startY = mX / s, mY / s
                     
-                    -- Mevcut frame pozisyonunu al
                     local point, relativeTo, relativePoint, xOfs, yOfs = f:GetPoint()
                     self.startPoint = {point or "CENTER", relativeTo or UIParent, relativePoint or "CENTER", xOfs or 0, yOfs or 0}
                 end
@@ -460,7 +437,6 @@ function WidgetForge:RebuildBarComponents(index)
             d:SetScript("OnMouseUp", function(self)
                 self.isDragging = false
                 
-                -- Pozisyonu DB'ye kaydet
                 local point, _, relativePoint, x, y = f:GetPoint()
                 local currentConf = WidgetForgeDB.bars[f.index]
                 if currentConf then
@@ -470,7 +446,6 @@ function WidgetForge:RebuildBarComponents(index)
                     currentConf.y = y
                 end
                 
-                -- Sync Config UI
                 if ForgeConfig and ForgeConfig.UpdateCoordinates then
                     ForgeConfig:UpdateCoordinates(f.index)
                 end
@@ -527,7 +502,6 @@ function WidgetForge:SetSelectedBar(index)
     end
 end
 
--- [OPTIMIZATION] Update Loop with Cache Check
 function WidgetForge:UpdateBarValues(index)
     local f = Bars[index]
     local conf = WidgetForgeDB.bars[index]
@@ -563,7 +537,6 @@ function WidgetForge:UpdateBarValues(index)
                       elemHeight = elem.size or 14 
                   end
              else
-                  -- [FIX] In Vertical layout, dividers are forced HORIZONTAL (same logic as positioning pass)
                   local effectiveStyle = style
                   if conf.layout == "VERTICAL" then effectiveStyle = "HORIZONTAL" end
                   if effectiveStyle == "VERTICAL" then elemWidth = thk; elemHeight = size
@@ -578,18 +551,13 @@ function WidgetForge:UpdateBarValues(index)
                 if i > 1 then totalW = totalW + conf.padding end
              end
         elseif elem.type == "Dragonriding" then
-            -- === DRAGONRIDING UPDATE ===
-            -- Handled via UpdateVisuals in Module
             local df = f.dragonFrames and f.dragonFrames[i]
             if df and addonTable.Dragonriding then
                 if df.UpdateVisuals or addonTable.Dragonriding.UpdateVisuals then
-                     -- Module method (preferred) or instance method?
-                     -- We defined method on Module: Dragonriding:UpdateVisuals(f, elem)
                      addonTable.Dragonriding:UpdateVisuals(df, elem)
                 end
             end
             
-            -- Size contribution
             local wW = elem.widgetWidth or 300
             local wH = elem.widgetHeight or 45
             if conf.layout == "VERTICAL" then
@@ -600,18 +568,32 @@ function WidgetForge:UpdateBarValues(index)
                 if i > 1 then totalW = totalW + conf.padding end
                 if i > 1 then totalW = totalW + conf.padding end
             end
-        elseif elem.type == "Cursor Ring" then
-            -- Handled in RebuildBarComponents (Fixed Leak)
-            -- Just update position if needed, but CursorRing follows mouse.
-            -- Maybe call UpdateVisuals if we can find the instance?
-            -- Since customWidgets are list, finding the specific one for 'i' is hard without mapping.
-            -- But we don't need to update it every 0.1s. It handles itself.
-        elseif elem.type == "Retirement Home" then
-            -- Handled in Rebuild
-        elseif elem.type == "Mythic+ Dashboard" then
-            -- Handled in Rebuild
+        elseif elem.type == "Skill Stream" then
+            local limit = elem.iconLimit or 5
+            local size = elem.iconSize or 32
+            local spacing = elem.spacing or 5
+            local direction = elem.direction or "RIGHT_TO_LEFT"
+            
+            local streamLength = (limit * size) + ((limit - 1) * spacing)
+            
+            if conf.layout == "VERTICAL" then
+                if direction == "TOP_TO_BOTTOM" or direction == "BOTTOM_TO_TOP" then
+                    totalH = totalH + streamLength
+                else
+                    totalH = totalH + size
+                end
+                if i > 1 then totalH = totalH + conf.padding end
+            else
+                if direction == "RIGHT_TO_LEFT" or direction == "LEFT_TO_RIGHT" then
+                    totalW = totalW + streamLength
+                else
+                    totalW = totalW + size
+                end
+                if i > 1 then totalW = totalW + conf.padding end
+            end
+        elseif elem.type == "Cursor Ring" or elem.type == "Retirement Home" or elem.type == "Mythic+ Dashboard" then
+            -- Handled
         else
-            -- Standard Element Size Calculation
             local valStr, lblStr = ForgeStats:GetStat(elem.type) 
             if elem.type == "Clock" then
                  local fmt = elem.timeFormat or "24h"
@@ -623,7 +605,6 @@ function WidgetForge:UpdateBarValues(index)
             if tVal then
                 local iconWidth = (elem.showIcon and f.icons[i]) and (elem.size + 4) or 0
                 
-                -- [OPTIMIZATION] Prevent Redraw if Text Hasn't Changed
                 local fullTextVal = valStr
                 if isSplit then
                      local currentVal = tVal:GetText()
@@ -640,10 +621,6 @@ function WidgetForge:UpdateBarValues(index)
                      if currentFull ~= fullText then tVal:SetText(fullText) end
                 end
                 
-                -- Width Logic (Stable Digit Width + Padding)
-                -- We substitute all digits with '0' to ensure width doesn't change due to digit variance (e.g. "11" vs "88")
-                -- We also add the '1 digit extra' padding (elem.size) requested.
-                
                 local currentText = tVal:GetText() or ""
                 local stableText = string.gsub(currentText, "%d", "0")
                 
@@ -651,21 +628,19 @@ function WidgetForge:UpdateBarValues(index)
                     if isSplit then
                         stableText = "000"
                     else
-                        -- Use "000" + Label to reserve space for 3 digits
                         stableText = "000" .. WithSpace(lblStr)
                     end
                 end
                 
-                -- Temporarily set text to stable version to measure it
                 tVal:SetText(stableText)
                 local stableContentW = tVal:GetStringWidth()
-                tVal:SetText(currentText) -- Restore real text
+                tVal:SetText(currentText) 
                 
                 local extraPadding = (elem.size or 12)
                 local activeW = stableContentW + extraPadding
                 
                 tVal:SetWidth(activeW)
-                tVal:SetJustifyH("CENTER") -- Measurement pass: always CENTER, positioning pass overrides per layout
+                tVal:SetJustifyH("CENTER") 
 
                 if conf.layout == "VERTICAL" then
                     totalH = totalH + (elem.size or 12)
@@ -679,14 +654,10 @@ function WidgetForge:UpdateBarValues(index)
         end
     end
 
-    -- Positioning (Standart Layout Logic)
-    -- [Auto-Resize] Update Frame Size based on Content
     local edgePad = (conf.padding or 5) * 2
-    local totalMinH = totalH + edgePad + titleHeight -- Minimum height needed by content
+    local totalMinH = totalH + edgePad + titleHeight 
     
     if conf.layout == "VERTICAL" then
-        -- Use the LARGER of: user-configured height OR minimum content height
-        -- This lets the user make the bar bigger (more padding), but prevents clipping
         local userH = conf.height or 30
         local newH = math.max(userH, totalMinH)
         f:SetHeight(newH)
@@ -697,15 +668,10 @@ function WidgetForge:UpdateBarValues(index)
         f:SetHeight(conf.height or 30)
     end
 
-    -- justify already declared above (line 436)
     local barWidth, barHeight = f:GetSize()
     
     if conf.layout == "VERTICAL" then
-        -- [FIX] Simple vertical centering using frame's own CENTER anchor.
-        -- The title takes up space at the top, so we shift the content center down by titleHeight/2.
         local contentCenterY = -(titleHeight / 2)
-        
-        -- currentY tracks the TOP edge of each element's slot, relative to the content center.
         local startY = contentCenterY + (totalH / 2)
         local currentY = startY
         
@@ -713,7 +679,6 @@ function WidgetForge:UpdateBarValues(index)
             local offset = elem.offset or 0
             local elemHeight = 0
             
-            -- Determine height FIRST to calculate center position
             if elem.type == "Divider" then
                  local size = elem.size or 20
                  local thk = elem.thickness or 2
@@ -725,18 +690,24 @@ function WidgetForge:UpdateBarValues(index)
                       local isVertLayout = (conf.layout == "VERTICAL")
                       local effectiveStyle = style
                       if isVertLayout then effectiveStyle = "HORIZONTAL" end
-                      -- In Vertical Layout, Horizontal Divider has Height = thk
                       elemHeight = (effectiveStyle=="VERTICAL") and size or thk
                  end
             elseif elem.type == "Dragonriding" then
                  elemHeight = elem.widgetHeight or 45
+            elseif elem.type == "Skill Stream" then
+                 local limit = elem.iconLimit or 5
+                 local size = elem.iconSize or 32
+                 local spacing = elem.spacing or 5
+                 local dir = elem.direction or "RIGHT_TO_LEFT"
+                 if dir == "TOP_TO_BOTTOM" or dir == "BOTTOM_TO_TOP" then
+                     elemHeight = (limit * size) + ((limit - 1) * spacing)
+                 else
+                     elemHeight = size
+                 end
             else
                  elemHeight = elem.size or 12
             end
 
-            -- FIX: Offset logic
-            -- placementY is the CENTER of the element
-            -- Center = Top - (Height / 2)
             local placementY = (currentY - (elemHeight / 2)) - offset
 
             if elem.type == "Divider" then
@@ -754,27 +725,18 @@ function WidgetForge:UpdateBarValues(index)
                      local div = f.dividers and f.dividers[i]
                      if div then
                          div:ClearAllPoints()
-                         
                          local isVertLayout = (conf.layout == "VERTICAL")
                          local effectiveStyle = style
                          if isVertLayout then effectiveStyle = "HORIZONTAL" end
-                         
                          local w = (effectiveStyle=="VERTICAL") and thk or size
                          local h = (effectiveStyle=="VERTICAL") and size or thk
                          div:SetSize(w, h)
                          div:SetPoint("CENTER", f, "CENTER", 0, placementY)
                      end
                 end
-                -- Advance currentY by full height + padding
                 currentY = currentY - elemHeight
                 if i < #conf.elements then currentY = currentY - conf.padding end
-            elseif elem.type == "Dragonriding" then
-                -- Dragonriding positioning (VERTICAL)
-                local df = f.dragonFrames and f.dragonFrames[i]
-                if df then
-                    df:ClearAllPoints()
-                    df:SetPoint("CENTER", f, "CENTER", 0, placementY)
-                end
+            elseif elem.type == "Dragonriding" or elem.type == "Skill Stream" then
                 currentY = currentY - elemHeight
                 if i < #conf.elements then currentY = currentY - conf.padding end
             else
@@ -811,32 +773,26 @@ function WidgetForge:UpdateBarValues(index)
                      local activeW = stableContentW + extraPadding
     
                     if isSplit then
-                        -- [FIX] "Spine" Alignment: Value Right | Label Left
                         local centerGap = 2
-                        
-                        -- Value: Right Aligned to Center
                         tVal:ClearAllPoints()
                         tVal:SetWidth(stableContentW)
                         tVal:SetJustifyH("RIGHT")
                         tVal:SetPoint("RIGHT", f, "CENTER", -centerGap, placementY)
                         
-                        -- Label: Left Aligned to Center
                         if tLbl then
                             tLbl:ClearAllPoints()
                             tLbl:SetJustifyH("LEFT")
                             tLbl:SetPoint("LEFT", f, "CENTER", centerGap, placementY)
                         end
                         
-                        -- Icon: Left of Value
                         if icon then
                             icon:ClearAllPoints()
                             icon:SetPoint("RIGHT", tVal, "LEFT", -4, 0)
                         end
                         
                         if hb then
-                            hb:SetPoint("LEFT", f, "LEFT", 0, 0)
-                            hb:SetPoint("RIGHT", f, "RIGHT", 0, 0)
-                            hb:SetHeight(elem.size)
+                            -- [FIX] Dikey İki Yana Yaslı hitbox sorunu çözüldü
+                            hb:SetSize(barWidth, math.max(16, elem.size))
                             hb:SetPoint("CENTER", f, "CENTER", 0, placementY)
                         end
                     else
@@ -848,7 +804,8 @@ function WidgetForge:UpdateBarValues(index)
                             tVal:SetPoint("LEFT", f, "LEFT", margin + iconOffset, placementY)
                             if hb then
                                 local w = activeW + iconOffset
-                                hb:SetSize(math.max(w, 20), math.max(elem.size, 12)) 
+                                -- [FIX] Minimum 16px yükseklik ve düzgün ankraj
+                                hb:SetSize(math.max(w, 20), math.max(16, elem.size)) 
                                 hb:SetPoint("LEFT", f, "LEFT", margin, placementY)
                             end
                         elseif justify == "RIGHT" then
@@ -859,7 +816,8 @@ function WidgetForge:UpdateBarValues(index)
                              end
                               if hb then
                                 local w = activeW + iconOffset
-                                hb:SetSize(math.max(w, 20), math.max(elem.size, 12)) 
+                                -- [FIX] Minimum 16px yükseklik ve düzgün ankraj
+                                hb:SetSize(math.max(w, 20), math.max(16, elem.size)) 
                                 hb:SetPoint("RIGHT", f, "RIGHT", -margin, placementY)
                             end
                         else
@@ -868,32 +826,29 @@ function WidgetForge:UpdateBarValues(index)
                             if icon then icon:SetPoint("LEFT", f, "CENTER", startX, placementY) end
                             tVal:SetPoint("LEFT", f, "CENTER", startX + iconOffset, placementY)
                             if hb then
-                                 hb:SetSize(math.max(w, 20), math.max(elem.size, 12)) 
+                                 -- [FIX] Minimum 16px yükseklik ve düzgün ankraj
+                                 hb:SetSize(math.max(w, 20), math.max(16, elem.size)) 
                                  hb:SetPoint("CENTER", f, "CENTER", 0, placementY)
                             end
                         end
                     end
-                    -- Advance currentY by full height + padding (using pre-calculated height)
                     currentY = currentY - elemHeight
                     if i < #conf.elements then currentY = currentY - conf.padding end
                 end
             end
         end
     else
-        -- HORIZONTAL
-        local contentCenterY = -(titleHeight / 2) -- Center offset for horizontal (accounts for title)
+        local contentCenterY = -(titleHeight / 2) 
         local startX = 0
         if justify == "LEFT" then startX = -(barWidth / 2) + 5
         elseif justify == "RIGHT" then startX = (barWidth / 2) - totalW - 5
         else startX = -(totalW / 2) end
         
         local currentX = startX
-        -- [FIX] Vertical Center Adjustment: Move down by 1px for better visual centering
         local currentY = contentCenterY - 1 
         
         for i, elem in ipairs(conf.elements) do
             local offset = elem.offset or 0
-            -- FIX: Offset logic (Visual Only)
             local placementX = currentX + offset
 
             if elem.type == "Divider" then
@@ -908,7 +863,6 @@ function WidgetForge:UpdateBarValues(index)
                 if elem.dividerMode == "TEXT" then
                     if tVal then
                          tVal:ClearAllPoints()
-                         -- Use LEFT alignment for standard flow
                          tVal:SetPoint("LEFT", f, "CENTER", placementX, currentY) 
                          divWidth = tVal:GetStringWidth()
                     end
@@ -918,9 +872,6 @@ function WidgetForge:UpdateBarValues(index)
                     if div then
                          div:Show()
                          div:ClearAllPoints()
-                         -- Width depends on Style
-                         -- If VERTICAL Style: it's a TALL line, Width = thk
-                         -- If HORIZONTAL Style: it's a WIDE line, Width = size
                          local w = (style=="VERTICAL") and thk or size
                          local h = (style=="VERTICAL") and size or thk
                          div:SetSize(w, h)
@@ -931,16 +882,25 @@ function WidgetForge:UpdateBarValues(index)
                 
                 currentX = currentX + divWidth + conf.padding
             elseif elem.type == "Dragonriding" then
-                -- Dragonriding positioning (HORIZONTAL)
                 local df = f.dragonFrames and f.dragonFrames[i]
                 if df then
                     df:ClearAllPoints()
                     df:SetPoint("LEFT", f, "CENTER", placementX, currentY)
                 end
                 currentX = currentX + (elem.widgetWidth or 300) + conf.padding
+            elseif elem.type == "Skill Stream" then
+                 local limit = elem.iconLimit or 5
+                 local size = elem.iconSize or 32
+                 local spacing = elem.spacing or 5
+                 local dir = elem.direction or "RIGHT_TO_LEFT"
+                 local streamW = size
+                 if dir == "RIGHT_TO_LEFT" or dir == "LEFT_TO_RIGHT" then
+                     streamW = (limit * size) + ((limit - 1) * spacing)
+                 end
+                 currentX = currentX + streamW + conf.padding
             else
                 local tVal = f.textsVal[i]
-                if tVal then -- Check existence
+                if tVal then
                     local icon = f.icons[i]
                     local hb = f.hitboxes and f.hitboxes[i] 
                     local iconOffset = (elem.showIcon and icon) and (elem.size + 4) or 0
@@ -987,7 +947,6 @@ end
 local timer = 0
 local updateFrame = CreateFrame("Frame")
 updateFrame:SetScript("OnUpdate", function(self, elapsed)
-    -- [FIX: RACE CONDITION] Stats modülü hazır olmadan update yapma
     if not ForgeStats or not ForgeStats.Initialized then return end
 
     timer = timer + elapsed
@@ -1001,7 +960,6 @@ updateFrame:SetScript("OnUpdate", function(self, elapsed)
                 end
             end
         end
-        -- [FIX: TIMER DRIFT] Reset timer to 0 instead of subtracting
         timer = 0
     end
 end)
@@ -1018,7 +976,6 @@ loadFrame:SetScript("OnEvent", function(self, event, arg1)
     if event == "ADDON_LOADED" and arg1 == addonName then
         if not WidgetForgeDB then WidgetForgeDB = {} end
         
-        -- [SAFETY] DB Integrity Check
         if type(WidgetForgeDB.bars) ~= "table" then WidgetForgeDB.bars = CopyTable(Config.DefaultSettings.bars) end
         if type(WidgetForgeDB.presets) ~= "table" then WidgetForgeDB.presets = {} end
         

@@ -13,7 +13,9 @@ Stats.Data = {
     ["Leech"] = "0%", ["Speed"] = "0%", ["Run Speed"] = "0%", ["Dodge"] = "0%", ["Parry"] = "0%",
     ["Main Stat"] = "0", ["Armor"] = "0", ["Max HP"] = "0",
     -- Dragonriding / Skyriding
-    ["DragonVigor"] = 0, ["DragonVigorMax"] = 0, ["DragonSpeed"] = 0, ["DragonActive"] = false
+    ["DragonVigor"] = 0, ["DragonVigorMax"] = 0, ["DragonSpeed"] = 0, ["DragonActive"] = false,
+    -- Social
+    ["Guild"] = "0", ["Friends"] = "0"
 }
 -- Helper mappings
 Stats.ActiveMainStat = "Strength" -- Default
@@ -48,8 +50,13 @@ function Stats:Initialize()
     f:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
     -- Stat Events
     f:RegisterEvent("UNIT_STATS")
-    f:RegisterEvent("UNIT_AURA") -- Sometimes needed for buffs affecting stats
+    f:RegisterEvent("UNIT_AURA") 
     f:RegisterEvent("PLAYER_DAMAGE_DONE_MODS")
+    
+    -- Social Events
+    f:RegisterEvent("GUILD_ROSTER_UPDATE")
+    f:RegisterEvent("FRIENDLIST_UPDATE")
+    f:RegisterEvent("BN_FRIEND_INFO_CHANGED")
     
     f:SetScript("OnEvent", function(self, event, ...)
         Stats:UpdateEventStat(event, ...)
@@ -88,10 +95,9 @@ function Stats:UpdateSpecInfo()
 end
 
 -- =========================================================================
---  UPDATE LOGIC ( The Motor )
+--  UPDATE LOGIC
 -- =========================================================================
 
--- Called by WidgetForge main loop (Throttled but frequent, e.g. 0.5s)
 function Stats:UpdatePolledStats(elapsed)
     -- 1. FPS
     Stats.Data["FPS"] = floor(GetFramerate())
@@ -100,10 +106,10 @@ function Stats:UpdatePolledStats(elapsed)
     local _, _, _, lat = GetNetStats()
     Stats.Data["MS"] = lat
     
-    -- 3. Clock (System Time) - Format is handled in UI, raw is sufficient but we store generic here
+    -- 3. Clock
     Stats.Data["Clock"] = date("%H:%M")
     
-    -- 4. RAM (Memory)
+    -- 4. RAM
     local mem = collectgarbage("count")
     if mem > 1024 then Stats.Data["RAM"] = string.format("%.1f", mem/1024)
     else Stats.Data["RAM"] = floor(mem) end
@@ -119,7 +125,7 @@ function Stats:UpdatePolledStats(elapsed)
         Stats.Data["Combat Timer"] = "00:00"
     end
 
-    -- 6. Run Speed (Dynamic)
+    -- 6. Run Speed 
     local unitSpeed = GetUnitSpeed("player")
     if unitSpeed then
         Stats.Data["Run Speed"] = string.format("%.0f%%", (unitSpeed / 7) * 100)
@@ -127,13 +133,11 @@ function Stats:UpdatePolledStats(elapsed)
         Stats.Data["Run Speed"] = "0%"
     end
 
-    -- 7. Dragonriding / Skyriding Data (Falcon Logic)
-    -- Vigor (Spell ID 372608 is the Vigor resource tracker)
+    -- 7. Dragonriding
     local vigorData = C_Spell.GetSpellCharges(372608)
     if vigorData then
         local current = vigorData.currentCharges or 0
         local max = vigorData.maxCharges or 6
-        -- Calculate fractional progress if recharging
         local fractional = 0
         local now = GetTime()
         if vigorData.cooldownStartTime and vigorData.cooldownDuration and vigorData.cooldownDuration > 0 then
@@ -141,9 +145,6 @@ function Stats:UpdatePolledStats(elapsed)
             if fractional < 0 then fractional = 0 end
             if fractional > 1 then fractional = 1 end
         end
-        
-        -- If full, fractional is 0 (or 1 depending on logic, but usually we just want current)
-        -- Falcon logic: if recharging, add fractional. 
         if current < max then
              Stats.Data["DragonVigor"] = current + fractional
         else
@@ -155,16 +156,11 @@ function Stats:UpdatePolledStats(elapsed)
         Stats.Data["DragonVigorMax"] = 0
     end
 
-    -- Speed (Forward Speed from Gliding Info)
     local isGliding, canGlide, forwardSpeed = C_PlayerInfo.GetGlidingInfo()
     Stats.Data["DragonSpeed"] = forwardSpeed or 0
-    
-    -- Active State (Bonus Bar 11 is Dragonriding)
-    local isSkyriding = (GetBonusBarIndex() == 11)
-    Stats.Data["DragonActive"] = isSkyriding
+    Stats.Data["DragonActive"] = (GetBonusBarIndex() == 11)
 end
 
--- Called on Events (Efficient)
 function Stats:UpdateEventStat(event, arg1)
     
     if event == "PLAYER_MONEY" or event == "PLAYER_ENTERING_WORLD" then
@@ -173,9 +169,6 @@ function Stats:UpdateEventStat(event, arg1)
     
     if event == "ZONE_CHANGED_NEW_AREA" or event == "ZONE_CHANGED" or event == "ZONE_CHANGED_INDOORS" or event == "PLAYER_ENTERING_WORLD" then
         Stats.Data["Zone"] = GetMinimapZoneText() or ""
-        
-        -- Coords (Only update heavily if map changes or polled separate? Coords need polling actually)
-        -- We will leave Coords to be polled in GetStat or separate Loop as they change effectively every frame moving
     end
     
     if event == "BAG_UPDATE" or event == "PLAYER_ENTERING_WORLD" then
@@ -209,9 +202,7 @@ function Stats:UpdateEventStat(event, arg1)
     if event == "PLAYER_EQUIPMENT_CHANGED" or event == "PLAYER_ENTERING_WORLD" then
         local _, avg = GetAverageItemLevel()
         Stats.Data["Item Level"] = floor(avg)
-        -- Re-check durability on equip change
         Stats:UpdateEventStat("UPDATE_INVENTORY_DURABILITY")
-        -- Force update stats (Leech, Speed, etc change with gear)
         self:UpdateCharacterStats()
     end
     
@@ -225,22 +216,40 @@ function Stats:UpdateEventStat(event, arg1)
             self:UpdateCharacterStats()
         end
     end
+    
+    -- Social Events
+    if event == "PLAYER_ENTERING_WORLD" then
+        if IsInGuild() then C_GuildInfo.GuildRoster() end
+        C_FriendList.ShowFriends()
+    end
+    
+    if event == "GUILD_ROSTER_UPDATE" or event == "PLAYER_ENTERING_WORLD" then
+        if IsInGuild() then
+            local _, numOnline = GetNumGuildMembers()
+            Stats.Data["Guild"] = tostring(numOnline or 0)
+        else
+            Stats.Data["Guild"] = "0"
+        end
+    end
+    
+    if event == "FRIENDLIST_UPDATE" or event == "BN_FRIEND_INFO_CHANGED" or event == "PLAYER_ENTERING_WORLD" then
+        local bnetOnline = select(2, BNGetNumFriends()) or 0
+        local wowOnline = C_FriendList.GetNumOnlineFriends() or 0
+        Stats.Data["Friends"] = tostring(bnetOnline + wowOnline)
+    end
 end
 
 function Stats:UpdateCharacterStats()
-    -- Helper for formatting
     local function Fmt(val)
         if not val then return "0" end
         return BreakUpLargeNumbers(val)
     end
 
-    -- Primary Stats: WoW API indices: 1=Str, 2=Agi, 3=Sta, 4=Int
     Stats.Data["Strength"] = Fmt(UnitStat("player", 1))
     Stats.Data["Agility"] = Fmt(UnitStat("player", 2))
     Stats.Data["Stamina"] = Fmt(UnitStat("player", 3))
     Stats.Data["Intellect"] = Fmt(UnitStat("player", 4))
     
-    -- Armor: Pick the highest return value (2nd is effective with gear)
     local a1, a2, a3, a4 = UnitArmor("player")
     local armorVal = 0
     if a1 and type(a1) == "number" then armorVal = math.max(armorVal, a1) end
@@ -249,20 +258,16 @@ function Stats:UpdateCharacterStats()
     if a4 and type(a4) == "number" then armorVal = math.max(armorVal, a4) end
     Stats.Data["Armor"] = Fmt(armorVal)
     
-    -- Max HP
     Stats.Data["Max HP"] = Fmt(UnitHealthMax("player"))
-
-    -- Main Stat Dynamic Update
     Stats.Data["Main Stat"] = Stats.Data[Stats.ActiveMainStat] or "0"
 
-    -- Secondary
     Stats.Data["Crit"] = string.format("%.1f%%", GetCritChance())
     Stats.Data["Haste"] = string.format("%.1f%%", GetHaste())
     Stats.Data["Mastery"] = string.format("%.1f%%", GetMasteryEffect())
     Stats.Data["Versatility"] = string.format("%.1f%%", GetCombatRatingBonus(CR_VERSATILITY_DAMAGE_DONE) + GetVersatilityBonus(CR_VERSATILITY_DAMAGE_DONE))
     Stats.Data["Avoidance"] = string.format("%.1f%%", GetAvoidance())
     Stats.Data["Leech"] = string.format("%.1f%%", GetLifesteal())
-    Stats.Data["Speed"] = string.format("%.1f%%", GetSpeed()) -- Tertiary Stat
+    Stats.Data["Speed"] = string.format("%.1f%%", GetSpeed()) 
     Stats.Data["Dodge"] = string.format("%.1f%%", GetDodgeChance())
     Stats.Data["Parry"] = string.format("%.1f%%", GetParryChance())
 end
@@ -277,13 +282,7 @@ end
 --  GETTER ( The View Access )
 -- =========================================================================
 
--- Returns: ValueString, LabelString (optional)
 function Stats:GetStat(statType)
-    -- Handle Special Cases that MUST be live or logic-heavy
-    
-    -- Coords are polled because they change constantly when moving, 
-    -- and we don't want to register a high-frequency OnUpdate just for coords unless needed.
-    -- Ideally, we only calc if requested.
     if statType == "Coords" then
         local mapID = C_Map.GetBestMapForUnit("player")
         if mapID then
@@ -295,19 +294,14 @@ function Stats:GetStat(statType)
         return "0, 0", ""
     end
     
-    -- Main Stat Label Logic
     if statType == "Main Stat" then
-        -- Return cached numeric value, and Short Label of active stat
-        -- We construct the label dynamically based on ActiveMainStat
         local labelMap = { ["Strength"]="Str", ["Agility"]="Agi", ["Intellect"]="Int" }
         return Stats.Data["Main Stat"], labelMap[Stats.ActiveMainStat] or "Stat"
     end
     
-    -- Normal Cached Access
     local val = Stats.Data[statType]
-    
-    -- Label Mapping (Could be table based)
     local lbl = ""
+    
     if statType == "FPS" then lbl = "FPS"
     elseif statType == "MS" then lbl = "MS"
     elseif statType == "RAM" then lbl = (tonumber(val) and tonumber(val) > 100) and "MB" or "KB"
@@ -328,26 +322,23 @@ function Stats:GetStat(statType)
     elseif statType == "Parry" then lbl = "Pry"
     elseif statType == "Armor" then lbl = "Armor"
     elseif statType == "Max HP" then lbl = "HP"
+    elseif statType == "Guild" then lbl = "Guild"
+    elseif statType == "Friends" then lbl = "Friends"
     end
     
     return val or "", lbl
 end
 
 -- =========================================================================
---  TOOLTIP LOGIC (Unchanged mostly, but optimized slightly if needed)
+--  TOOLTIP LOGIC
 -- =========================================================================
 
 function Stats:AddTooltip(owner, statType, elemData)
-    -- ... [Same as before, logic is fine for OnEnter] ...
-    -- We will keep the original tooltip logic but ensure it pulls fresh data where critical
-    -- or uses the cache if sufficient. For Tooltips, pulling fresh data is usually fine/preferred.
-    
     GameTooltip:SetOwner(owner, "ANCHOR_TOP")
     GameTooltip:ClearLines()
     
     local added = false
     
-    -- [Previous Tooltip Code Logic here - preserved for functionality]
     if statType == "Zone" or statType == "Coords" then
         local mapID = C_Map.GetBestMapForUnit("player")
         if mapID then
@@ -381,7 +372,6 @@ function Stats:AddTooltip(owner, statType, elemData)
         local _, _, diffHome, diffWorld = GetNetStats()
         GameTooltip:AddDoubleLine("Home Latency:", diffHome.." ms", 1,0.8,0, 1,1,1)
         GameTooltip:AddDoubleLine("World Latency:", diffWorld.." ms", 1,0.8,0, 1,1,1)
-        -- Garbage Collection
         local totalMem = collectgarbage("count")
         GameTooltip:AddLine(" ")
         GameTooltip:AddDoubleLine("Total Memory:", string.format("%.1f MB", totalMem/1024), 1,0.8,0, 0,1,0)
@@ -450,6 +440,89 @@ function Stats:AddTooltip(owner, statType, elemData)
         added = true
     end
     
+    -- Social Tooltips
+    if statType == "Guild" then
+        GameTooltip:AddLine("Online Guild Members", 1, 1, 1)
+        GameTooltip:AddLine(" ")
+        
+        if IsInGuild() then
+            local numTotal, numOnline = GetNumGuildMembers()
+            local showCount = 0
+            
+            for i = 1, numTotal do
+                local name, rankName, rankIndex, level, classDisplayName, zone, note, officernote, isOnline, status, class = GetGuildRosterInfo(i)
+                if isOnline then
+                    local color = RAID_CLASS_COLORS[class]
+                    local hex = color and color.colorStr or "ffffffff"
+                    local cleanName = strsplit("-", name)
+                    
+                    GameTooltip:AddDoubleLine(string.format("|c%s%s|r (Lvl %d)", hex, cleanName, level), zone or "", 1, 1, 1, 0.7, 0.7, 0.7)
+                    
+                    showCount = showCount + 1
+                    if showCount >= 30 then
+                        GameTooltip:AddLine("...and more", 0.5, 0.5, 0.5)
+                        break
+                    end
+                end
+            end
+        else
+            GameTooltip:AddLine("You are not in a guild.", 1, 0, 0)
+        end
+        added = true
+    end
+    
+    if statType == "Friends" then
+        GameTooltip:AddLine("Online Friends", 1, 1, 1)
+        GameTooltip:AddLine(" ")
+        
+        local showCount = 0
+        local maxShow = 30
+        
+        -- WoW Friends
+        local numWoW = C_FriendList.GetNumOnlineFriends()
+        for i = 1, numWoW do
+            local info = C_FriendList.GetFriendInfoByIndex(i)
+            if info and info.connected then
+                local color = RAID_CLASS_COLORS[info.className]
+                local hex = color and color.colorStr or "ffffffff"
+                GameTooltip:AddDoubleLine(string.format("|c%s%s|r (Lvl %d)", hex, info.name, info.level), info.area or "", 1, 1, 1, 0.7, 0.7, 0.7)
+                showCount = showCount + 1
+            end
+            if showCount >= maxShow then break end
+        end
+        
+        -- BNet Friends
+        if showCount < maxShow then
+            local numBNet, numBNetOnline = BNGetNumFriends()
+            for i = 1, numBNet do
+                local accountInfo = C_BattleNet.GetFriendAccountInfo(i)
+                if accountInfo and accountInfo.gameAccountInfo and accountInfo.gameAccountInfo.isOnline then
+                    local client = accountInfo.gameAccountInfo.clientProgram
+                    local charName = accountInfo.gameAccountInfo.characterName
+                    local bnetName = accountInfo.accountName
+                    local zone = accountInfo.gameAccountInfo.areaName or ""
+                    
+                    if client == "WoW" then
+                        GameTooltip:AddDoubleLine(string.format("|cff82c5ff%s|r (|cffffffff%s|r)", bnetName, charName), zone, 1, 1, 1, 0.7, 0.7, 0.7)
+                    else
+                        GameTooltip:AddDoubleLine(string.format("|cff82c5ff%s|r", bnetName), client, 1, 1, 1, 0.5, 0.5, 0.5)
+                    end
+                    
+                    showCount = showCount + 1
+                    if showCount >= maxShow then break end
+                end
+            end
+        end
+        
+        if showCount == 0 then
+            GameTooltip:AddLine("No friends online.", 0.5, 0.5, 0.5)
+        elseif showCount >= maxShow then
+            GameTooltip:AddLine("...and more", 0.5, 0.5, 0.5)
+        end
+        
+        added = true
+    end
+
     if not added then
         GameTooltip:AddLine(statType, 1, 1, 1)
     end

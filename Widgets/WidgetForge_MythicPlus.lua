@@ -1,28 +1,37 @@
-local addonName, addon = ...
+-- =========================================================================
+--  WidgetForge - Mythic+ Dashboard Module
+--  Instance-based, Highly Optimized, Adaptive Layout Mythic+ Tracker
+-- =========================================================================
 
--- Ensure global table exists
+local addonName, addonTable = ...
+
 if not _G.WidgetForge then _G.WidgetForge = {} end
-
--- Initialize Module in Global Table
 _G.WidgetForge.MythicPlus = {}
 local MPlus = _G.WidgetForge.MythicPlus
+addonTable.MythicPlus = MPlus
 
--- Also link to addon-private table
-addon.MythicPlus = MPlus
-
--- Constants
-local WIDGET_FRAME_Name = "WidgetForge_MythicPlusFrame"
-
--- Variables
-MPlus.frame = nil
-MPlus.config = {}
+-- Global Veri ve State
+MPlus.Instances = {}
+MPlus.GlobalState = {
+    activeRun = false,
+    currentTime = 0,
+    timeLimit = 0,
+    threeChestLimit = 0,
+    twoChestLimit = 0,
+    enemyForces = { cur = 0, max = 100, pct = 0 },
+    bosses = {},
+    splits = {},
+    bossStatus = {},
+    bestRunCompare = nil,
+    affixIDs = {}
+}
 MPlus.initialized = false
+MPlus.hiddenFrame = nil 
 
--- Deferred Initialize
-function MPlus:Init()
+-- --- DB & EVENTS INIT ---
+function MPlus:InitGlobal()
     if MPlus.initialized then return end
     
-    -- Access global SavedVariables
     if not _G.WidgetForgeDB then return end
     
     if not _G.WidgetForgeDB.MythicPlus then
@@ -33,21 +42,30 @@ function MPlus:Init()
                 autoKeystone = true,
                 autoCloseBags = true,
                 hideBlizzardTracker = true,
-                customThresholds = { 90, 80, 60 } 
+                splitComparisonMode = "LEVEL",
+                -- Yeni Adaptive Layout Ayarları
+                autoSize = true,
+                hoverExpand = false,
+                showTitle = true,
+                showAffixes = true,
+                showBosses = true,
+                showTimer = true,
+                showForces = true,
+                showDeathCounter = true
             }
         }
     end
     MPlus.config = _G.WidgetForgeDB.MythicPlus
-
-    MPlus:CreateFrame()
+    
+    -- Taint Korumalı Gizli Frame
+    MPlus.hiddenFrame = CreateFrame("Frame")
+    MPlus.hiddenFrame:Hide()
+    
     MPlus:RegisterEvents()
     MPlus.initialized = true
 end
 
--- State
-MPlus.isEnabled = false
-
--- --- MODERN UI UTILS ---
+-- --- UI YARDIMCILARI ---
 local function CreateProgressBar(parent, labelText)
     local bar = CreateFrame("StatusBar", nil, parent, "BackdropTemplate")
     bar:SetHeight(18)
@@ -70,668 +88,302 @@ local function CreateProgressBar(parent, labelText)
     return bar
 end
 
--- Create Main Frame
-function MPlus:CreateFrame()
-    if MPlus.frame then return end
+-- --- GÜVENLİ TRACKER GİZLEME ---
+function MPlus:HideDefaultTracker()
+    if not MPlus.config.Settings.hideBlizzardTracker then return end
+    if not MPlus.GlobalState.activeRun then return end
     
-    local Skin = _G.ForgeSkin
-
-    local f = CreateFrame("Frame", WIDGET_FRAME_Name, UIParent, "BackdropTemplate")
-    f:SetSize(340, 260) -- Increased height to prevent clipping
-    f:SetPoint("CENTER")
-    f:SetClampedToScreen(true)
-    f:SetMovable(true)
-    
-    -- Modern Glassmorphism Backdrop
-    if Skin and Skin.ApplyBackdrop then
-        Skin:ApplyBackdrop(f, 0.2, 0.8)
+    local in_combat = InCombatLockdown() or UnitAffectingCombat("player")
+    if not in_combat and ObjectiveTrackerFrame then
+        if ObjectiveTrackerFrame:GetParent() ~= MPlus.hiddenFrame then
+            MPlus.originalTrackerParent = ObjectiveTrackerFrame:GetParent()
+            ObjectiveTrackerFrame:SetParent(MPlus.hiddenFrame)
+        end
     end
-    f:SetBackdropColor(0, 0, 0, 0.7)
-    
-    -- Title/Header
-    f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    f.title:SetPoint("TOPLEFT", 15, -12)
-    f.title:SetText("MYTHIC+ DASHBOARD")
-    local font = (Skin and Skin.Constants and Skin.Constants.FONT_NORMAL) or "Fonts\\FRIZQT__.TTF"
-    f.title:SetFont(font, 14, "OUTLINE")
-    f.title:SetTextColor(unpack((Skin and Skin.Colors.accent) or {0, 0.8, 1, 1}))
-
-    -- Affix Container (TOP RIGHT - Anchored to main frame)
-    f.affixFrame = CreateFrame("Frame", nil, f)
-    f.affixFrame:SetPoint("TOPRIGHT", f, "TOPRIGHT", -12, -3) -- Moved up to align centers with title
-    f.affixFrame:SetSize(120, 32)
-    f.affixFrame.icons = {}
-
-    -- BOSS LIST (Below Title)
-    f.bossList = CreateFrame("Frame", nil, f)
-    f.bossList:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -45)
-    f.bossList:SetSize(320, 100) -- Room for ~5 bosses
-    f.bossList.rows = {}
-
-    -- Timer Bar (Below Boss List)
-    f.timerBar = CreateProgressBar(f, "RUN TIMER")
-    f.timerBar:SetPoint("TOPLEFT", f.bossList, "BOTTOMLEFT", 0, -10)
-    f.timerBar:SetPoint("TOPRIGHT", f.bossList, "BOTTOMRIGHT", 0, -10)
-    f.timerBar:SetMinMaxValues(0, 100)
-    f.timerBar:SetValue(0)
-    
-    -- Forces Bar (Below Timer)
-    f.forcesBar = CreateProgressBar(f, "ENEMY FORCES")
-    f.forcesBar:SetPoint("TOPLEFT", f.timerBar, "BOTTOMLEFT", 0, -25)
-    f.forcesBar:SetPoint("TOPRIGHT", f.timerBar, "BOTTOMRIGHT", 0, -25)
-    f.forcesBar:SetMinMaxValues(0, 100)
-    f.forcesBar:SetValue(0)
-    
-    -- Death Counter (Bottom Right, inside the frame)
-    f.deathCount = f:CreateFontString(nil, "OVERLAY", "GameFontRedSmall")
-    f.deathCount:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -15, 12)
-    f.deathCount:SetText("")
-    
-    -- Hide initially
-    f:Hide()
-    
-    MPlus.frame = f
 end
 
--- Modular Load
+function MPlus:ShowDefaultTracker()
+    local in_combat = InCombatLockdown() or UnitAffectingCombat("player")
+    if not in_combat and ObjectiveTrackerFrame and MPlus.originalTrackerParent then
+        if ObjectiveTrackerFrame:GetParent() == MPlus.hiddenFrame then
+            ObjectiveTrackerFrame:SetParent(MPlus.originalTrackerParent)
+        end
+    end
+end
+
+-- --- WIDGET YÜKLEME ---
 function MPlus:Load(parent, elem)
-    MPlus:Init()
-    
-    if not MPlus.frame then return end
-    
-    local f = MPlus.frame
-    f:SetParent(parent)
-    f:ClearAllPoints()
-    f:SetPoint("CENTER", parent, "CENTER", 0, 0)
-    
-    if elem.widgetWidth then f:SetWidth(elem.widgetWidth) end
-    if elem.widgetHeight then f:SetHeight(elem.widgetHeight) end
-    
-    MPlus.isEnabled = true
-    MPlus:CheckVisibility()
-    
-    return f
-end
-
-function MPlus:Unload()
-    MPlus.isEnabled = false
-    if MPlus.frame then
-        MPlus.frame:Hide()
-        MPlus.frame:SetParent(UIParent)
-    end
-end
-
--- Events
-function MPlus:RegisterEvents()
-    if MPlus.eventFrame then return end
-    
-    local eventFrame = CreateFrame("Frame")
-    MPlus.eventFrame = eventFrame
-    
-    local coreEvents = {
-        "CHALLENGE_MODE_START",
-        "CHALLENGE_MODE_COMPLETED",
-        "SCENARIO_UPDATE",
-        "SCENARIO_CRITERIA_UPDATE",
-        "PLAYER_ENTERING_WORLD",
-        "ZONE_CHANGED_NEW_AREA",
-        "ADDON_LOADED"
-    }
-    
-    for _, e in ipairs(coreEvents) do
-        pcall(function() eventFrame:RegisterEvent(e) end)
-    end
-    
-    pcall(function() eventFrame:RegisterEvent("CHALLENGE_MODE_KEYSTONE_RECEPTACLE_OPEN") end)
-    
-    eventFrame:SetScript("OnEvent", function(self, event, ...)
-        if event == "CHALLENGE_MODE_START" then
-            MPlus:StartRun()
-        elseif event == "CHALLENGE_MODE_COMPLETED" then
-            MPlus:EndRun()
-        elseif event == "SCENARIO_UPDATE" or event == "SCENARIO_CRITERIA_UPDATE" then
-            MPlus:UpdateObjectives()
-        elseif event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
-            -- Auto-detect active run if in dungeon IMMEDIATELY for data safety
-            local _, _, difficultyID = GetInstanceInfo()
-            if difficultyID == 8 or difficultyID == 23 then
-                if not MPlus.activeRun then
-                    MPlus.activeRun = true
-                    MPlus.splits = MPlus.splits or {}
-                    MPlus.startTime = GetTime() 
-                end
-            end
-
-            -- DELAY visibility and UI manipulation to avoid Taint in Blizzard's event chain
-            -- Increased delay to 1.5s to allow Blizzard frames to settle fully
-            C_Timer.After(1.5, function()
-                MPlus:CheckVisibility()
-                MPlus:UpdateTimerData()
-                MPlus:UpdateObjectives()
-                
-                -- Request Affix Data
-                if _G.C_MythicPlus and C_MythicPlus.RequestMapInfo then
-                    C_MythicPlus.RequestMapInfo()
-                end
-            end)
-
-            -- RECOVERY TICKER: Retries every 1s until data is valid
-            if not MPlus.recoveryTicker then
-                MPlus.recoveryTicker = C_Timer.NewTicker(1, function()
-                    local _, _, diff = GetInstanceInfo()
-                    if diff == 8 or diff == 23 then
-                        if not MPlus.activeRun or not MPlus.enemyForces or not MPlus.timeLimit then
-                            MPlus.activeRun = true
-                            MPlus:UpdateTimerData()
-                            MPlus:UpdateObjectives()
-                        end
-                    else
-                        MPlus.recoveryTicker:Cancel()
-                        MPlus.recoveryTicker = nil
-                    end
-                end)
-            end
-        elseif event == "CHALLENGE_MODE_KEYSTONE_RECEPTACLE_OPEN" then
-            MPlus:OnKeystoneOpen()
-        elseif event == "ADDON_LOADED" then
-            local name = ...
-            if name == "Blizzard_ChallengesUI" then
-                pcall(function() self:RegisterEvent("CHALLENGE_MODE_KEYSTONE_RECEPTACLE_OPEN") end)
-            end
-        end
-    end)
-    
-    MPlus.timerFrame = CreateFrame("Frame")
-    MPlus.timerFrame:SetScript("OnUpdate", function(self, elapsed)
-        self.elapsed = (self.elapsed or 0) + elapsed
-        if self.elapsed < 0.1 then return end
-        local tick = self.elapsed
-        self.elapsed = 0
-
-        if MPlus.activeRun then
-            MPlus:OnUpdate(tick)
-        else
-            -- Slow update for Weekly Affixes check (every 5s)
-            self.slowTick = (self.slowTick or 0) + tick
-            if self.slowTick > 5 then
-                self.slowTick = 0
-                if MPlus.frame and MPlus.frame:IsShown() then
-                    MPlus:UpdateUI()
-                end
-            end
-        end
-    end)
-end
-
-function MPlus:UpdateTimerData()
-    if not _G.C_ChallengeMode then return end
-    local mapID = C_ChallengeMode.GetActiveChallengeMapID()
-    if not mapID then return end
-    
-    local _, _, timeLimit = C_ChallengeMode.GetMapUIInfo(mapID)
-
-    -- Check for Challenger's Peril (Affix 152)
-    -- Formula: (Time - 90) * 0.8 + 90
-    local isChallengersPeril = false
-    local text = ""
-    if C_ChallengeMode.GetActiveKeystoneInfo then
-        local activeAffixes = select(2, C_ChallengeMode.GetActiveKeystoneInfo())
-        if activeAffixes then
-             for _, id in ipairs(activeAffixes) do
-                 if id == 152 then isChallengersPeril = true; break end
-             end
-        end
-    end
-
-    if timeLimit then
-        MPlus.timeLimit = timeLimit
-        
-        if isChallengersPeril then
-            MPlus.threeChestLimit = ((timeLimit - 90) * 0.6) + 90
-            MPlus.twoChestLimit = ((timeLimit - 90) * 0.8) + 90
-        else
-            MPlus.threeChestLimit = timeLimit * 0.6
-            MPlus.twoChestLimit = timeLimit * 0.8
-        end
-        
-        if MPlus.frame and MPlus.frame.timerBar then
-            MPlus.frame.timerBar:SetMinMaxValues(0, timeLimit)
-        end
-    end
-end
-
--- Helper: Get Best Run for Comparison
-function MPlus:GetBestRun(mapID, level, affixes)
-    if not MPlus.config.History or not MPlus.config.History[mapID] then return nil end
-    
-    local mode = MPlus.config.Settings.splitComparisonMode or "LEVEL" 
-    -- Modes: "ZONE" (Best of Zone), "LEVEL" (Best of Zone+Level), "EXACT" (Zone+Level+Affixes)
-    
-    local best = nil
-    local bestTime = 999999
-    
-    for _, run in ipairs(MPlus.config.History[mapID].Runs) do
-        local match = false
-        if mode == "ZONE" then
-            match = true
-        elseif mode == "LEVEL" then
-            if run.level == level then match = true end
-        elseif mode == "EXACT" then
-            -- Deep compare affixes? Simplified: Level must match, and maybe we store affixes string?
-            -- For now, fallback to Level match as "Exact" logic is complex without stored affix list on run
-            if run.level == level then match = true end 
-        end
-        
-        if match and run.completed and run.time < bestTime then
-            bestTime = run.time
-            best = run
-        end
-    end
-    
-    return best
-end
-
-function MPlus:StartRun()
-    MPlus.activeRun = true
-    MPlus.splits = {} -- Reset split times
-    MPlus:UpdateTimerData()
-    
-    -- Load Best Run for Splits Comparison
-    if C_ChallengeMode.GetActiveChallengeMapID then
-        local mapID = C_ChallengeMode.GetActiveChallengeMapID()
-        local level = select(2, C_ChallengeMode.GetActiveKeystoneInfo())
-        MPlus.bestRunCompare = MPlus:GetBestRun(mapID, level, nil)
-    end
-
-    MPlus:UpdateObjectives()
-    if MPlus.frame then MPlus.frame:Show() end
-    
-    if MPlus.config.Settings and MPlus.config.Settings.hideBlizzardTracker then
-        if ScenarioObjectiveTracker then 
-            ScenarioObjectiveTracker:SetAlpha(0.01)
-            ScenarioObjectiveTracker:SetScale(0.01)
-        end
-    end
-    
-    print("|cff00ffff[WidgetForge]|r Mythic+ Run Started!")
-end
-
-function MPlus:EndRun()
-    MPlus.activeRun = false
-    MPlus.bestRunCompare = nil
-    
-    if ScenarioObjectiveTracker then 
-        ScenarioObjectiveTracker:SetAlpha(1)
-        ScenarioObjectiveTracker:SetScale(1)
-    end
-    
-    if not _G.C_ChallengeMode then return end
-    local mapID = C_ChallengeMode.GetActiveChallengeMapID()
-    if mapID and MPlus.currentTime then
-        local level = select(2, C_ChallengeMode.GetActiveKeystoneInfo()) or 0
-        local entry = {
-            level = level,
-            time = MPlus.currentTime,
-            date = date("%Y-%m-%d %H:%M:%S"),
-            completed = (MPlus.currentTime <= (MPlus.timeLimit or 0)),
-            splits = MPlus.splits -- Save splits too
-        }
-        
-        MPlus.config.History[mapID] = MPlus.config.History[mapID] or { Runs = {} }
-        table.insert(MPlus.config.History[mapID].Runs, entry)
-        
-        -- Cleanup ancient history to save space? (Keep last 20)
-        while #MPlus.config.History[mapID].Runs > 20 do
-            table.remove(MPlus.config.History[mapID].Runs, 1)
-        end
-    end
-    
-    print("|cff00ffff[WidgetForge]|r Mythic+ Run Completed!")
-end
-
-function MPlus:OnKeystoneOpen()
-    if not MPlus.config.Settings or not MPlus.config.Settings.autoKeystone then return end
-    
-    for bag = 0, 4 do
-        for slot = 1, C_Container.GetContainerNumSlots(bag) do
-            local info = C_Container.GetContainerItemInfo(bag, slot)
-            if info and info.itemID == 158923 then 
-                C_Container.UseContainerItem(bag, slot)
-                if MPlus.config.Settings.autoCloseBags then
-                    C_Timer.After(0.5, function() CloseAllBags() end)
-                end
-                return
-            end
-        end
-    end
-end
-
-function MPlus:OnUpdate(elapsed)
-    -- Timer Fallback for M0
-    if MPlus.activeRun and not MPlus.startTime then
-        MPlus.startTime = GetTime()
-    end
-    
-    local _, timeElapsed = GetWorldElapsedTimers()
-    
-    -- Robust Timer Detection: Search all timers if the primary one is wrong or missing
-    if not timeElapsed or timeElapsed <= 0 then
-        local numTimers = GetNumWorldElapsedTimers()
-        for i = 1, numTimers do
-            local timerID, timeVal = GetWorldElapsedTimerInfo(i)
-            if timeVal and timeVal > 0 then
-                timeElapsed = timeVal
-                break
-            end
-        end
-    end
-
-    if timeElapsed and timeElapsed > 0 then
-        MPlus.currentTime = timeElapsed
-    elseif MPlus.startTime then
-        -- Fallback for M0 (No official timer)
-        MPlus.currentTime = GetTime() - MPlus.startTime
-    end
-    
-    MPlus:UpdateUI()
-end
-
-function MPlus:UpdateObjectives()
-    if not _G.C_Scenario or not C_Scenario.GetStepInfo then return end
-    local _, _, numStages = C_Scenario.GetStepInfo()
-    if not numStages or numStages == 0 then return end
-    
-    -- Ensure splits and run state are initialized
-    if not MPlus.splits then MPlus.splits = {} end
-    if not MPlus.bossStatus then MPlus.bossStatus = {} end
-    if not MPlus.activeRun then 
-        local _, _, diff = GetInstanceInfo()
-        if diff == 8 or diff == 23 then 
-            MPlus.activeRun = true 
-            MPlus.startTime = GetTime() -- Set start time for M0 fallback 
-        end
-    end
-
-    MPlus.objectives = {}
-    MPlus.bosses = {}
-    local numCriteria = select(3, C_Scenario.GetStepInfo())
-    if not numCriteria then return end
-    
-    for i = 1, numCriteria do
-        local description, criteriaType, completed, quantity, totalQuantity, flags, assetID, quantityString, criteriaID
-        local isEnemyForces = false
-        
-        if _G.C_ScenarioInfo and _G.C_ScenarioInfo.GetCriteriaInfo then
-            local tbl = C_ScenarioInfo.GetCriteriaInfo(i)
-            if tbl then
-                description = tbl.description; criteriaType = tbl.criteriaType; completed = tbl.completed
-                quantity = tbl.quantity; totalQuantity = tbl.totalQuantity; quantityString = tbl.quantityString
-                assetID = tbl.assetID
-                -- Use isWeightedProgress for Enemy Forces identification
-                if tbl.isWeightedProgress then
-                    isEnemyForces = true
-                end
-
-                if not quantityString and quantity and totalQuantity and totalQuantity > 0 then
-                    local pct = (quantity / totalQuantity) * 100
-                    quantityString = format("%.1f%%", pct)
-                end
-            end
-        elseif _G.C_Scenario and _G.C_Scenario.GetCriteriaInfo then
-            description, criteriaType, completed, quantity, totalQuantity, flags, assetID, quantityString, criteriaID, _, _, isWeighted = C_Scenario.GetCriteriaInfo(i)
-            -- Fallback heuristic + 12th return from legacy API
-            isEnemyForces = isWeighted or (quantityString and quantityString:find("%%")) or (totalQuantity and totalQuantity > 5)
-        end
-        
-        local obj = {
-            name = description or "Unknown",
-            done = completed,
-            cur = quantity or 0,
-            max = totalQuantity or 0,
-            isEnemyForces = isEnemyForces,
-            text = quantityString or "",
-            icon = assetID,
-            id = i -- Scenario index
-        }
-        
-        if isEnemyForces then
-            MPlus.enemyForces = { cur = quantity, max = totalQuantity, pct = (totalQuantity and totalQuantity > 0) and (quantity / totalQuantity) * 100 or 0 }
-        else
-            -- Boss Split Tracking / Objective Tracking
-            
-            -- Initialize tracking state if needed
-            if MPlus.bossStatus[i] == nil then
-                MPlus.bossStatus[i] = completed -- Mark initial state
-            end
-            
-            -- Check for state change: Alive -> Dead
-            if completed and MPlus.bossStatus[i] == false then
-                -- WE witnessed the kill! Record it.
-                if MPlus.splits and not MPlus.splits[i] then
-                    MPlus.splits[i] = MPlus.currentTime or 0
-                end
-            end
-            
-            -- Update status
-            MPlus.bossStatus[i] = completed
-
-            -- Always add non-trash objectives to the list (Matches Blizzard UI)
-            table.insert(MPlus.bosses, obj)
-        end
-        table.insert(MPlus.objectives, obj)
-    end
-    
-    MPlus:UpdateUI()
-end
-
-function MPlus:UpdateUI()
-    if not MPlus.frame then return end
-    
-    -- PREVIEW MODE DATA
-    local unlocked = (_G.WidgetForge and _G.WidgetForge.BarsLocked == false) or (_G.EsrefConfigFrame and _G.EsrefConfigFrame:IsShown())
-    if MPlus.previewMode or unlocked then
-        -- Force dummy data even if activeRun is true (unlikely but safe)
-        -- unless we really rely on activeRun? Actually, let's override for consistent preview.
-        
-        MPlus.currentTime = 950 -- 15:50
-        MPlus.timeLimit = 1800 -- 30:00
-        MPlus.threeChestLimit = 1080
-        MPlus.twoChestLimit = 1440
-        MPlus.enemyForces = { cur = 240, max = 300, pct = 80.0 }
-        
-        if not MPlus.bosses or #MPlus.bosses == 0 or MPlus.bosses[1].name ~= "Boss One" then
-            MPlus.bosses = {
-                {name = "Boss One", done = true, id = 1},
-                {name = "Boss Two", done = true, id = 2},
-                {name = "Final Boss", done = false, id = 3}
-            }
-            MPlus.splits = {[1] = 300, [2] = 650}
-        end
-        
-        MPlus.bestRunCompare = {
-            splits = {[1] = 310, [2] = 640}
-        }
-    end
-
-    local f = MPlus.frame
+    MPlus:InitGlobal()
     local Skin = _G.ForgeSkin
     
-    local barTexture = (MPlus.config.Settings and MPlus.config.Settings.barTexture) or "Interface\\TargetingFrame\\UI-StatusBar"
+    local container = CreateFrame("Frame", nil, parent)
+    container:SetAllPoints(parent)
+    container.elem = elem
+    container.isHovered = false
     
-    -- TIMER BAR
-    if MPlus.currentTime and MPlus.timeLimit then
-        f.timerBar:SetValue(MPlus.currentTime)
-        f.timerBar:SetStatusBarTexture(barTexture)
-        f.timerBar:GetStatusBarTexture():SetHorizTile(false)
+    container.title = container:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    local font = (Skin and Skin.Constants and Skin.Constants.FONT_NORMAL) or "Fonts\\FRIZQT__.TTF"
+    container.title:SetFont(font, 14, "OUTLINE")
+    container.title:SetTextColor(unpack((Skin and Skin.Colors.accent) or {0, 0.8, 1, 1}))
+
+    container.affixFrame = CreateFrame("Frame", nil, container)
+    container.affixFrame:SetSize(120, 32)
+    container.affixFrame.icons = {}
+
+    container.bossList = CreateFrame("Frame", nil, container)
+    container.bossList:SetSize(320, 10) 
+    container.bossList.rows = {}
+
+    container.timerBar = CreateProgressBar(container, "RUN TIMER")
+    container.timerBar:SetMinMaxValues(0, 100)
+    
+    container.forcesBar = CreateProgressBar(container, "ENEMY FORCES")
+    container.forcesBar:SetMinMaxValues(0, 100)
+    
+    container.deathCount = container:CreateFontString(nil, "OVERLAY", "GameFontRedSmall")
+    container.deathCount:SetText("")
+    
+    table.insert(MPlus.Instances, container)
+    
+    -- Hover (Mouse Over) Dinleme Döngüsü (Minimalist mod için)
+    container:SetScript("OnUpdate", function(self)
+        if MPlus.config.Settings.hoverExpand then
+            local hovered = MouseIsOver(self)
+            if self.isHovered ~= hovered then
+                self.isHovered = hovered
+                MPlus:UpdateLayout(self)
+            end
+        end
+    end)
+    
+    container.Unload = function(self)
+        for i, inst in ipairs(MPlus.Instances) do
+            if inst == self then table.remove(MPlus.Instances, i); break end
+        end
+    end
+    
+    MPlus:CheckVisibility(container)
+    MPlus:UpdateVisuals(container)
+    
+    return container
+end
+
+-- --- DİNAMİK DÜZEN MOTORU (ADAPTIVE LAYOUT) ---
+function MPlus:UpdateLayout(container)
+    if not container then return end
+    
+    local conf = MPlus.config.Settings
+    local state = MPlus.GlobalState
+    local y = -10
+    
+    -- Görünürlük Kontrolleri (Hover durumuna göre ezilebilir)
+    local showTitle = conf.showTitle ~= false
+    local showAffixes = conf.showAffixes ~= false
+    local showBosses = conf.showBosses ~= false
+    local showTimer = conf.showTimer ~= false
+    local showForces = conf.showForces ~= false
+    local showDeaths = conf.showDeathCounter ~= false
+    
+    -- Hover-to-Expand Mantığı
+    if conf.hoverExpand and not container.isHovered then
+        showBosses = false
+        showAffixes = false
+        showTitle = false
+        showDeaths = false
+    end
+
+    -- 1. TITLE
+    if showTitle then
+        container.title:Show()
+        container.title:SetPoint("TOPLEFT", 15, y)
+        container.title:SetText("MYTHIC+ DASHBOARD")
+    else
+        container.title:Hide()
+    end
+
+    -- 2. AFFIXES (Başlıkla aynı satırda sağda)
+    if showAffixes and state.affixIDs and #state.affixIDs > 0 then
+        container.affixFrame:Show()
+        container.affixFrame:SetPoint("TOPRIGHT", container, "TOPRIGHT", -12, showTitle and (y + 8) or y)
+        if not showTitle then y = y - 35 else y = y - 30 end
+    else
+        container.affixFrame:Hide()
+        if showTitle then y = y - 30 end
+    end
+    
+    -- 3. BOSS LIST
+    if showBosses and state.bosses and #state.bosses > 0 then
+        container.bossList:Show()
+        container.bossList:SetPoint("TOPLEFT", container, "TOPLEFT", 10, y)
+        local bossHeight = #state.bosses * 20
+        container.bossList:SetHeight(bossHeight)
+        y = y - bossHeight - 10
+    else
+        container.bossList:Hide()
+    end
+
+    -- 4. TIMER BAR
+    if showTimer then
+        container.timerBar:Show()
+        container.timerBar:SetPoint("TOPLEFT", container, "TOPLEFT", 10, y - 10)
+        container.timerBar:SetPoint("TOPRIGHT", container, "TOPRIGHT", -10, y - 10)
+        y = y - 35
+    else
+        container.timerBar:Hide()
+    end
+
+    -- 5. FORCES BAR
+    if showForces then
+        container.forcesBar:Show()
+        container.forcesBar:SetPoint("TOPLEFT", container, "TOPLEFT", 10, y - 10)
+        container.forcesBar:SetPoint("TOPRIGHT", container, "TOPRIGHT", -10, y - 10)
+        y = y - 35
+    else
+        container.forcesBar:Hide()
+    end
+
+    -- 6. DEATH COUNTER (En alta sağa yapıştır)
+    if showDeaths then
+        container.deathCount:Show()
+        container.deathCount:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", -15, 12)
+        -- Death counter ufak olduğu için ekstra y eklemeye gerek yok, çerçevenin alt payına girer
+    else
+        container.deathCount:Hide()
+    end
+
+    -- Çerçeve Boyutunu Otomatik Ayarla
+    if conf.autoSize ~= false then
+        local minHeight = math.abs(y) + 15
+        if showDeaths then minHeight = minHeight + 15 end
+        container:SetHeight(math.max(minHeight, 30))
+    elseif container.elem.widgetHeight then
+        container:SetHeight(container.elem.widgetHeight)
+    end
+end
+
+-- --- GÖRSEL GÜNCELLEME ---
+function MPlus:UpdateVisuals(container)
+    if not container or not container:IsShown() then return end
+    
+    local state = MPlus.GlobalState
+    local conf = MPlus.config.Settings
+    local Skin = _G.ForgeSkin
+    local barTexture = conf.barTexture or "Interface\\TargetingFrame\\UI-StatusBar"
+    
+    -- Düzeni Yeniden Hesapla (Eğer boss sayısı veya modlar değişirse)
+    MPlus:UpdateLayout(container)
+    
+    -- TIMER BAR DATA
+    if state.currentTime and state.timeLimit and state.timeLimit > 0 then
+        container.timerBar:SetMinMaxValues(0, state.timeLimit)
+        container.timerBar:SetValue(state.currentTime)
+        container.timerBar:SetStatusBarTexture(barTexture)
         
-        local timeLeft = MPlus.timeLimit - MPlus.currentTime
+        local timeLeft = state.timeLimit - state.currentTime
         local isOver = timeLeft < 0
         local color = isOver and "|cffff0000" or "|cffffffff"
-        f.timerBar.text:SetText(format("%s%02d:%02d|r / %02d:%02d", color, abs(timeLeft) / 60, abs(timeLeft) % 60, MPlus.timeLimit / 60, MPlus.timeLimit % 60))
+        container.timerBar.text:SetText(format("%s%02d:%02d|r / %02d:%02d", color, abs(timeLeft) / 60, abs(timeLeft) % 60, state.timeLimit / 60, state.timeLimit % 60))
         
-        -- Color transitions
-        local dynamicTimer = (MPlus.config.Settings and MPlus.config.Settings.dynamicTimerColor ~= false)
-        if dynamicTimer then
-            if MPlus.currentTime < (MPlus.threeChestLimit or 0) then
-                f.timerBar:SetStatusBarColor(0, 1, 0.5, 1) -- Greenish
-            elseif MPlus.currentTime < (MPlus.twoChestLimit or 0) then
-                f.timerBar:SetStatusBarColor(1, 0.8, 0, 1) -- Golden
-            else
-                f.timerBar:SetStatusBarColor(1, 0.3, 0.3, 1) -- Reddish
-            end
+        if conf.dynamicTimerColor ~= false then
+            if state.currentTime < state.threeChestLimit then container.timerBar:SetStatusBarColor(0, 1, 0.5, 1) 
+            elseif state.currentTime < state.twoChestLimit then container.timerBar:SetStatusBarColor(1, 0.8, 0, 1) 
+            else container.timerBar:SetStatusBarColor(1, 0.3, 0.3, 1) end
         else
-            local c = (MPlus.config.Settings and MPlus.config.Settings.timerColor) or {0, 0.8, 1, 1}
-            f.timerBar:SetStatusBarColor(unpack(c))
+            container.timerBar:SetStatusBarColor(unpack(conf.timerColor or {0, 0.8, 1, 1}))
         end
-        
-        -- Mark Chest Thresholds on Bar? (Optional, maybe later)
     else
-        f.timerBar:SetValue(0)
-        f.timerBar.text:SetText("00:00 / 00:00")
+        container.timerBar:SetValue(0)
+        container.timerBar.text:SetText("00:00 / 00:00")
     end
     
-    -- FORCES BAR
-    if MPlus.enemyForces then
-        f.forcesBar:SetValue(MPlus.enemyForces.pct)
-        f.forcesBar:SetStatusBarTexture(barTexture)
-        f.forcesBar:GetStatusBarTexture():SetHorizTile(false)
-        
-        local fmt = (MPlus.config.Settings and MPlus.config.Settings.showEnemyForcesAbsolute) and 
-                    format("%.1f%% (%d/%d)", MPlus.enemyForces.pct, MPlus.enemyForces.cur, MPlus.enemyForces.max) or
-                    format("%.2f%%", MPlus.enemyForces.pct)
-        f.forcesBar.text:SetText(fmt)
-        
-        -- Forces Color (User Selected)
-        local c = (MPlus.config.Settings and MPlus.config.Settings.forcesColor) or {0.8, 0, 0, 1}
-        f.forcesBar:SetStatusBarColor(unpack(c))
-    else
-        f.forcesBar:SetValue(0)
-        f.forcesBar.text:SetText("0.0%")
-        f.forcesBar:SetStatusBarColor(0.8, 0, 0, 1)
+    -- FORCES BAR DATA
+    if state.enemyForces then
+        container.forcesBar:SetValue(state.enemyForces.pct)
+        container.forcesBar:SetStatusBarTexture(barTexture)
+        local fmt = conf.showEnemyForcesAbsolute and format("%.1f%% (%d/%d)", state.enemyForces.pct, state.enemyForces.cur, state.enemyForces.max) or format("%.2f%%", state.enemyForces.pct)
+        container.forcesBar.text:SetText(fmt)
+        container.forcesBar:SetStatusBarColor(unpack(conf.forcesColor or {0.8, 0, 0, 1}))
     end
 
-    -- BOSS LIST (TEXT BASED)
-    if MPlus.bosses then
+    -- BOSS LIST DATA
+    if state.bosses then
         local spacing = 20
         local mediaPath = "Interface\\AddOns\\WidgetForge\\media\\"
         
-        for i, boss in ipairs(MPlus.bosses) do
-            local row = f.bossList.rows[i]
+        for i, boss in ipairs(state.bosses) do
+            local row = container.bossList.rows[i]
             if not row then
-                row = CreateFrame("Frame", nil, f.bossList)
-                row:SetSize(350, 18)
-                
-                -- Custom WidgetForge Checkbox Style
+                row = CreateFrame("Frame", nil, container.bossList)
+                row:SetSize(300, 18)
                 row.box = row:CreateTexture(nil, "OVERLAY")
                 row.box:SetSize(12, 12)
                 row.box:SetPoint("LEFT", 0, 0)
                 row.box:SetTexture(mediaPath .. "square_emty.tga")
-                
                 row.check = row:CreateTexture(nil, "OVERLAY")
                 row.check:SetSize(12, 12)
                 row.check:SetPoint("CENTER", row.box, "CENTER", 0, 0)
                 row.check:SetTexture(mediaPath .. "square_full.tga")
-                
                 row.name = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-                row.name:SetPoint("LEFT", row.box, "RIGHT", 5, 0) -- Reduced spacing (was 10)
+                row.name:SetPoint("LEFT", row.box, "RIGHT", 5, 0) 
                 local bossFont = (Skin and Skin.Constants and Skin.Constants.FONT_NORMAL) or "Fonts\\FRIZQT__.TTF"
                 row.name:SetFont(bossFont, 11, "OUTLINE")
-                
                 row.time = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-                row.time:SetPoint("RIGHT", 0, 0) -- Right align within the fixed width row
-                
-                f.bossList.rows[i] = row
+                row.time:SetPoint("RIGHT", 0, 0) 
+                container.bossList.rows[i] = row
             end
             
             row:Show()
-            -- Reduced left padding (x=5) to align correctly to left
             row:SetPoint("TOPLEFT", 5, -(i-1) * spacing)
-            row:SetWidth(300) -- Increased width slightly for better fit
             row.name:SetText(boss.name)
             
             if boss.done then
-                row.name:SetTextColor(1, 0.2, 0.2, 1) -- Dead = RED
+                row.name:SetTextColor(1, 0.2, 0.2, 1) 
                 row.check:Show()
-                row.check:SetVertexColor(0, 0.8, 1, 1) -- Blue "Tick"
+                row.check:SetVertexColor(0, 0.8, 1, 1) 
                 row.box:SetVertexColor(0.2, 0.2, 0.2, 1)
                 
-                -- Split Calculation
-                local showSplits = MPlus.config.Settings.showSplits ~= false
-                local split = MPlus.splits and MPlus.splits[boss.id]
-                
-                if split and showSplits then
+                local split = state.splits and state.splits[boss.id]
+                if split and conf.showSplits ~= false then
                     local text = format("[%d:%02d]", split / 60, split % 60)
-                    
-                    -- Compare with Best Run
-                    if MPlus.bestRunCompare and MPlus.bestRunCompare.splits and MPlus.bestRunCompare.splits[boss.id] then
-                        local best = MPlus.bestRunCompare.splits[boss.id]
+                    if state.bestRunCompare and state.bestRunCompare.splits and state.bestRunCompare.splits[boss.id] then
+                        local best = state.bestRunCompare.splits[boss.id]
                         local diff = split - best
                         local sign = (diff >= 0) and "+" or "-"
                         local diffAbs = abs(diff)
-                        local color = (diff <= 0) and "|cff00ff00" or "|cffff0000" -- Green if faster, Red if slower
+                        local color = (diff <= 0) and "|cff00ff00" or "|cffff0000" 
                         text = text .. format(" %s(%s%d:%02d|r)", color, sign, diffAbs/60, diffAbs%60)
                     end
-                    
                     row.time:SetText(text)
                 else
                     row.time:SetText("")
                 end
             else
-                row.name:SetTextColor(1, 0.82, 0, 1) -- Alive = GOLDEN YELLOW
+                row.name:SetTextColor(1, 0.82, 0, 1) 
                 row.check:Hide()
-                row.box:SetVertexColor(0, 0.8, 1, 1) -- Blue border for empty box
+                row.box:SetVertexColor(0, 0.8, 1, 1)
                 row.time:SetText("")
             end
         end
-        for i = #MPlus.bosses + 1, #f.bossList.rows do f.bossList.rows[i]:Hide() end
+        for i = #state.bosses + 1, #container.bossList.rows do container.bossList.rows[i]:Hide() end
     end
 
-    -- AFFIXES
-    local affixIDs = {}
-    
-    -- 1. Try to get from Active Key (if in M+)
-    if MPlus.activeRun and _G.C_ChallengeMode then
-        local activeAffixes = select(2, C_ChallengeMode.GetActiveKeystoneInfo())
-        if activeAffixes and #activeAffixes > 0 then
-            affixIDs = activeAffixes
-        end
-    end
-    
-    -- 2. Fallback: Weekly Affixes (if not in run)
-    if #affixIDs == 0 and not MPlus.activeRun then
-        if MPlus.previewMode or unlocked then
-             affixIDs = {9, 10, 11, 122} -- Dummy Affixes (Tyrannical, etc) for Preview
-        elseif _G.C_MythicPlus and C_MythicPlus.GetCurrentAffixes then
-            local affixes = C_MythicPlus.GetCurrentAffixes()
-            if affixes then
-                for _, a in ipairs(affixes) do table.insert(affixIDs, a.id) end
-            end
-        end
-    end
-
-    -- Ensure visibility (High Frame Level)
-    f.affixFrame:SetFrameLevel(f:GetFrameLevel() + 10)
-
-    if affixIDs and #affixIDs > 0 then
+    -- AFFIXES DATA
+    if state.affixIDs and #state.affixIDs > 0 then
         local iconSize = 24
         local spacing = 4
-        for i, id in ipairs(affixIDs) do
-            local aFrame = f.affixFrame.icons[i]
+        for i, id in ipairs(state.affixIDs) do
+            local aFrame = container.affixFrame.icons[i]
             if not aFrame then
-                aFrame = CreateFrame("Frame", nil, f.affixFrame, "BackdropTemplate")
+                aFrame = CreateFrame("Frame", nil, container.affixFrame, "BackdropTemplate")
                 aFrame:SetSize(iconSize, iconSize)
-                
                 aFrame.icon = aFrame:CreateTexture(nil, "ARTWORK")
                 aFrame.icon:SetAllPoints()
                 aFrame.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-                
                 if Skin and Skin.ApplyBackdrop then 
                     Skin:ApplyBackdrop(aFrame, 0, 1) 
-                    if aFrame.SetBackdropBorderColor then 
-                        aFrame:SetBackdropBorderColor(0, 0.7, 1, 1) -- Blue border
-                    end
+                    if aFrame.SetBackdropBorderColor then aFrame:SetBackdropBorderColor(0, 0.7, 1, 1) end
                 end
-                f.affixFrame.icons[i] = aFrame
+                container.affixFrame.icons[i] = aFrame
             end
             
             local name, description, fileID = C_ChallengeMode.GetAffixInfo(id)
@@ -747,185 +399,350 @@ function MPlus:UpdateUI()
             end)
             aFrame:SetScript("OnLeave", function() GameTooltip:Hide() end)
         end
-        for i = #affixIDs + 1, #f.affixFrame.icons do f.affixFrame.icons[i]:Hide() end
+        for i = #state.affixIDs + 1, #container.affixFrame.icons do container.affixFrame.icons[i]:Hide() end
     end
 
-    -- Update Death Counter
-    if f.deathCount then
-        if MPlus.config.Settings.showDeathCounter ~= false then
-            f.deathCount:Show()
-            
-            local unlocked = (_G.WidgetForge and _G.WidgetForge.BarsLocked == false) or (_G.EsrefConfigFrame and _G.EsrefConfigFrame:IsShown())
-            if MPlus.previewMode or unlocked then
-                f.deathCount:SetText("5 Deaths -0:25")
-            elseif C_ChallengeMode and C_ChallengeMode.GetDeathCount then
-                local count, timeLost = C_ChallengeMode.GetDeathCount()
-                if count and count > 0 then
-                    f.deathCount:SetText(format("%d Deaths -%d:%02d", count, (timeLost or 0)/60, (timeLost or 0)%60))
-                else
-                    f.deathCount:SetText("")
-                end
+    -- DEATH COUNTER DATA
+    if container.deathCount then
+        local unlocked = (_G.WidgetForge and _G.WidgetForge.BarsLocked == false) or (_G.EsrefConfigFrame and _G.EsrefConfigFrame:IsShown())
+        if MPlus.previewMode or unlocked then
+            container.deathCount:SetText("5 Deaths -0:25")
+        elseif C_ChallengeMode and C_ChallengeMode.GetDeathCount then
+            local count, timeLost = C_ChallengeMode.GetDeathCount()
+            if count and count > 0 then
+                container.deathCount:SetText(format("%d Deaths -%d:%02d", count, (timeLost or 0)/60, (timeLost or 0)%60))
+            else
+                container.deathCount:SetText("")
             end
-        else
-            f.deathCount:Hide()
         end
     end
 end
 
-function MPlus:CheckVisibility()
-    if not MPlus.isEnabled then
-        if MPlus.frame then MPlus.frame:Hide() end
-        return
+function MPlus:UpdateAllInstances()
+    for _, container in ipairs(MPlus.Instances) do
+        MPlus:UpdateVisuals(container)
     end
+end
 
-    if MPlus.previewMode then
-        if MPlus.frame then 
-            MPlus.frame:Show() 
-            MPlus.frame:SetAlpha(1)
-        end
-        MPlus:UpdateUI()
-        return
-    end
-
-
-    local _, _, difficultyID = GetInstanceInfo()
+-- --- GÖRÜNÜRLÜK KONTROLÜ ---
+function MPlus:CheckVisibility(container)
     local unlocked = (_G.WidgetForge and _G.WidgetForge.BarsLocked == false) or (_G.EsrefConfigFrame and _G.EsrefConfigFrame:IsShown())
     
-    if difficultyID == 8 or difficultyID == 23 or unlocked then 
-        if MPlus.frame then MPlus.frame:Show() end
-        if difficultyID == 8 or difficultyID == 23 then
-            MPlus:UpdateObjectives()
+    if MPlus.previewMode or unlocked then
+        container:Show()
+        container:SetAlpha(1)
+        
+        local state = MPlus.GlobalState
+        state.currentTime = 950 
+        state.timeLimit = 1800 
+        state.threeChestLimit = 1080
+        state.twoChestLimit = 1440
+        state.enemyForces = { cur = 240, max = 300, pct = 80.0 }
+        state.bosses = {
+            {name = "Boss One", done = true, id = 1},
+            {name = "Boss Two", done = true, id = 2},
+            {name = "Final Boss", done = false, id = 3}
+        }
+        state.splits = {[1] = 300, [2] = 650}
+        state.affixIDs = {9, 10, 11, 122}
+        return
+    end
+
+    if C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive() then 
+        container:Show()
+        MPlus:HideDefaultTracker()
+    else
+        container:Hide()
+        MPlus:ShowDefaultTracker()
+    end
+end
+
+-- --- EVENTLER VE DATA TOPLAMA ---
+function MPlus:RegisterEvents()
+    if MPlus.eventFrame then return end
+    
+    local eventFrame = CreateFrame("Frame")
+    MPlus.eventFrame = eventFrame
+    
+    eventFrame:RegisterEvent("CHALLENGE_MODE_START")
+    eventFrame:RegisterEvent("CHALLENGE_MODE_COMPLETED")
+    eventFrame:RegisterEvent("CHALLENGE_MODE_RESET") 
+    eventFrame:RegisterEvent("SCENARIO_UPDATE")
+    eventFrame:RegisterEvent("SCENARIO_CRITERIA_UPDATE")
+    eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    pcall(function() eventFrame:RegisterEvent("CHALLENGE_MODE_KEYSTONE_RECEPTACLE_OPEN") end)
+    
+    eventFrame:SetScript("OnEvent", function(self, event, ...)
+        if event == "CHALLENGE_MODE_START" then
+            MPlus:StartRun()
+        elseif event == "CHALLENGE_MODE_COMPLETED" then
+            MPlus:EndRun()
+        elseif event == "CHALLENGE_MODE_RESET" then
+            MPlus.GlobalState.activeRun = false
+            MPlus:ShowDefaultTracker()
+            for _, inst in ipairs(MPlus.Instances) do MPlus:CheckVisibility(inst) end
+        elseif event == "SCENARIO_UPDATE" or event == "SCENARIO_CRITERIA_UPDATE" then
+            MPlus:UpdateObjectivesData()
+        elseif event == "PLAYER_ENTERING_WORLD" then
+            if C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive() then
+                if not MPlus.GlobalState.activeRun then
+                    MPlus.GlobalState.activeRun = true
+                    MPlus.GlobalState.splits = MPlus.GlobalState.splits or {}
+                end
+                MPlus:HideDefaultTracker()
+            else
+                MPlus.GlobalState.activeRun = false
+                MPlus:ShowDefaultTracker()
+            end
+
+            for _, inst in ipairs(MPlus.Instances) do MPlus:CheckVisibility(inst) end
             
-            -- Tracker Visibility Logic (Persistent - Taint-free method)
-            if MPlus.config.Settings.hideBlizzardTracker then
-                if ScenarioObjectiveTracker then 
-                    ScenarioObjectiveTracker:SetAlpha(0.01)
-                    ScenarioObjectiveTracker:SetScale(0.01)
+            C_Timer.After(1.5, function()
+                MPlus:UpdateTimerData()
+                MPlus:UpdateObjectivesData()
+                if _G.C_MythicPlus and C_MythicPlus.RequestMapInfo then C_MythicPlus.RequestMapInfo() end
+                MPlus:UpdateAllInstances()
+            end)
+        elseif event == "CHALLENGE_MODE_KEYSTONE_RECEPTACLE_OPEN" then
+            MPlus:OnKeystoneOpen()
+        end
+    end)
+    
+    MPlus.timerFrame = CreateFrame("Frame")
+    MPlus.timerFrame:SetScript("OnUpdate", function(self, elapsed)
+        self.elapsed = (self.elapsed or 0) + elapsed
+        if self.elapsed < 0.1 then return end
+        local tick = self.elapsed
+        self.elapsed = 0
+
+        local state = MPlus.GlobalState
+        if state.activeRun then
+            local _, timeElapsed = GetWorldElapsedTime(1)
+            if timeElapsed and timeElapsed >= 0 then state.currentTime = timeElapsed end
+            MPlus:HideDefaultTracker() 
+            MPlus:UpdateAllInstances()
+        else
+            self.slowTick = (self.slowTick or 0) + tick
+            if self.slowTick > 5 then
+                self.slowTick = 0
+                if not state.affixIDs or #state.affixIDs == 0 then
+                    if _G.C_MythicPlus and C_MythicPlus.GetCurrentAffixes then
+                        local affixes = C_MythicPlus.GetCurrentAffixes()
+                        if affixes then
+                            state.affixIDs = {}
+                            for _, a in ipairs(affixes) do table.insert(state.affixIDs, a.id) end
+                            MPlus:UpdateAllInstances()
+                        end
+                    end
                 end
             end
         end
-        MPlus:UpdateUI() -- Update for affixes outside
-    else
-        if MPlus.frame then MPlus.frame:Hide() end
-        -- Restore Tracker if we leave M+ 
-        if ScenarioObjectiveTracker then 
-            ScenarioObjectiveTracker:SetAlpha(1)
-            ScenarioObjectiveTracker:SetScale(1)
+    end)
+end
+
+function MPlus:UpdateTimerData()
+    if not _G.C_ChallengeMode then return end
+    local mapID = C_ChallengeMode.GetActiveChallengeMapID()
+    if not mapID then return end
+    
+    local _, _, timeLimit = C_ChallengeMode.GetMapUIInfo(mapID)
+    local state = MPlus.GlobalState
+
+    local isChallengersPeril = false
+    if C_ChallengeMode.GetActiveKeystoneInfo then
+        local activeAffixes = select(2, C_ChallengeMode.GetActiveKeystoneInfo())
+        if activeAffixes then
+             state.affixIDs = activeAffixes
+             for _, id in ipairs(activeAffixes) do
+                 if id == 152 then isChallengersPeril = true; break end
+             end
+        end
+    end
+
+    if timeLimit then
+        state.timeLimit = timeLimit
+        if isChallengersPeril then
+            state.threeChestLimit = ((timeLimit - 90) * 0.6) + 90
+            state.twoChestLimit = ((timeLimit - 90) * 0.8) + 90
+        else
+            state.threeChestLimit = timeLimit * 0.6
+            state.twoChestLimit = timeLimit * 0.8
         end
     end
 end
 
--- Settings UI (Re-Architected for Precise Spacing)
-function MPlus:CreateSettings(parentFrame)
-    -- Ensure initialized
-    MPlus:Init()
+function MPlus:StartRun()
+    local state = MPlus.GlobalState
+    state.activeRun = true
+    state.splits = {} 
+    MPlus:UpdateTimerData()
+    MPlus:HideDefaultTracker()
     
+    if C_ChallengeMode.GetActiveChallengeMapID then
+        local mapID = C_ChallengeMode.GetActiveChallengeMapID()
+        local level = select(2, C_ChallengeMode.GetActiveKeystoneInfo())
+        state.bestRunCompare = MPlus:GetBestRun(mapID, level)
+    end
+
+    MPlus:UpdateObjectivesData()
+    for _, inst in ipairs(MPlus.Instances) do MPlus:CheckVisibility(inst) end
+end
+
+function MPlus:EndRun()
+    local state = MPlus.GlobalState
+    state.activeRun = false
+    state.bestRunCompare = nil
+    MPlus:ShowDefaultTracker()
+    
+    if C_ChallengeMode.GetActiveChallengeMapID and state.currentTime then
+        local mapID = C_ChallengeMode.GetActiveChallengeMapID()
+        local level = select(2, C_ChallengeMode.GetActiveKeystoneInfo()) or 0
+        local entry = { level = level, time = state.currentTime, date = date("%Y-%m-%d %H:%M:%S"), completed = (state.currentTime <= (state.timeLimit or 0)), splits = state.splits }
+        MPlus.config.History[mapID] = MPlus.config.History[mapID] or { Runs = {} }
+        table.insert(MPlus.config.History[mapID].Runs, entry)
+    end
+    print("|cff00ffff[WidgetForge]|r Mythic+ Run Completed!")
+end
+
+function MPlus:OnKeystoneOpen()
+    if not MPlus.config.Settings.autoKeystone then return end
+    for bag = 0, 4 do
+        for slot = 1, C_Container.GetContainerNumSlots(bag) do
+            local info = C_Container.GetContainerItemInfo(bag, slot)
+            if info and info.itemID == 158923 then 
+                C_Container.UseContainerItem(bag, slot)
+                if MPlus.config.Settings.autoCloseBags then C_Timer.After(0.5, function() CloseAllBags() end) end
+                return
+            end
+        end
+    end
+end
+
+function MPlus:UpdateObjectivesData()
+    if not _G.C_Scenario or not C_Scenario.GetStepInfo then return end
+    local _, _, numStages = C_Scenario.GetStepInfo()
+    if not numStages or numStages == 0 then return end
+    
+    local state = MPlus.GlobalState
+    if not state.splits then state.splits = {} end
+    if not state.bossStatus then state.bossStatus = {} end
+
+    state.bosses = {}
+    local numCriteria = select(3, C_Scenario.GetStepInfo())
+    if not numCriteria then return end
+    
+    for i = 1, numCriteria do
+        local description, quantity, totalQuantity, quantityString, isEnemyForces, completed
+        
+        if _G.C_ScenarioInfo and _G.C_ScenarioInfo.GetCriteriaInfo then
+            local tbl = C_ScenarioInfo.GetCriteriaInfo(i)
+            if tbl then
+                description = tbl.description; completed = tbl.completed
+                quantity = tbl.quantity; totalQuantity = tbl.totalQuantity
+                if tbl.isWeightedProgress then isEnemyForces = true end
+            end
+        else
+            description, _, completed, quantity, totalQuantity, _, _, quantityString, _, _, _, isEnemyForces = C_Scenario.GetCriteriaInfo(i)
+        end
+        
+        if isEnemyForces then
+            state.enemyForces = { cur = quantity, max = totalQuantity, pct = (totalQuantity and totalQuantity > 0) and (quantity / totalQuantity) * 100 or 0 }
+        else
+            if state.bossStatus[i] == nil then state.bossStatus[i] = completed end
+            if completed and state.bossStatus[i] == false then
+                if not state.splits[i] then state.splits[i] = state.currentTime or 0 end
+            end
+            state.bossStatus[i] = completed
+            table.insert(state.bosses, { name = description or "Unknown", done = completed, id = i })
+        end
+    end
+    MPlus:UpdateAllInstances()
+end
+
+function MPlus:GetBestRun(mapID, level)
+    if not MPlus.config.History or not MPlus.config.History[mapID] then return nil end
+    local mode = MPlus.config.Settings.splitComparisonMode or "LEVEL" 
+    local best = nil
+    local bestTime = 999999
+    for _, run in ipairs(MPlus.config.History[mapID].Runs) do
+        local match = (mode == "ZONE") or (run.level == level)
+        if match and run.completed and run.time < bestTime then
+            bestTime = run.time; best = run
+        end
+    end
+    return best
+end
+
+-- --- AYARLAR (SETTINGS) ---
+function MPlus:CreateSettings(parentFrame)
+    MPlus:InitGlobal()
     local f = parentFrame
     local elem = f.config
-    local content = f.content
-    
-    -- AGGRESSIVE DB INIT TO PREVENT EMPTY PANEL
-    if not _G.WidgetForgeDB then _G.WidgetForgeDB = {} end
-    if not _G.WidgetForgeDB.MythicPlus then
-        _G.WidgetForgeDB.MythicPlus = {
-            History = {},
-            Settings = {
-                showEnemyForcesAbsolute = true,
-                autoKeystone = true,
-                autoCloseBags = true,
-                hideBlizzardTracker = true,
-                customThresholds = { 90, 80, 60 } 
-            }
-        }
-    end
-    MPlus.config = _G.WidgetForgeDB.MythicPlus
-    
     local globalSets = MPlus.config.Settings
-    -- If Settings is somehow nil (e.g. corrupted SavedVars), reset it
-    if not globalSets then
-        MPlus.config.Settings = {
-            showEnemyForcesAbsolute = true,
-            autoKeystone = true,
-            autoCloseBags = true,
-            hideBlizzardTracker = true,
-            customThresholds = { 90, 80, 60 } 
-        }
-        globalSets = MPlus.config.Settings
-    end
 
-    -- Initialize Builder
-    local sb = f.builder or WidgetForgeUtils:CreateSettingsBuilder(content)
+    -- Ayar eksiklerini tamamla (Geriyedönük uyumluluk)
+    if globalSets.autoSize == nil then globalSets.autoSize = true end
+    if globalSets.showTitle == nil then globalSets.showTitle = true end
+
+    local sb = f.builder or WidgetForgeUtils:CreateSettingsBuilder(f.content)
     f.builder = sb 
     
-    local function UpdateGlobal(key, val)
-        globalSets[key] = val
-        if MPlus.frame then MPlus:UpdateUI() end
-    end
-
+    local function UpdateGlobal() MPlus:UpdateAllInstances() end
     local function UpdateVisual()
-        if MPlus.frame then
-            if elem.widgetWidth then MPlus.frame:SetWidth(elem.widgetWidth) end
-            if elem.widgetHeight then MPlus.frame:SetHeight(elem.widgetHeight) end
-            if elem.scale then MPlus.frame:SetScale(elem.scale) end
-            MPlus:UpdateUI()
+        for _, inst in ipairs(MPlus.Instances) do
+             if inst.elem == elem then
+                 if not globalSets.autoSize and elem.widgetHeight then inst:SetHeight(elem.widgetHeight) end
+                 if elem.widgetWidth then inst:SetWidth(elem.widgetWidth) end
+             end
         end
-        if WidgetForge.RebuildBarComponents then
-            WidgetForge:RebuildBarComponents(f.barIndex)
-        end
+        if WidgetForge.RebuildBarComponents then WidgetForge:RebuildBarComponents(f.barIndex) end
     end
 
-    -- 1. VISUAL CONFIGURATION
+    sb:AddHeader("Layout & Visibility (Flexible UI)")
+    sb:AddCheckbox("autoSize", "Auto-Adjust Height (Recommended)", true, globalSets, UpdateGlobal)
+    sb:AddCheckbox("hoverExpand", "Hover to Expand (Minimalist Mode)", false, globalSets, UpdateGlobal)
+    sb:AddCheckbox("showTitle", "Show Title", true, globalSets, UpdateGlobal)
+    sb:AddCheckbox("showAffixes", "Show Affixes", true, globalSets, UpdateGlobal)
+    sb:AddCheckbox("showBosses", "Show Boss List", true, globalSets, UpdateGlobal)
+    sb:AddCheckbox("showTimer", "Show Timer Bar", true, globalSets, UpdateGlobal)
+    sb:AddCheckbox("showForces", "Show Enemy Forces Bar", true, globalSets, UpdateGlobal)
+    sb:AddCheckbox("showDeathCounter", "Show Death Counter", true, globalSets, UpdateGlobal)
+
     sb:AddHeader("Visual Configuration")
-    
-    -- Size & Scale & Texture
     sb:AddSlider("widgetWidth", "Dashboard Width", 200, 600, 1, 350, elem, UpdateVisual)
-    sb:AddSlider("widgetHeight", "Dashboard Height", 100, 400, 1, 160, elem, UpdateVisual)
-    
-    elem.scale = elem.scale or 1.0
-    sb:AddSlider("scale", "Global Scale", 0.5, 2.0, 0.05, 1.0, elem, UpdateVisual)
+    sb:AddSlider("widgetHeight", "Manual Height (If Auto-Size Off)", 50, 400, 1, 160, elem, UpdateVisual)
     
     local Skin = _G.ForgeSkin
     local textureItems = {}
     if Skin and Skin.Media and Skin.Media.Textures then
         for name, path in pairs(Skin.Media.Textures) do table.insert(textureItems, {text = name, value = path}) end
-        table.sort(textureItems, function(a,b) return a.text < b.text end)
     else
         textureItems = {{text = "Default", value = "Interface\\TargetingFrame\\UI-StatusBar"}}
     end
     sb:AddDropdown("barTexture", "Bar Texture", textureItems, "Interface\\TargetingFrame\\UI-StatusBar", globalSets, UpdateGlobal)
     
-    -- 2. COMPONENT COLORS
     sb:AddHeader("Component Colors")
     sb:AddCheckbox("dynamicTimerColor", "Dynamic Timer Color", true, globalSets, UpdateGlobal)
     sb:AddCheckbox("showEnemyForcesAbsolute", "Show Absolute Forces", true, globalSets, UpdateGlobal)
-    
     sb:AddColor("timerColor", "Timer Bar Color", {0, 0.8, 1, 1}, globalSets, UpdateGlobal)
     sb:AddColor("forcesColor", "Forces Bar Color", {0.8, 0, 0, 1}, globalSets, UpdateGlobal)
     
-    sb:AddCheckbox("showDeathCounter", "Show Death Counter", true, globalSets, UpdateGlobal)
-    
-    -- 3. SPLITS & MECHANICS
     sb:AddHeader("Splits & Mechanics")
     sb:AddCheckbox("showSplits", "Show Split Times", true, globalSets, UpdateGlobal)
-    
     sb:AddDropdown("splitComparisonMode", "Compare Splits With:", {
         {text = "Best of Zone (Any Level)", value = "ZONE"},
-        {text = "Best of Level (Recommended)", value = "LEVEL"},
-        {text = "Exact Match (Level + Affix)", value = "EXACT"}
+        {text = "Best of Level", value = "LEVEL"},
+        {text = "Exact Match", value = "EXACT"}
     }, "LEVEL", globalSets, UpdateGlobal, true)
     
-    -- 4. AUTOMATION
     sb:AddHeader("Automation & Quality of Life")
     sb:AddCheckbox("autoKeystone", "Auto-Insert Keystone", true, globalSets, UpdateGlobal)
     sb:AddCheckbox("autoCloseBags", "Auto-Close Bags", true, globalSets, UpdateGlobal)
+    
     sb:AddCheckbox("hideBlizzardTracker", "Hide Blizzard Tracker", true, globalSets, function(v)
         globalSets.hideBlizzardTracker = v
-        if v then
-            if ScenarioObjectiveTracker then ScenarioObjectiveTracker:Hide() end
-        else
-            if ScenarioObjectiveTracker then ScenarioObjectiveTracker:Show() end
-        end
-        MPlus:UpdateUI()
+        if v then MPlus:HideDefaultTracker() else MPlus:ShowDefaultTracker() end
+        UpdateGlobal()
     end)
     
     sb:Finish()
@@ -933,31 +750,12 @@ end
 
 function MPlus:TogglePreview(state)
     MPlus.previewMode = state
-    
-    if state then
-        -- Force show frame and parent
-        if MPlus.frame then 
-            MPlus.frame:Show() 
-            MPlus.frame:SetAlpha(1)
-            local p = MPlus.frame:GetParent()
-            if p and not p:IsShown() then p:Show() end -- Ensure parent bar is visible
-        end
-    end
-    
-    MPlus:CheckVisibility()
-    MPlus:UpdateUI()
+    for _, inst in ipairs(MPlus.Instances) do MPlus:CheckVisibility(inst) end
+    MPlus:UpdateAllInstances()
 end
 
-
-
-
-
-
--- Hook ADDON_LOADED for early initialization if possible
 local fEvents = CreateFrame("Frame")
 fEvents:RegisterEvent("ADDON_LOADED")
 fEvents:SetScript("OnEvent", function(self, event, arg1)
-    if arg1 == addonName then
-        MPlus:Init()
-    end
+    if arg1 == addonName then MPlus:InitGlobal() end
 end)
