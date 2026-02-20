@@ -165,12 +165,11 @@ function Stats:UpdatePolledStats(elapsed)
     Stats.Data["DragonActive"] = (GetBonusBarIndex() == 11)
 
     -- =======================================================
-    -- 8. TALENT LOADOUT RADARI (TLX ve Blizzard API Entegrasyonu)
+    -- 8. TALENT LOADOUT RADARI
     -- =======================================================
     local loadoutName = nil
     local loadoutIcon = nil
 
-    -- Önce eklentiyi (TLX) kontrol et (HATA DÜZELTİLDİ: Tablo indeksi [1] silindi)
     if _G.TLX and _G.TLX.GetLoadedData then
         local success, tlxData = pcall(_G.TLX.GetLoadedData)
         if success and type(tlxData) == "table" then
@@ -179,7 +178,6 @@ function Stats:UpdatePolledStats(elapsed)
         end
     end
 
-    -- TLX uykudaysa veya yoksa WoW'un standart menüsüne bak
     if not loadoutName or loadoutName == "" then
         if C_ClassTalents and C_ClassTalents.GetActiveConfigID then
             local configID = C_ClassTalents.GetActiveConfigID()
@@ -194,7 +192,6 @@ function Stats:UpdatePolledStats(elapsed)
         end
     end
 
-    -- Hala ikon bulunamadıysa (TLX yoksa) standart spec ikonunu kullan
     if not loadoutIcon then
         local specIndex = GetSpecialization()
         if specIndex then
@@ -203,7 +200,6 @@ function Stats:UpdatePolledStats(elapsed)
         end
     end
 
-    -- Nihai verileri aktar (WidgetForge.lua otomatik olarak bu tabloyu çekip güncelleyecektir)
     Stats.Data["Talent Loadout"] = loadoutName or "Unknown"
     Stats.Data["Talent Loadout Icon"] = loadoutIcon or 132222
 end
@@ -430,7 +426,7 @@ function Stats:AddTooltip(owner, statType, elemData)
         GameTooltip:AddDoubleLine("Current:", GetMoneyString(current), 1,0.8,0, 1,1,1)
         GameTooltip:AddDoubleLine("Session Start:", GetMoneyString(start), 1,0.8,0, 1,1,1)
         local diffColor = (diff >= 0) and {0,1,0} or {1,0,0}
-        GameTooltip:AddDoubleLine("Session Profit:", GetMoneyString(abs(diff)), 1,0.8,0, diffColor[1], diffColor[2], diffColor[3])
+        GameTooltip:AddDoubleLine("Session Profit:", GetMoneyString(math.abs(diff)), 1,0.8,0, diffColor[1], diffColor[2], diffColor[3])
         added = true
     end
     

@@ -786,7 +786,8 @@ function Config:SelectBar(index)
             btn:SetScript("OnClick", function()
                 if not canAdd then return end
                 
-                if isActive then
+                -- Divider için istisna eklendi (Toggle yapmaz, her zaman yeni ekler)
+                if isActive and not isDivider then
                     for idx, el in ipairs(bar.elements) do
                         if el.type == typeName then
                              table.remove(bar.elements, idx)
@@ -822,7 +823,7 @@ function Config:SelectBar(index)
                          newEl.widgetWidth = 100
                          newEl.widgetHeight = 30
                          newEl.code = "return 'Hello World'"
-                    elseif btnIsDivider then
+                    elseif isDivider then
                          newEl.size = 20; newEl.thickness = 2; newEl.dividerMode = "LINE"; newEl.dividerStyle = "VERTICAL"; newEl.offset = 0
                     end
                     
@@ -973,11 +974,7 @@ function Config:SelectBar(index)
         local btnCol = CreateFrame("Button", nil, item, "BackdropTemplate"); btnCol:SetSize(20, 20); btnCol:SetPoint("RIGHT", dragHandle, "LEFT", -8, 0); Skin:ApplyBackdrop(btnCol); btnCol:SetBackdropColor(unpack(elem.color or {1, 1, 1, 1}))
         btnCol:SetScript("OnClick", function() local oldColor = elem.color or {1, 1, 1, 1}; local info = { r=oldColor[1], g=oldColor[2], b=oldColor[3], opacity=oldColor[4], swatchFunc = function(c) elem.color = c; btnCol:SetBackdropColor(unpack(c)); WidgetForge:RebuildBarComponents(index) end, cancelFunc = function() elem.color = oldColor; btnCol:SetBackdropColor(unpack(oldColor)); WidgetForge:RebuildBarComponents(index) end }; Skin:ShowColorPicker(info) end)
         
-        if bar.clickThrough then
-            chkTip:SetAlpha(0.5)
-            chkTip.box:EnableMouse(false)
-            chkTip.label:SetTextColor(0.5, 0.5, 0.5)
-        end
+        local slSz, ddOutline, ddFont, chkIcon, chkTip, ddFmt, ddSep
         
         if elem.type == "Divider" then
              btnCol:Hide()
@@ -1027,11 +1024,11 @@ function Config:SelectBar(index)
              btnSettings:SetPoint("RIGHT", dragHandle, "LEFT", -10, 0)
              btnSettings:SetScript("OnClick", function() Config:OpenDummySettings(index, i, elem) end)
         else
-            local slSz = Skin:CreateSlider(item, 8, 50, 1, elem.size, function(v) elem.size = v; WidgetForge:RebuildBarComponents(index) end, 70); slSz:SetPoint("RIGHT", btnCol, "LEFT", -15, 0)
-            local ddOutline = Skin:CreateDropdown(item, 85, outlineList, elem.outline or "OUTLINE", function(v) elem.outline = v; WidgetForge:RebuildBarComponents(index) end); ddOutline:SetPoint("RIGHT", slSz, "LEFT", -10, 0) 
-            local ddFont = Skin:CreateDropdown(item, 100, fontList, elem.font or "Standard", function(v) elem.font = v; WidgetForge:RebuildBarComponents(index) end); ddFont:SetPoint("RIGHT", ddOutline, "LEFT", -10, 0)
-            local chkIcon = Skin:CreateCheckbox(item, "Icon", elem.showIcon, function(v) elem.showIcon = v; WidgetForge:RebuildBarComponents(index) end); chkIcon:SetWidth(45); chkIcon:SetPoint("RIGHT", ddFont, "LEFT", -5, 0); chkIcon.box:SetSize(14, 14); chkIcon.label:SetFont(Skin.Constants.FONT_NORMAL, 10, "OUTLINE")
-            local chkTip = Skin:CreateCheckbox(item, "Tip", elem.showTooltip, function(v) elem.showTooltip = v; WidgetForge:RebuildBarComponents(index) end); chkTip:SetWidth(40); chkTip:SetPoint("RIGHT", chkIcon, "LEFT", -5, 0); chkTip.box:SetSize(14, 14); chkTip.label:SetFont(Skin.Constants.FONT_NORMAL, 10, "OUTLINE") 
+            slSz = Skin:CreateSlider(item, 8, 50, 1, elem.size, function(v) elem.size = v; WidgetForge:RebuildBarComponents(index) end, 70); slSz:SetPoint("RIGHT", btnCol, "LEFT", -15, 0)
+            ddOutline = Skin:CreateDropdown(item, 85, outlineList, elem.outline or "OUTLINE", function(v) elem.outline = v; WidgetForge:RebuildBarComponents(index) end); ddOutline:SetPoint("RIGHT", slSz, "LEFT", -10, 0) 
+            ddFont = Skin:CreateDropdown(item, 100, fontList, elem.font or "Standard", function(v) elem.font = v; WidgetForge:RebuildBarComponents(index) end); ddFont:SetPoint("RIGHT", ddOutline, "LEFT", -10, 0)
+            chkIcon = Skin:CreateCheckbox(item, "Icon", elem.showIcon, function(v) elem.showIcon = v; WidgetForge:RebuildBarComponents(index) end); chkIcon:SetWidth(45); chkIcon:SetPoint("RIGHT", ddFont, "LEFT", -5, 0); chkIcon.box:SetSize(14, 14); chkIcon.label:SetFont(Skin.Constants.FONT_NORMAL, 10, "OUTLINE")
+            chkTip = Skin:CreateCheckbox(item, "Tip", elem.showTooltip, function(v) elem.showTooltip = v; WidgetForge:RebuildBarComponents(index) end); chkTip:SetWidth(40); chkTip:SetPoint("RIGHT", chkIcon, "LEFT", -5, 0); chkTip.box:SetSize(14, 14); chkTip.label:SetFont(Skin.Constants.FONT_NORMAL, 10, "OUTLINE") 
             
             if bar.clickThrough then
                 chkTip:SetAlpha(0.5)
@@ -1041,12 +1038,11 @@ function Config:SelectBar(index)
             
             if elem.type == "Clock" then 
                 local fmtList = { {text="24h", value="24h"}, {text="12h", value="12h"} }; 
-                local ddFmt = Skin:CreateDropdown(item, 50, fmtList, elem.timeFormat or "24h", function(v) elem.timeFormat = v; WidgetForge:RebuildBarComponents(index) end); 
+                ddFmt = Skin:CreateDropdown(item, 50, fmtList, elem.timeFormat or "24h", function(v) elem.timeFormat = v; WidgetForge:RebuildBarComponents(index) end); 
                 ddFmt:SetPoint("RIGHT", chkTip, "LEFT", -5, 0) 
             elseif elem.type == "Gold" then
-                -- [YENİ] Gold için özel ayraç menüsü (Virgül, Nokta, Boşluk, Hiçbiri)
                 local sepList = { {text="10,000", value="COMMA"}, {text="10.000", value="DOT"}, {text="10 000", value="SPACE"}, {text="10000", value="NONE"} }
-                local ddSep = Skin:CreateDropdown(item, 70, sepList, elem.separator or "COMMA", function(v) elem.separator = v; WidgetForge:RebuildBarComponents(index) end)
+                ddSep = Skin:CreateDropdown(item, 70, sepList, elem.separator or "COMMA", function(v) elem.separator = v; WidgetForge:RebuildBarComponents(index) end)
                 ddSep:SetPoint("RIGHT", chkTip, "LEFT", -5, 0)
             end
         end
@@ -1359,7 +1355,6 @@ function Config:OpenDummySettings(barIndex, elemIndex, elem)
     local regions = {content:GetRegions()}
     for _, r in ipairs(regions) do r:Hide() end
     panel.header.title:SetText("Dummy Widget Settings")
-    -- (İçerik buradadır)
     local Skin = _G.ForgeSkin
     local y = -20
     Skin:CreateSectionHeader(content, "Test Controls", 600):SetPoint("TOPLEFT", 10, y)

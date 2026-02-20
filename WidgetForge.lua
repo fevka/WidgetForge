@@ -6,8 +6,6 @@ WidgetForge = {}
 local Bars = {} 
 function WidgetForge:GetBarFrames() return Bars end
 
--- Spec Data moved to WidgetConstants.lua
-
 -- Icons for Stats
 WidgetForge.StatIcons = {
     ["FPS"] = "Interface\\Icons\\Spell_Shadow_Teleport",
@@ -58,26 +56,25 @@ function WithSpace(str)
     if str and str ~= "" then return " " .. str else return "" end
 end
 
--- --- BAR MANAGEMENT ---
+local function NormalizeStr(str)
+    if not str then return "" end
+    return string.lower(string.gsub(str, "%s+", ""))
+end
 
+-- --- BAR MANAGEMENT ---
 function WidgetForge:IsBarRelevant(conf)
     if not conf then return false end
     if not conf.scope then return true end
 
-    local function normalize(str)
-        if not str then return "" end
-        return string.lower(string.gsub(str, "%s+", ""))
-    end
-
-    local myName = normalize(UnitName("player") .. "-" .. GetRealmName())
+    local myName = NormalizeStr(UnitName("player") .. "-" .. GetRealmName())
     
     if conf.scope.type == "CHARACTER" then
-        local scopeVal = normalize(conf.scope.value)
+        local scopeVal = NormalizeStr(conf.scope.value)
         if scopeVal ~= myName then return false end
         
     elseif conf.scope.type == "SPEC" then
         if conf.scope.character then
-             local scopeChar = normalize(conf.scope.character)
+             local scopeChar = NormalizeStr(conf.scope.character)
              if scopeChar ~= myName then return false end
         else
              return false 
@@ -185,7 +182,7 @@ function WidgetForge:UpdateAvailableBars()
                  if conf.showBorder == false then
                      f:SetBackdropBorderColor(0,0,0,0)
                  else
-                     local b = conf.borderColor or Skin.Colors.border
+                     local b = conf.borderColor or Skin.Colors.border or {1,1,1,1}
                      local size = conf.borderSize or 1
                      
                      local backdrop = {
@@ -205,6 +202,88 @@ function WidgetForge:UpdateAvailableBars()
             if Bars[index] then Bars[index]:Hide() end
         end
     end
+end
+
+-- --- MODULAR ELEMENT CREATION HELPERS ---
+local function CreateDividerElement(f, elem, i)
+    if elem.dividerMode == "TEXT" then
+        if not f.textsVal[i] then f.textsVal[i] = f:CreateFontString(nil, "OVERLAY") end
+        local tVal = f.textsVal[i]
+        tVal:Show()
+        tVal:SetFont("Fonts\\FRIZQT__.TTF", elem.size or 14, "OUTLINE") 
+        tVal:SetTextColor(unpack(elem.color or {1, 1, 1, 1}))
+        tVal:SetText(elem.dividerText or "|")
+    else
+        if not f.dividers then f.dividers = {} end
+        if not f.dividers[i] then f.dividers[i] = f:CreateTexture(nil, "OVERLAY") end
+        local div = f.dividers[i]
+        div:Show()
+        div:SetColorTexture(unpack(elem.color or {1, 1, 1, 1}))
+    end
+end
+
+local function LoadAddonWidget(f, elem, i, AddonRef, targetList)
+    if not AddonRef then return end
+    pcall(function()
+        local cw = AddonRef:Load(f, elem)
+        if cw then 
+            table.insert(f.customWidgets, cw)
+            if targetList then
+                if not f[targetList] then f[targetList] = {} end
+                f[targetList][i] = cw
+            end
+        end
+    end)
+end
+
+local function CreateTextAndIconElement(f, elem, i, isSplit, hbEnabled)
+    if not f.textsVal[i] then f.textsVal[i] = f:CreateFontString(nil, "OVERLAY") end
+    local tVal = f.textsVal[i]
+    tVal:Show()
+    
+    local fontPath = (elem.font and Skin.Media.Fonts[elem.font]) or "Fonts\\FRIZQT__.TTF"
+    tVal:SetFont(fontPath, elem.size or 14, elem.outline or "OUTLINE")
+    tVal:SetTextColor(unpack(elem.color or {1, 1, 1, 1}))
+    
+    if isSplit then
+        if not f.textsLbl[i] then f.textsLbl[i] = f:CreateFontString(nil, "OVERLAY") end
+        local tLbl = f.textsLbl[i]
+        tLbl:Show()
+        tLbl:SetFont(fontPath, elem.size or 14, elem.outline or "OUTLINE") 
+        tLbl:SetTextColor(unpack(elem.color or {1, 1, 1, 1}))
+    end
+
+    if elem.showIcon then
+        if not f.icons[i] then f.icons[i] = f:CreateTexture(nil, "OVERLAY") end
+        local icon = f.icons[i]
+        local typeToIcon = (elem.type == "Main Stat") and (ForgeStats.ActiveMainStat or "Strength") or elem.type
+        local iconPath = WidgetForge.StatIcons[typeToIcon] or "Interface\\Icons\\INV_Misc_QuestionMark"
+        if typeToIcon == "Talent Loadout" and ForgeStats.Data and ForgeStats.Data["Talent Loadout Icon"] then
+            iconPath = ForgeStats.Data["Talent Loadout Icon"]
+        end
+        icon:Show()
+        icon:SetTexture(iconPath)
+        icon:SetSize(elem.size or 14, elem.size or 14) 
+    end
+
+    if not f.hitboxes then f.hitboxes = {} end
+    if not f.hitboxes[i] then 
+        local hb = CreateFrame("Frame", nil, f)
+        hb:SetScript("OnLeave", function(self) GameTooltip:Hide() end)
+        f.hitboxes[i] = hb
+    end
+    
+    -- STALE CLOSURE HATASI ÇÖZÜLDÜ:
+    -- OnEnter fonksiyonu 'if not f.hitboxes[i] then' şartının dışına alındı.
+    -- Böylece elementin tipi veya özellikleri her değiştiğinde bu fonksiyon 
+    -- güncel element verisiyle (elem) yeniden oluşturulur ve hafızada takılı kalmaz.
+    f.hitboxes[i]:SetScript("OnEnter", function(self)
+        if elem.showTooltip == false then return end 
+        ForgeStats:AddTooltip(self, elem.type, elem)
+    end)
+    
+    f.hitboxes[i]:EnableMouse(hbEnabled)
+    f.hitboxes[i]:Show() 
 end
 
 function WidgetForge:RebuildBarComponents(index)
@@ -227,6 +306,9 @@ function WidgetForge:RebuildBarComponents(index)
         end
     end
     f.customWidgets = {}
+    
+    f.statCache = {} 
+    f.maxKnownWidths = {} 
     
     for _, t in pairs(f.textsVal) do t:Hide() end
     for _, t in pairs(f.textsLbl) do t:Hide() end
@@ -266,146 +348,29 @@ function WidgetForge:RebuildBarComponents(index)
             end
         end
 
-        if shouldHide then
-            if f.textsVal[i] then f.textsVal[i]:Hide() end
-            if f.textsLbl[i] then f.textsLbl[i]:Hide() end
-            if f.icons[i] then f.icons[i]:Hide() end
-            if f.hitboxes and f.hitboxes[i] then f.hitboxes[i]:Hide() end
-            if f.dividers and f.dividers[i] then f.dividers[i]:Hide() end
-            if f.dragonFrames and f.dragonFrames[i] then f.dragonFrames[i]:Hide() end
-            if f.codeFrames and f.codeFrames[i] then f.codeFrames[i]:Hide() end
-            if f.castFrames and f.castFrames[i] then f.castFrames[i]:Hide() end
-        elseif elem.type == "Divider" then
-            if elem.dividerMode == "TEXT" then
-                if not f.textsVal[i] then f.textsVal[i] = f:CreateFontString(nil, "OVERLAY") end
-                local tVal = f.textsVal[i]
-                tVal:Show()
-                tVal:SetFont("Fonts\\FRIZQT__.TTF", elem.size or 14, "OUTLINE") 
-                tVal:SetTextColor(unpack(elem.color or {1, 1, 1, 1}))
-                tVal:SetText(elem.dividerText or "|")
-            else
-                if not f.dividers then f.dividers = {} end
-                if not f.dividers[i] then f.dividers[i] = f:CreateTexture(nil, "OVERLAY") end
-                local div = f.dividers[i]
-                div:Show()
-                div:SetColorTexture(unpack(elem.color or {1, 1, 1, 1}))
-            end
-        elseif elem.type == "Cursor Ring" then
-            pcall(function()
-                local ring = WidgetForge:CreateCursorRing(f, elem)
-                if ring then table.insert(f.customWidgets, ring) end
-            end)
-        elseif elem.type == "Retirement Home" then
-            if WidgetForge.RetirementHome then
-                 pcall(function()
-                     local cw = WidgetForge.RetirementHome:Load(f, elem)
-                     if cw then table.insert(f.customWidgets, cw) end
-                 end)
-            end
-        elseif elem.type == "Mythic+ Dashboard" then
-            if addonTable.MythicPlus then
-                 pcall(function()
-                     local cw = addonTable.MythicPlus:Load(f, elem)
-                     if cw then table.insert(f.customWidgets, cw) end
-                 end)
-            end
-        elseif elem.type == "Dragonriding" then
-            if addonTable.Dragonriding then
-                 pcall(function()
-                     local cw = addonTable.Dragonriding:Load(f, elem)
-                     if cw then 
-                        table.insert(f.customWidgets, cw)
-                        if not f.dragonFrames then f.dragonFrames = {} end
-                        f.dragonFrames[i] = cw
-                     end
-                 end)
-            end
-        elseif elem.type == "Skill Stream" then
-            if addonTable.SkillStream then
-                 pcall(function()
-                     local cw = addonTable.SkillStream:Load(f, elem)
-                     if cw then table.insert(f.customWidgets, cw) end
-                 end)
-            end
-        elseif elem.type == "Target Castbar" then
-            if addonTable.TargetCastbar then
-                 pcall(function()
-                     local cw = addonTable.TargetCastbar:Load(f, elem)
-                     if cw then 
-                         table.insert(f.customWidgets, cw) 
-                         if not f.castFrames then f.castFrames = {} end
-                         f.castFrames[i] = cw
-                     end
-                 end)
-            end
-        elseif elem.type == "Custom Code" then
-            if addonTable.CustomCode then
-                 pcall(function()
-                     local cw = addonTable.CustomCode:Load(f, elem)
-                     if cw then 
-                        table.insert(f.customWidgets, cw) 
-                        if not f.codeFrames then f.codeFrames = {} end
-                        f.codeFrames[i] = cw
-                     end
-                 end)
-            end
-        else
-            if not f.textsVal[i] then f.textsVal[i] = f:CreateFontString(nil, "OVERLAY") end
-            local tVal = f.textsVal[i]
-            tVal:Show()
-            local fontPath = Skin.Media.Fonts[elem.font] or "Fonts\\FRIZQT__.TTF"
-            tVal:SetFont(fontPath, elem.size, elem.outline)
-            
-            tVal:SetText("test")
-            if tVal:GetStringWidth() == 0 then
-                 tVal:SetFont("Fonts\\FRIZQT__.TTF", elem.size, elem.outline)
-            end
-            tVal:SetText("")
-
-            tVal:SetTextColor(unpack(elem.color or {1, 1, 1, 1}))
-            
-            if isSplit then
-                 if not f.textsLbl[i] then f.textsLbl[i] = f:CreateFontString(nil, "OVERLAY") end
-                 local tLbl = f.textsLbl[i]
-                 tLbl:Show()
-                 tLbl:SetFont(fontPath, elem.size, elem.outline) 
-                 tLbl:SetText("test")
-                 if tLbl:GetStringWidth() == 0 then tLbl:SetFont("Fonts\\FRIZQT__.TTF", elem.size, elem.outline) end
-                 tLbl:SetText("")
-                 
-                 tLbl:SetTextColor(unpack(elem.color or {1, 1, 1, 1}))
-            end
-    
-            if elem.showIcon then
-                if not f.icons[i] then f.icons[i] = f:CreateTexture(nil, "OVERLAY") end
-                local icon = f.icons[i]
-                local typeToIcon = elem.type
-                if typeToIcon == "Main Stat" then typeToIcon = ForgeStats.ActiveMainStat or "Strength" end
-                local iconPath = WidgetForge.StatIcons[typeToIcon] or "Interface\\Icons\\INV_Misc_QuestionMark"
-                
-                if typeToIcon == "Talent Loadout" and ForgeStats.Data and ForgeStats.Data["Talent Loadout Icon"] then
-                    iconPath = ForgeStats.Data["Talent Loadout Icon"]
-                end
-
-                icon:Show()
-                icon:SetTexture(iconPath)
-                icon:SetSize(elem.size, elem.size) 
-            end
-    
-            if not f.hitboxes then f.hitboxes = {} end
-            if not f.hitboxes[i] then 
-                local hb = CreateFrame("Frame", nil, f)
-                hb:EnableMouse(hbEnabled)
-                hb:SetScript("OnEnter", function(self)
-                    if not elem.showTooltip then return end 
-                    ForgeStats:AddTooltip(self, elem.type, elem)
+        if not shouldHide then
+            if elem.type == "Divider" then
+                CreateDividerElement(f, elem, i)
+            elseif elem.type == "Cursor Ring" then
+                pcall(function()
+                    local ring = WidgetForge:CreateCursorRing(f, elem)
+                    if ring then table.insert(f.customWidgets, ring) end
                 end)
-                hb:SetScript("OnLeave", function(self) GameTooltip:Hide() end)
-                f.hitboxes[i] = hb
+            elseif elem.type == "Retirement Home" then
+                if WidgetForge.RetirementHome then LoadAddonWidget(f, elem, i, WidgetForge.RetirementHome, nil) end
+            elseif elem.type == "Mythic+ Dashboard" then
+                if addonTable.MythicPlus then LoadAddonWidget(f, elem, i, addonTable.MythicPlus, nil) end
+            elseif elem.type == "Dragonriding" then
+                if addonTable.Dragonriding then LoadAddonWidget(f, elem, i, addonTable.Dragonriding, "dragonFrames") end
+            elseif elem.type == "Skill Stream" then
+                if addonTable.SkillStream then LoadAddonWidget(f, elem, i, addonTable.SkillStream, nil) end
+            elseif elem.type == "Target Castbar" then
+                if addonTable.TargetCastbar then LoadAddonWidget(f, elem, i, addonTable.TargetCastbar, "castFrames") end
+            elseif elem.type == "Custom Code" then
+                if addonTable.CustomCode then LoadAddonWidget(f, elem, i, addonTable.CustomCode, "codeFrames") end
             else
-                f.hitboxes[i]:EnableMouse(hbEnabled)
+                CreateTextAndIconElement(f, elem, i, isSplit, hbEnabled)
             end
-            f.hitboxes[i]:Show() 
         end
     end
 
@@ -426,7 +391,7 @@ function WidgetForge:RebuildBarComponents(index)
             end
             f.titleHeader:Show()
             f.titleHeader.text:SetText(conf.name)
-            local bc = conf.borderColor or Skin.Colors.border
+            local bc = conf.borderColor or Skin.Colors.border or {1,1,1,1}
             f.titleHeader:SetBackdropBorderColor(bc[1], bc[2], bc[3], (conf.showBorder~=false) and 1 or 0)
         elseif f.titleHeader then
             f.titleHeader:Hide()
@@ -451,7 +416,6 @@ function WidgetForge:RebuildBarComponents(index)
             
             d:SetScript("OnMouseUp", function(self)
                 self.isDragging = false
-                
                 local point, _, relativePoint, x, y = f:GetPoint()
                 local currentConf = WidgetForgeDB.bars[f.index]
                 if currentConf then
@@ -460,10 +424,7 @@ function WidgetForge:RebuildBarComponents(index)
                     currentConf.x = x
                     currentConf.y = y
                 end
-                
-                if ForgeConfig and ForgeConfig.UpdateCoordinates then
-                    ForgeConfig:UpdateCoordinates(f.index)
-                end
+                if ForgeConfig and ForgeConfig.UpdateCoordinates then ForgeConfig:UpdateCoordinates(f.index) end
             end)
             
             d:SetScript("OnUpdate", function(self)
@@ -471,10 +432,8 @@ function WidgetForge:RebuildBarComponents(index)
                     local mX, mY = GetCursorPosition()
                     local s = f:GetEffectiveScale()
                     local curX, curY = mX / s, mY / s
-                    
                     local diffX = curX - self.startX
                     local diffY = curY - self.startY
-                    
                     local p = self.startPoint
                     f:ClearAllPoints()
                     f:SetPoint(p[1], p[2], p[3], p[4] + diffX, p[5] + diffY)
@@ -499,7 +458,7 @@ function WidgetForge:RebuildBarComponents(index)
         if f.dragButton then f.dragButton:Hide() end
     end
     
-    WidgetForge:UpdateBarValues(index)
+    WidgetForge:UpdateBarValues(index, true) 
 end
 
 function WidgetForge:SetSelectedBar(index)
@@ -517,7 +476,7 @@ function WidgetForge:SetSelectedBar(index)
     end
 end
 
-function WidgetForge:UpdateBarValues(index)
+function WidgetForge:UpdateBarValues(index, forceLayout)
     local f = Bars[index]
     local conf = WidgetForgeDB.bars[index]
     if not f or not conf then return end
@@ -525,12 +484,58 @@ function WidgetForge:UpdateBarValues(index)
     local justify = conf.justify or "CENTER"
     local isSplit = (conf.layout == "VERTICAL" and justify ~= "CENTER")
     
+    if not f.statCache then f.statCache = {} end
+    local layoutNeedsUpdate = forceLayout or false
+    
+    local fetchedValues = {}
+    for i, elem in ipairs(conf.elements) do
+        if not (elem.type == "Divider" or elem.type == "Custom Code" or elem.type == "Dragonriding" or elem.type == "Target Castbar" or elem.type == "Skill Stream" or elem.type == "Cursor Ring" or elem.type == "Retirement Home" or elem.type == "Mythic+ Dashboard") then
+            local valStr, lblStr = "---", ""
+            if ForgeStats and ForgeStats.GetStat then
+                valStr, lblStr = ForgeStats:GetStat(elem.type) 
+            end
+            
+            if elem.type == "Clock" then
+                 local fmt = elem.timeFormat or "24h"
+                 if fmt == "12h" then valStr = date("%I:%M %p") else valStr = date("%H:%M") end 
+            elseif elem.type == "Gold" then
+                 local money = GetMoney() or 0
+                 local gold = math.floor(money / 10000)
+                 local sep = elem.separator or "COMMA"
+                 local s = ""
+                 if sep == "COMMA" then s = "," elseif sep == "DOT" then s = "." elseif sep == "SPACE" then s = " " end
+                 
+                 local formatted = tostring(gold)
+                 if s ~= "" then
+                     while true do
+                         local k
+                         formatted, k = string.gsub(formatted, "^(-?%d+)(%d%d%d)", '%1'..s..'%2')
+                         if k == 0 then break end
+                     end
+                 end
+                 valStr = formatted
+            end
+            
+            if valStr == nil then valStr = "---" end
+            if lblStr == nil then lblStr = "" end
+            
+            local fullText = isSplit and valStr or (valStr .. WithSpace(lblStr))
+            fetchedValues[i] = {val = valStr, lbl = lblStr, full = fullText}
+            
+            if f.statCache[i] ~= fullText then
+                f.statCache[i] = fullText
+                layoutNeedsUpdate = true 
+            end
+        end
+    end
+
+    if not layoutNeedsUpdate then return end
+
     local maxFontSize = 12
     for _, elem in ipairs(conf.elements) do
         if elem.size and elem.size > maxFontSize then maxFontSize = elem.size end
     end
-    local valueColWidth = math.max(40, maxFontSize * 3) 
-
+    
     local totalH = 0
     local totalW = 0
     local titleHeight = (conf.showTitle) and 20 or 0
@@ -558,13 +563,6 @@ function WidgetForge:UpdateBarValues(index)
                   else elemWidth = size; elemHeight = thk end 
              end
              
-             if conf.layout == "VERTICAL" then
-                totalH = totalH + elemHeight
-                if i > 1 then totalH = totalH + conf.padding end
-             else
-                totalW = totalW + elemWidth
-                if i > 1 then totalW = totalW + conf.padding end
-             end
         elseif elem.type == "Dragonriding" then
             local df = f.dragonFrames and f.dragonFrames[i]
             if df and addonTable.Dragonriding then
@@ -572,36 +570,14 @@ function WidgetForge:UpdateBarValues(index)
                      addonTable.Dragonriding:UpdateVisuals(df, elem)
                 end
             end
-            
-            local wW = elem.widgetWidth or 300
-            local wH = elem.widgetHeight or 45
-            if conf.layout == "VERTICAL" then
-                totalH = totalH + wH
-                if i > 1 then totalH = totalH + conf.padding end
-            else
-                totalW = totalW + wW
-                if i > 1 then totalW = totalW + conf.padding end
-            end
+            elemWidth = elem.widgetWidth or 300
+            elemHeight = elem.widgetHeight or 45
         elseif elem.type == "Target Castbar" then
-            local wW = elem.widgetWidth or 200
-            local wH = elem.widgetHeight or 25
-            if conf.layout == "VERTICAL" then
-                totalH = totalH + wH
-                if i > 1 then totalH = totalH + conf.padding end
-            else
-                totalW = totalW + wW
-                if i > 1 then totalW = totalW + conf.padding end
-            end
+            elemWidth = elem.widgetWidth or 200
+            elemHeight = elem.widgetHeight or 25
         elseif elem.type == "Custom Code" then
-            local wW = elem.widgetWidth or 100
-            local wH = elem.widgetHeight or 30
-            if conf.layout == "VERTICAL" then
-                totalH = totalH + wH
-                if i > 1 then totalH = totalH + conf.padding end
-            else
-                totalW = totalW + wW
-                if i > 1 then totalW = totalW + conf.padding end
-            end
+            elemWidth = elem.widgetWidth or 100
+            elemHeight = elem.widgetHeight or 30
         elseif elem.type == "Skill Stream" then
             local limit = elem.iconLimit or 5
             local size = elem.iconSize or 32
@@ -610,103 +586,72 @@ function WidgetForge:UpdateBarValues(index)
             
             local streamLength = (limit * size) + ((limit - 1) * spacing)
             
-            if conf.layout == "VERTICAL" then
-                if direction == "TOP_TO_BOTTOM" or direction == "BOTTOM_TO_TOP" then
-                    totalH = totalH + streamLength
-                else
-                    totalH = totalH + size
-                end
-                if i > 1 then totalH = totalH + conf.padding end
+            if direction == "TOP_TO_BOTTOM" or direction == "BOTTOM_TO_TOP" then
+                elemWidth = size; elemHeight = streamLength
             else
-                if direction == "RIGHT_TO_LEFT" or direction == "LEFT_TO_RIGHT" then
-                    totalW = totalW + streamLength
-                else
-                    totalW = totalW + size
-                end
-                if i > 1 then totalW = totalW + conf.padding end
+                elemWidth = streamLength; elemHeight = size
             end
         elseif elem.type == "Cursor Ring" or elem.type == "Retirement Home" or elem.type == "Mythic+ Dashboard" then
             -- Handled
         else
-            local valStr, lblStr = ForgeStats:GetStat(elem.type) 
-            if elem.type == "Clock" then
-                 local fmt = elem.timeFormat or "24h"
-                 if fmt == "12h" then valStr = date("%I:%M %p") else valStr = date("%H:%M") end 
-            elseif elem.type == "Gold" then
-                 local money = GetMoney() or 0
-                 local gold = math.floor(money / 10000)
-                 local sep = elem.separator or "COMMA"
-                 local s = ""
-                 if sep == "COMMA" then s = "," elseif sep == "DOT" then s = "." elseif sep == "SPACE" then s = " " end
-                 
-                 local formatted = tostring(gold)
-                 if s ~= "" then
-                     while true do
-                         local k
-                         formatted, k = string.gsub(formatted, "^(-?%d+)(%d%d%d)", '%1'..s..'%2')
-                         if k == 0 then break end
-                     end
-                 end
-                 valStr = formatted
-            end
-            if not lblStr then lblStr = "" end
-            
             local tVal = f.textsVal[i]
-            if tVal then
+            if tVal and fetchedValues[i] then
                 local icon = f.icons[i]
-                
-                if icon and elem.type == "Talent Loadout" and ForgeStats.Data["Talent Loadout Icon"] then
+                if icon and elem.type == "Talent Loadout" and ForgeStats.Data and ForgeStats.Data["Talent Loadout Icon"] then
                     icon:SetTexture(ForgeStats.Data["Talent Loadout Icon"])
                 end
 
-                local iconWidth = (elem.showIcon and icon) and (elem.size + 4) or 0
+                local iconWidth = (elem.showIcon and icon) and ((elem.size or 14) + 4) or 0
                 
-                local fullTextVal = valStr
-                if isSplit then
-                     local currentVal = tVal:GetText()
-                     if currentVal ~= fullTextVal then tVal:SetText(fullTextVal) end
-                     
-                     local tLbl = f.textsLbl[i]
-                     if tLbl then
-                         local currentLbl = tLbl:GetText()
-                         if currentLbl ~= lblStr then tLbl:SetText(lblStr) end
-                     end
+                local dummyVal = ""
+                if elem.type == "FPS" then dummyVal = "000"
+                elseif elem.type == "MS" then dummyVal = "0000"
+                elseif elem.type == "RAM" then dummyVal = "000.0"
+                elseif elem.type == "Combat Timer" then dummyVal = "00:00:00"
+                elseif elem.type == "Clock" then dummyVal = "00:00"
+                elseif elem.type == "Gold" then dummyVal = "00,000"
+                end
+                
+                local testText = ""
+                if dummyVal ~= "" then
+                    testText = isSplit and dummyVal or (dummyVal .. WithSpace(fetchedValues[i].lbl))
                 else
-                     local fullText = valStr .. WithSpace(lblStr)
-                     local currentFull = tVal:GetText()
-                     if currentFull ~= fullText then tVal:SetText(fullText) end
+                    testText = string.gsub(fetchedValues[i].full or "", "%d", "0")
                 end
                 
-                local currentText = tVal:GetText() or ""
-                local stableText = string.gsub(currentText, "%d", "0")
+                tVal:SetText(testText)
+                local measuredW = tVal:GetStringWidth()
                 
-                if elem.type == "FPS" then
-                    if isSplit then
-                        stableText = "000"
-                    else
-                        stableText = "000" .. WithSpace(lblStr)
-                    end
+                if not f.maxKnownWidths then f.maxKnownWidths = {} end
+                if not f.maxKnownWidths[i] or measuredW > f.maxKnownWidths[i] then
+                    f.maxKnownWidths[i] = measuredW
                 end
                 
-                tVal:SetText(stableText)
-                local stableContentW = tVal:GetStringWidth()
-                tVal:SetText(currentText) 
+                local lockedContentW = f.maxKnownWidths[i]
                 
-                local extraPadding = (elem.size or 12)
-                local activeW = stableContentW + extraPadding
+                if isSplit then
+                     tVal:SetText(fetchedValues[i].full)
+                     local tLbl = f.textsLbl[i]
+                     if tLbl then tLbl:SetText(fetchedValues[i].lbl) end
+                else
+                     tVal:SetText(fetchedValues[i].full)
+                end
                 
+                local activeW = lockedContentW + (elem.size or 12)
                 tVal:SetWidth(activeW)
                 tVal:SetJustifyH("CENTER") 
 
-                if conf.layout == "VERTICAL" then
-                    totalH = totalH + (elem.size or 12)
-                    if i > 1 then totalH = totalH + conf.padding end
-                else
-                    local w = activeW + iconWidth
-                    totalW = totalW + w
-                    if i > 1 then totalW = totalW + conf.padding end
-                end
+                elemWidth = activeW + iconWidth
+                elemHeight = elem.size or 12
             end
+        end
+        
+        if conf.layout == "VERTICAL" then
+            totalH = totalH + elemHeight
+            if i > 1 then totalH = totalH + conf.padding end
+        else
+            totalW = totalW + elemWidth
+            if i > 1 then totalW = totalW + conf.padding end
         end
     end
 
@@ -726,6 +671,7 @@ function WidgetForge:UpdateBarValues(index)
 
     local barWidth, barHeight = f:GetSize()
     
+    -- === POZİSYONLAMA ===
     if conf.layout == "VERTICAL" then
         local contentCenterY = -(titleHeight / 2)
         local startY = contentCenterY + (totalH / 2)
@@ -738,32 +684,18 @@ function WidgetForge:UpdateBarValues(index)
             if elem.type == "Divider" then
                  local size = elem.size or 20
                  local thk = elem.thickness or 2
-                 local style = elem.dividerStyle or "VERTICAL"
-                 
-                 if elem.dividerMode == "TEXT" then
-                      elemHeight = elem.size or 14
-                 else
-                      local isVertLayout = (conf.layout == "VERTICAL")
-                      local effectiveStyle = style
-                      if isVertLayout then effectiveStyle = "HORIZONTAL" end
-                      elemHeight = (effectiveStyle=="VERTICAL") and size or thk
-                 end
-            elseif elem.type == "Dragonriding" then
-                 elemHeight = elem.widgetHeight or 45
-            elseif elem.type == "Target Castbar" then
-                 elemHeight = elem.widgetHeight or 25
-            elseif elem.type == "Custom Code" then
-                 elemHeight = elem.widgetHeight or 30
+                 if elem.dividerMode == "TEXT" then elemHeight = elem.size or 14
+                 else elemHeight = thk end
+            elseif elem.type == "Dragonriding" then elemHeight = elem.widgetHeight or 45
+            elseif elem.type == "Target Castbar" then elemHeight = elem.widgetHeight or 25
+            elseif elem.type == "Custom Code" then elemHeight = elem.widgetHeight or 30
             elseif elem.type == "Skill Stream" then
                  local limit = elem.iconLimit or 5
                  local size = elem.iconSize or 32
                  local spacing = elem.spacing or 5
                  local dir = elem.direction or "RIGHT_TO_LEFT"
-                 if dir == "TOP_TO_BOTTOM" or dir == "BOTTOM_TO_TOP" then
-                     elemHeight = (limit * size) + ((limit - 1) * spacing)
-                 else
-                     elemHeight = size
-                 end
+                 if dir == "TOP_TO_BOTTOM" or dir == "BOTTOM_TO_TOP" then elemHeight = (limit * size) + ((limit - 1) * spacing)
+                 else elemHeight = size end
             else
                  elemHeight = elem.size or 12
             end
@@ -771,26 +703,16 @@ function WidgetForge:UpdateBarValues(index)
             local placementY = (currentY - (elemHeight / 2)) - offset
 
             if elem.type == "Divider" then
-                local size = elem.size or 20
-                local thk = elem.thickness or 2
-                local style = elem.dividerStyle or "VERTICAL"
-                
                 if elem.dividerMode == "TEXT" then
                      local tVal = f.textsVal[i]
-                     if tVal then
-                         tVal:ClearAllPoints()
-                         tVal:SetPoint("CENTER", f, "CENTER", 0, placementY)
-                     end
+                     if tVal then tVal:ClearAllPoints(); tVal:SetPoint("CENTER", f, "CENTER", 0, placementY) end
                 else
                      local div = f.dividers and f.dividers[i]
                      if div then
                          div:ClearAllPoints()
-                         local isVertLayout = (conf.layout == "VERTICAL")
-                         local effectiveStyle = style
-                         if isVertLayout then effectiveStyle = "HORIZONTAL" end
-                         local w = (effectiveStyle=="VERTICAL") and thk or size
-                         local h = (effectiveStyle=="VERTICAL") and size or thk
-                         div:SetSize(w, h)
+                         local thk = elem.thickness or 2
+                         local size = elem.size or 20
+                         div:SetSize(size, thk)
                          div:SetPoint("CENTER", f, "CENTER", 0, placementY)
                      end
                 end
@@ -799,16 +721,10 @@ function WidgetForge:UpdateBarValues(index)
             elseif elem.type == "Dragonriding" or elem.type == "Skill Stream" or elem.type == "Target Castbar" or elem.type == "Custom Code" then
                 if elem.type == "Custom Code" then
                     local cf = f.codeFrames and f.codeFrames[i]
-                    if cf then
-                        cf:ClearAllPoints()
-                        cf:SetPoint("CENTER", f, "CENTER", 0, placementY)
-                    end
+                    if cf then cf:ClearAllPoints(); cf:SetPoint("CENTER", f, "CENTER", 0, placementY) end
                 elseif elem.type == "Target Castbar" then
                     local cf = f.castFrames and f.castFrames[i]
-                    if cf then
-                        cf:ClearAllPoints()
-                        cf:SetPoint("CENTER", f, "CENTER", 0, placementY)
-                    end
+                    if cf then cf:ClearAllPoints(); cf:SetPoint("CENTER", f, "CENTER", 0, placementY) end
                 end
                 currentY = currentY - elemHeight
                 if i < #conf.elements then currentY = currentY - conf.padding end
@@ -818,7 +734,7 @@ function WidgetForge:UpdateBarValues(index)
                     local tLbl = isSplit and f.textsLbl[i] or nil
                     local icon = f.icons[i] 
                     local hb = f.hitboxes and f.hitboxes[i] 
-                    local iconOffset = (elem.showIcon and icon) and (elem.size + 4) or 0
+                    local iconOffset = (elem.showIcon and icon) and ((elem.size or 14) + 4) or 0
                     
                     tVal:ClearAllPoints()
                     if tLbl then tLbl:ClearAllPoints() end
@@ -826,29 +742,10 @@ function WidgetForge:UpdateBarValues(index)
                     if hb then hb:ClearAllPoints() end
     
                      tVal:SetWordWrap(false)
-                     local currentText = tVal:GetText() or ""
-                     local stableText = string.gsub(currentText, "%d", "0")
-                     
-                     if elem.type == "FPS" then
-                        local _, lbl = ForgeStats:GetStat(elem.type)
-                        if isSplit then
-                            stableText = "000"
-                        else
-                            stableText = "000" .. WithSpace(lbl)
-                        end
-                     end
-                     
-                     tVal:SetText(stableText)
-                     local stableContentW = tVal:GetStringWidth()
-                     tVal:SetText(currentText)
-                     
-                     local extraPadding = (elem.size or 12)
-                     local activeW = stableContentW + extraPadding
+                     local activeW = tVal:GetWidth()
     
                     if isSplit then
                         local centerGap = 2
-                        tVal:ClearAllPoints()
-                        tVal:SetWidth(stableContentW)
                         tVal:SetJustifyH("RIGHT")
                         tVal:SetPoint("RIGHT", f, "CENTER", -centerGap, placementY)
                         
@@ -864,39 +761,34 @@ function WidgetForge:UpdateBarValues(index)
                         end
                         
                         if hb then
-                            hb:SetSize(barWidth, math.max(16, elem.size))
+                            hb:SetSize(barWidth, math.max(16, elem.size or 14))
                             hb:SetPoint("CENTER", f, "CENTER", 0, placementY)
                         end
                     else
                         if justify == "LEFT" then
                             local margin = 15
-                            if icon then
-                                icon:SetPoint("LEFT", f, "LEFT", margin, placementY)
-                            end
+                            if icon then icon:SetPoint("LEFT", f, "LEFT", margin, placementY) end
                             tVal:SetPoint("LEFT", f, "LEFT", margin + iconOffset, placementY)
                             if hb then
                                 local w = activeW + iconOffset
-                                hb:SetSize(math.max(w, 20), math.max(16, elem.size)) 
+                                hb:SetSize(math.max(w, 20), math.max(16, elem.size or 14)) 
                                 hb:SetPoint("LEFT", f, "LEFT", margin, placementY)
                             end
                         elseif justify == "RIGHT" then
                              local margin = 5
                              tVal:SetPoint("RIGHT", f, "RIGHT", -margin, placementY)
-                             if icon then
-                                icon:SetPoint("RIGHT", tVal, "LEFT", -4, 0)
-                             end
+                             if icon then icon:SetPoint("RIGHT", tVal, "LEFT", -4, 0) end
                               if hb then
                                 local w = activeW + iconOffset
-                                hb:SetSize(math.max(w, 20), math.max(16, elem.size)) 
+                                hb:SetSize(math.max(w, 20), math.max(16, elem.size or 14)) 
                                 hb:SetPoint("RIGHT", f, "RIGHT", -margin, placementY)
                             end
                         else
-                            local w = activeW + iconOffset
-                            local startX = -(w/2)
+                            local startX = -((activeW + iconOffset)/2)
                             if icon then icon:SetPoint("LEFT", f, "CENTER", startX, placementY) end
                             tVal:SetPoint("LEFT", f, "CENTER", startX + iconOffset, placementY)
                             if hb then
-                                 hb:SetSize(math.max(w, 20), math.max(16, elem.size)) 
+                                 hb:SetSize(math.max(activeW + iconOffset, 20), math.max(16, elem.size or 14)) 
                                  hb:SetPoint("CENTER", f, "CENTER", 0, placementY)
                             end
                         end
@@ -923,7 +815,6 @@ function WidgetForge:UpdateBarValues(index)
             if elem.type == "Divider" then
                 local tVal = f.textsVal[i]
                 local div = f.dividers and f.dividers[i]
-                
                 local style = elem.dividerStyle or "VERTICAL"
                 local size = elem.size or 20
                 local thk = elem.thickness or 2
@@ -948,7 +839,6 @@ function WidgetForge:UpdateBarValues(index)
                          divWidth = w
                     end
                 end
-                
                 currentX = currentX + divWidth + conf.padding
             elseif elem.type == "Dragonriding" then
                 local df = f.dragonFrames and f.dragonFrames[i]
@@ -963,8 +853,7 @@ function WidgetForge:UpdateBarValues(index)
                      cf:ClearAllPoints()
                      cf:SetPoint("LEFT", f, "CENTER", placementX, currentY)
                  end
-                 local wW = elem.widgetWidth or 200
-                 currentX = currentX + wW + conf.padding
+                 currentX = currentX + (elem.widgetWidth or 200) + conf.padding
             elseif elem.type == "Custom Code" then
                  local cf = f.codeFrames and f.codeFrames[i]
                  if cf then
@@ -978,16 +867,14 @@ function WidgetForge:UpdateBarValues(index)
                  local spacing = elem.spacing or 5
                  local dir = elem.direction or "RIGHT_TO_LEFT"
                  local streamW = size
-                 if dir == "RIGHT_TO_LEFT" or dir == "LEFT_TO_RIGHT" then
-                     streamW = (limit * size) + ((limit - 1) * spacing)
-                 end
+                 if dir == "RIGHT_TO_LEFT" or dir == "LEFT_TO_RIGHT" then streamW = (limit * size) + ((limit - 1) * spacing) end
                  currentX = currentX + streamW + conf.padding
             else
                 local tVal = f.textsVal[i]
                 if tVal then
                     local icon = f.icons[i]
                     local hb = f.hitboxes and f.hitboxes[i] 
-                    local iconOffset = (elem.showIcon and icon) and (elem.size + 4) or 0
+                    local iconOffset = (elem.showIcon and icon) and ((elem.size or 14) + 4) or 0
                     
                     tVal:ClearAllPoints()
                     if icon then icon:ClearAllPoints() end
@@ -997,27 +884,11 @@ function WidgetForge:UpdateBarValues(index)
                     tVal:SetWordWrap(false)
                     tVal:SetPoint("LEFT", f, "CENTER", placementX + iconOffset, currentY)
                     
-                    local currentText = tVal:GetText() or ""
-                    local stableText = string.gsub(currentText, "%d", "0")
-                    
-                    if elem.type == "FPS" then
-                        local _, lbl = ForgeStats:GetStat(elem.type)
-                        if isSplit then
-                            stableText = "000"
-                        else
-                            stableText = "000" .. WithSpace(lbl)
-                        end
-                    end
-                    
-                    tVal:SetText(stableText)
-                    local stableContentW = tVal:GetStringWidth()
-                    tVal:SetText(currentText)
-                    
-                    local extraPadding = (elem.size or 12)
-                    local w = stableContentW + extraPadding + iconOffset
+                    local activeW = tVal:GetWidth()
+                    local w = activeW + iconOffset
 
                     if hb then
-                        hb:SetSize(w, math.max(16, elem.size)) 
+                        hb:SetSize(w, math.max(16, elem.size or 14)) 
                         hb:SetPoint("LEFT", f, "CENTER", placementX, currentY)
                     end
                     currentX = currentX + w + conf.padding
@@ -1039,7 +910,7 @@ updateFrame:SetScript("OnUpdate", function(self, elapsed)
             for index, conf in ipairs(WidgetForgeDB.bars) do
                 local f = Bars[index]
                 if f and f:IsShown() then
-                    WidgetForge:UpdateBarValues(index)
+                    WidgetForge:UpdateBarValues(index, false)
                 end
             end
         end
@@ -1062,15 +933,17 @@ loadFrame:SetScript("OnEvent", function(self, event, arg1)
         if type(WidgetForgeDB.presets) ~= "table" then WidgetForgeDB.presets = {} end
         
         WidgetForgeUtils:MigrateDatabase(WidgetForgeDB)
+        
+        if ForgeStats and ForgeStats.Initialize then ForgeStats:Initialize() end
+        
         WidgetForge:UpdateAvailableBars()
         WidgetForge:SetBarsLocked(true)
-        ForgeStats:Initialize()
         
         print("|cff00ccffWidgetForge|r v" .. WIDGETFORGE_CONSTANTS.VERSION .. " Loaded. Type |cff00ccff/wf|r to configure.")
     elseif event == "PLAYER_REGEN_DISABLED" then
-        ForgeStats.CombatStart = GetTime()
+        if ForgeStats then ForgeStats.CombatStart = GetTime() end
     elseif event == "PLAYER_REGEN_ENABLED" then
-        ForgeStats.CombatStart = nil
+        if ForgeStats then ForgeStats.CombatStart = nil end
     elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
         WidgetForge:UpdateAvailableBars()
     elseif event == "PLAYER_ENTERING_WORLD" then

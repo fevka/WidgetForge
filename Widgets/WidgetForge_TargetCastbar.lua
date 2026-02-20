@@ -429,41 +429,13 @@ function TargetCastbar:CreateSettings(parentFrame)
         end
     end
 
-    -- [GRUP 1] BAR AYARLARI 
-    sb:AddHeader("Bar Settings")
-    sb:AddSlider("barWidth", "Bar Width", 50, 600, 5, 200, elem, RefreshLive)
-    sb:AddSlider("barHeight", "Bar Height", 10, 60, 1, 25, elem, RefreshLive)
-    sb:AddSlider("barBorderSize", "Border Thickness (0 to Disable)", 0, 5, 1, 1, elem, RefreshLive)
-    sb:AddSlider("barBgAlpha", "Background Alpha (%)", 0, 100, 5, 80, elem, RefreshLive)
-    sb:AddColor("barBorderColor", "Bar Border Color", {0.3, 0.3, 0.3, 1}, elem, RefreshLive)
-    sb:AddColor("textColor", "Text Color", {1, 1, 1, 1}, elem, RefreshLive)
-
-    -- [GRUP 2] İKON AYARLARI (TAM İSTENEN SIRADA)
-    sb:AddHeader("Icon Settings")
-    
-    -- 1. Satır
-    sb:AddCheckbox("showIcon", "Show Spell Icon", true, elem, RefreshLive)
-    sb:AddSlider("iconSpacing", "Spacing from Bar", 0, 50, 1, 5, elem, RefreshLive)
-    
-    -- 2. Satır
-    sb:AddSlider("iconSize", "Icon Size", 10, 100, 1, 25, elem, RefreshLive)
-    sb:AddSlider("iconZoom", "Icon Zoom (Crop Default Blizzard Border)", 0, 0.20, 0.01, 0.08, elem, RefreshLive)
-    
-    -- 3. Satır
-    sb:AddColor("iconBorderColor", "Icon Border Color", {0.3, 0.3, 0.3, 1}, elem, RefreshLive)
-    sb:AddSlider("iconBorderSize", "Border Thickness (0 to Disable)", 0, 5, 1, 1, elem, RefreshLive)
-
-    -- [GRUP 3] DOKU VE TİPOGRAFİ
-    sb:AddHeader("Textures & Typography")
-    sb:AddSlider("fontSize", "Font Size", 8, 36, 1, 12, elem, RefreshLive)
-    
+    -- Doku (Texture) ve Font listelerini dropdownlar için önceden hazırla
     local texItems = {}
     if Skin and Skin.Media and Skin.Media.Textures then 
         for k, _ in pairs(Skin.Media.Textures) do table.insert(texItems, {text=tostring(k), value=k}) end 
     end
     if #texItems == 0 then texItems = {{text="Default", value="Smooth"}} 
     else table.sort(texItems, function(a,b) return a.text < b.text end) end
-    sb:AddDropdown("texture", "Bar Texture", texItems, "Smooth", elem, RefreshLive)
 
     local fontItems = {}
     if Skin and Skin.Media and Skin.Media.Fonts then 
@@ -471,10 +443,40 @@ function TargetCastbar:CreateSettings(parentFrame)
     end
     if #fontItems == 0 then fontItems = {{text="Default", value="Fonts\\FRIZQT__.TTF"}} 
     else table.sort(fontItems, function(a,b) return a.text < b.text end) end
+
+    -- [GRUP 1] BAR & TEXT AYARLARI (Birleştirilmiş Grup)
+    sb:AddHeader("Bar & Text Settings")
+    
+    -- Satır 1
+    sb:AddSlider("barHeight", "Bar Height", 10, 60, 1, 25, elem, RefreshLive)
+    sb:AddSlider("barWidth", "Bar Width", 50, 600, 5, 200, elem, RefreshLive)
+    
+    -- Satır 2
+    sb:AddSlider("barBgAlpha", "Background Alpha (%)", 0, 100, 5, 80, elem, RefreshLive)
+    sb:AddDropdown("texture", "Bar Texture", texItems, "Smooth", elem, RefreshLive)
+    
+    -- Satır 3
+    sb:AddColor("barBorderColor", "Bar Border Color", {0.3, 0.3, 0.3, 1}, elem, RefreshLive)
+    sb:AddSlider("barBorderSize", "Border Thickness (0 to Disable)", 0, 5, 1, 1, elem, RefreshLive)
+    
+    -- Satır 4
+    sb:AddSlider("fontSize", "Font Size", 8, 36, 1, 12, elem, RefreshLive)
     sb:AddDropdown("font", "Font Style", fontItems, "Friz Quadrata", elem, RefreshLive)
+    
+    -- Satır 5
+    sb:AddColor("textColor", "Text Color", {1, 1, 1, 1}, elem, RefreshLive)
     sb:AddDropdown("fontOutline", "Font Outline", { {text="None", value=""}, {text="Outline", value="OUTLINE"}, {text="Thick Outline", value="THICKOUTLINE"} }, "OUTLINE", elem, RefreshLive)
 
-    -- [GRUP 4] DURUM RENKLERİ
+    -- [GRUP 2] İKON AYARLARI
+    sb:AddHeader("Icon Settings")
+    sb:AddCheckbox("showIcon", "Show Spell Icon", true, elem, RefreshLive)
+    sb:AddSlider("iconSpacing", "Spacing from Bar", 0, 50, 1, 5, elem, RefreshLive)
+    sb:AddSlider("iconSize", "Icon Size", 10, 100, 1, 25, elem, RefreshLive)
+    sb:AddSlider("iconZoom", "Icon Zoom (Crop Border)", 0, 0.20, 0.01, 0.08, elem, RefreshLive)
+    sb:AddColor("iconBorderColor", "Icon Border Color", {0.3, 0.3, 0.3, 1}, elem, RefreshLive)
+    sb:AddSlider("iconBorderSize", "Border Thickness (0 to Disable)", 0, 5, 1, 1, elem, RefreshLive)
+
+    -- [GRUP 3] DURUM RENKLERİ
     sb:AddHeader("Status Colors")
     sb:AddColor("colorReady", "1. Can Interrupt (Ready)", {1.0, 0.72, 0.04, 1}, elem, RefreshLive)
     sb:AddColor("colorSuccess", "2. Interrupted (Success)", {0.1, 1.0, 0.3, 1}, elem, RefreshLive)

@@ -154,7 +154,6 @@ function WidgetForgeUtils:MigrateDatabase(db)
     WIDGETFORGE_DEBUG("Database migrated to version", db.version)
 end
 
-
 -- =========================================================================
 --  SETTINGS BUILDER (POOLED UI)
 -- =========================================================================
@@ -181,9 +180,6 @@ function WidgetForgeUtils:CreateSettingsBuilder(canvas)
     sb.y = -10
     
     -- Dynamic Grid System
-    -- Panel Width ~640, ScrollBar ~25-30. Content Width ~600-610.
-    -- We want 2 columns with ~20px gap.
-    -- User Requested +3px padding on sides.
     local totalW = 600
     local colW = 290
     local gap = 20
@@ -204,12 +200,30 @@ function SB:Release()
         c:SetParent(UIParent) -- Detach
         c:ClearAllPoints()
         
-        if c.type == "Slider" then table.insert(Pool.sliders, c)
-        elseif c.type == "Checkbox" then table.insert(Pool.checkboxes, c)
-        elseif c.type == "Dropdown" then table.insert(Pool.dropdowns, c)
-        elseif c.type == "Color" then table.insert(Pool.colors, c)
-        elseif c.type == "Button" then table.insert(Pool.buttons, c)
-        elseif c.type == "Header" then table.insert(Pool.headers, c)
+        -- ÖNEMLİ: Bellek sızıntısını ve eski eventlerin tetiklenmesini önlemek için temizlik
+        c.callback = nil
+        
+        if c.type == "Slider" then 
+            -- HATA BURADAYDI: Custom frame olduğu için OnValueChanged scripti yok.
+            -- Zaten c.callback = nil ile bağı kopardık, o yüzden SetScript'e gerek yok.
+            table.insert(Pool.sliders, c)
+        elseif c.type == "Checkbox" then 
+            table.insert(Pool.checkboxes, c)
+        elseif c.type == "Dropdown" then 
+            table.insert(Pool.dropdowns, c)
+        elseif c.type == "Color" then 
+            if c.swatchBtn and c.swatchBtn:HasScript("OnClick") then 
+                c.swatchBtn:SetScript("OnClick", nil) 
+            end
+            table.insert(Pool.colors, c)
+        elseif c.type == "Button" then 
+            -- Güvenlik önlemi: Eğer script desteklemiyorsa çökmesini engeller
+            if c:HasScript("OnClick") then 
+                c:SetScript("OnClick", nil) 
+            end
+            table.insert(Pool.buttons, c)
+        elseif c.type == "Header" then 
+            table.insert(Pool.headers, c)
         end
     end
     self.controls = {}
@@ -334,7 +348,7 @@ function SB:AddColor(key, label, defaultVal, configTable, callback)
     local val = configTable[key] or defaultVal
     
     local c = GetControl(Pool.colors, function(p)
-        -- Row Container (Change from Button to Frame to disable row-wide clicking)
+        -- Row Container
         local row = CreateFrame("Frame", nil, p, "BackdropTemplate")
         row:SetSize(200, 30) 
         
@@ -344,7 +358,7 @@ function SB:AddColor(key, label, defaultVal, configTable, callback)
         row.swatch:SetPoint("LEFT", 0, 0)
         row.swatch:SetColorTexture(1, 1, 1, 1)
         
-        -- Swatch Border/Button (The only interactive part)
+        -- Swatch Border/Button
         local swatchBtn = CreateFrame("Button", nil, row, "BackdropTemplate")
         swatchBtn:SetAllPoints(row.swatch)
         if ForgeSkin.ApplyBackdrop then ForgeSkin:ApplyBackdrop(swatchBtn, 0, 1) end
@@ -354,7 +368,7 @@ function SB:AddColor(key, label, defaultVal, configTable, callback)
         swatchBtn:SetScript("OnEnter", function(self) self:SetBackdropBorderColor(unpack(ForgeSkin.Colors.accent)) end)
         swatchBtn:SetScript("OnLeave", function(self) self:SetBackdropBorderColor(unpack(ForgeSkin.Colors.border)) end)
         
-        -- Label (Moved Right)
+        -- Label
         row.label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         row.label:SetPoint("LEFT", row.swatch, "RIGHT", 10, 0)
         row.label:SetJustifyH("LEFT")
@@ -390,11 +404,9 @@ function SB:AddColor(key, label, defaultVal, configTable, callback)
     -- Init Visuals
     if val then c.swatch:SetColorTexture(unpack(val)) end
     
-    -- Position: Match Checkbox alignment (y-10)
     c:SetPoint("TOPLEFT", x, self.y - 10)
     table.insert(self.controls, c)
     
-    -- Height: Match Slider's 50px consumption
     if self.isRight then self.y = self.y - 50 end 
     self.isRight = not self.isRight
 end
