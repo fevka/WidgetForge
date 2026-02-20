@@ -15,7 +15,6 @@ CustomCode.Instances = {}
 -- --- WIDGET YÜKLEME ---
 function CustomCode:Load(parent, elem)
     local container = CreateFrame("Frame", nil, parent)
-    -- Kullanıcının belirlediği kutu boyutu
     container:SetSize(elem.widgetWidth or 100, elem.widgetHeight or 30)
     container.elem = elem
     
@@ -35,7 +34,6 @@ function CustomCode:Load(parent, elem)
     local compiledFunc = nil
     local compileError = nil
     
-    -- Kodu sadece değiştiğinde derle
     local function Compile()
         if not elem.code or elem.code == "" then
             compiledFunc = nil
@@ -45,7 +43,6 @@ function CustomCode:Load(parent, elem)
         
         local func, err = loadstring(elem.code)
         if func then
-            -- Sandbox: Oyunun kökünü koruma
             setfenv(func, setmetatable({}, {__index = _G}))
             compiledFunc = func
             compileError = nil
@@ -61,7 +58,6 @@ function CustomCode:Load(parent, elem)
     local timer = 0
     container:SetScript("OnUpdate", function(self, elapsed)
         timer = timer + elapsed
-        -- Sadece her 0.5 saniyede bir çalıştır (FPS dostu)
         if timer >= 0.5 then
             timer = 0
             if compileError then
@@ -105,19 +101,31 @@ function CustomCode:CreateSettings(parentFrame)
     local sb = f.builder or _G.WidgetForgeUtils:CreateSettingsBuilder(f.content)
     f.builder = sb 
     
-    local function Refresh()
+    -- TİTREMEYİ (BLINK) ÇÖZEN CANLI GÜNCELLEME SİSTEMİ
+    local function RefreshLive()
         if barIndex and _G.WidgetForge then
-            _G.WidgetForge:RebuildBarComponents(barIndex)
             for _, inst in ipairs(CustomCode.Instances) do
-                if inst.elem == elem and inst.Compile then inst.Compile() end
+                if inst.elem == elem then
+                    local fontPath = "Fonts\\FRIZQT__.TTF"
+                    if Skin and Skin.Media and Skin.Media.Fonts and elem.font then
+                        fontPath = Skin.Media.Fonts[elem.font] or fontPath
+                    end
+                    inst.text:SetFont(fontPath, elem.fontSize or 14, elem.fontOutline or "OUTLINE")
+                    inst.text:SetTextColor(unpack(elem.color or {1, 1, 1, 1}))
+                    inst.text:SetJustifyH(elem.justifyH or "CENTER")
+                    inst:SetSize(elem.widgetWidth or 100, elem.widgetHeight or 30)
+                    if inst.Compile then inst.Compile() end
+                end
             end
+            -- Widget'ı silmeden sadece pozisyonları günceller
+            _G.WidgetForge:UpdateBarValues(barIndex)
         end
     end
 
     sb:AddHeader("Dimensions & Alignment")
-    sb:AddSlider("widgetWidth", "Container Width", 30, 400, 1, 100, elem, Refresh)
-    sb:AddSlider("widgetHeight", "Container Height", 10, 100, 1, 30, elem, Refresh)
-    sb:AddDropdown("justifyH", "Text Alignment", { {text="Left", value="LEFT"}, {text="Center", value="CENTER"}, {text="Right", value="RIGHT"} }, "CENTER", elem, Refresh)
+    sb:AddSlider("widgetWidth", "Container Width", 30, 400, 1, 100, elem, RefreshLive)
+    sb:AddSlider("widgetHeight", "Container Height", 10, 100, 1, 30, elem, RefreshLive)
+    sb:AddDropdown("justifyH", "Text Alignment", { {text="Left", value="LEFT"}, {text="Center", value="CENTER"}, {text="Right", value="RIGHT"} }, "CENTER", elem, RefreshLive)
 
     sb:AddHeader("Typography")
     local fontItems = {}
@@ -126,14 +134,14 @@ function CustomCode:CreateSettings(parentFrame)
     end
     if #fontItems == 0 then fontItems = {{text="Default", value="Fonts\\FRIZQT__.TTF"}} end
 
-    sb:AddDropdown("font", "Font Style", fontItems, "Friz Quadrata", elem, Refresh)
-    sb:AddSlider("fontSize", "Font Size", 8, 36, 1, 14, elem, Refresh)
-    sb:AddDropdown("fontOutline", "Font Outline", { {text="None", value=""}, {text="Outline", value="OUTLINE"}, {text="Thick Outline", value="THICKOUTLINE"} }, "OUTLINE", elem, Refresh)
-    sb:AddColor("color", "Text Color", {1, 1, 1, 1}, elem, Refresh)
+    sb:AddDropdown("font", "Font Style", fontItems, "Friz Quadrata", elem, RefreshLive)
+    sb:AddSlider("fontSize", "Font Size", 8, 36, 1, 14, elem, RefreshLive)
+    sb:AddDropdown("fontOutline", "Font Outline", { {text="None", value=""}, {text="Outline", value="OUTLINE"}, {text="Thick Outline", value="THICKOUTLINE"} }, "OUTLINE", elem, RefreshLive)
+    sb:AddColor("color", "Text Color", {1, 1, 1, 1}, elem, RefreshLive)
 
     sb:Finish()
 
-    -- --- MODERN CUSTOM KOD EDİTÖRÜ ENJEKSİYONU ---
+    -- --- PROFESYONEL IDE KOD EDİTÖRÜ ---
     local bottomY = 0
     if f.content then
         for _, child in ipairs({f.content:GetChildren()}) do
@@ -149,52 +157,74 @@ function CustomCode:CreateSettings(parentFrame)
         bottomY = bottomY - 30
         
         local lbl = f.content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        lbl:SetPoint("TOPLEFT", 20, bottomY)
+        lbl:SetPoint("TOPLEFT", 10, bottomY) 
         lbl:SetText("|cff00ccffLUA Code Editor:|r (MUST return a string/number)")
         
         local warn = f.content:CreateFontString(nil, "OVERLAY", "GameFontRedSmall")
         warn:SetPoint("LEFT", lbl, "RIGHT", 10, 0)
         warn:SetText("WARNING: Do not paste untrusted code!")
 
-        -- Kütüphanedeki (ForgeSkin) kendi ScrollFrame fonksiyonumuzu çağırıyoruz
-        local sf, scrollChild = Skin:CreateScrollFrame(f.content, 560, 180)
-        sf:SetPoint("TOPLEFT", 25, bottomY - 20)
-        
         local bg = CreateFrame("Frame", nil, f.content, "BackdropTemplate")
-        bg:SetPoint("TOPLEFT", sf, "TOPLEFT", -5, 5)
-        bg:SetPoint("BOTTOMRIGHT", sf, "BOTTOMRIGHT", 20, -5) -- Scrollbar için sağda 20px pay bırakıldı
-        if Skin then Skin:ApplyBackdrop(bg, 0.5, 0.9) end
-        bg:SetBackdropColor(0.05, 0.05, 0.05, 0.9)
+        bg:SetPoint("TOPLEFT", 10, bottomY - 20)
+        bg:SetSize(600, 200)
+        if Skin then Skin:ApplyBackdrop(bg, 0.9, 1) end
+        bg:SetBackdropColor(0.04, 0.04, 0.04, 0.98)
+
+        local sf, scrollChild = Skin:CreateScrollFrame(bg, 590, 190)
+        sf:SetPoint("TOPLEFT", bg, "TOPLEFT", 0, -5)
 
         local eb = CreateFrame("EditBox", nil, scrollChild)
         eb:SetMultiLine(true)
-        eb:SetFontObject(ChatFontNormal)
-        eb:SetWidth(530) -- İçeride metnin scrollbar'a değmemesi için biraz daraltıldı
-        eb:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 5, -5)
         eb:SetAutoFocus(false)
+        eb:SetWidth(570) 
+        eb:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, 0)
+        
+        eb:SetFontObject("ChatFontNormal") 
+        eb:SetFont("Fonts\\FRIZQT__.TTF", 13, "") 
+        eb:SetTextColor(0.95, 0.95, 0.95, 1)
+        eb:SetTextInsets(10, 10, 10, 10)
         eb:SetText(elem.code or "return \"Hello World\"")
         
-        -- EditBox içindeki Fare Tekerleği olayını dışarıdaki ScrollFrame'e pasla
+        -- SCROLL HATASI ÇÖZÜMÜ: Fiziksel kaydırma çubuğuna bağlanma
         eb:EnableMouseWheel(true)
         eb:SetScript("OnMouseWheel", function(self, delta)
-            if sf:GetScript("OnMouseWheel") then
-                sf:GetScript("OnMouseWheel")(sf, delta)
+            -- Kütüphanenin yarattığı fiziksel Scrollbar'ı bul
+            local scrollBar = sf.ScrollBar or sf.scrollBar or _G[sf:GetName().."ScrollBar"]
+            if scrollBar and scrollBar:IsShown() then
+                local minV, maxV = scrollBar:GetMinMaxValues()
+                local current = scrollBar:GetValue()
+                local new = current - (delta * 30)
+                if new < minV then new = minV end
+                if new > maxV then new = maxV end
+                scrollBar:SetValue(new)
+            else
+                -- Scrollbar gizliyse yedeğe düş
+                local current = sf:GetVerticalScroll()
+                local maxScroll = math.max(0, self:GetHeight() - sf:GetHeight())
+                local new = current - (delta * 30)
+                if new < 0 then new = 0 end
+                if new > maxScroll then new = maxScroll end
+                sf:SetVerticalScroll(new)
             end
         end)
 
-        -- EditBox'ın içeriğe göre kendi ve ScrollChild yüksekliğini ayarlaması (Kaydırmanın çalışması için şart)
-        local measure = scrollChild:CreateFontString(nil, "ARTWORK", "ChatFontNormal")
-        measure:SetWidth(530)
+        local measure = scrollChild:CreateFontString(nil, "ARTWORK")
+        measure:SetFontObject("ChatFontNormal")
+        measure:SetFont("Fonts\\FRIZQT__.TTF", 13, "")
+        measure:SetWidth(550)
         measure:SetWordWrap(true)
         measure:Hide()
 
         eb:SetScript("OnTextChanged", function(self, isUserInput)
             measure:SetText(self:GetText() or "")
             local textHeight = measure:GetStringHeight()
-            local newHeight = math.max(180, textHeight + 20)
+            local newHeight = math.max(180, textHeight + 40) 
             
             self:SetHeight(newHeight)
             scrollChild:SetHeight(newHeight)
+            
+            -- SCROLL TAKILMA ÇÖZÜMÜ: İçerik büyüdükçe Scroll limitlerini genişlet
+            sf:UpdateScrollChildRect()
             
             if isUserInput then
                 elem.code = self:GetText()
@@ -204,10 +234,8 @@ function CustomCode:CreateSettings(parentFrame)
             end
         end)
         
-        -- İlk yükseklik hesaplamasını tetikle
         eb:GetScript("OnTextChanged")(eb, false)
 
-        -- İmleç (Cursor) hareket ettiğinde görünmeyen yeri kaydırarak göster
         eb:SetScript("OnCursorChanged", function(self, x, y, w, h)
             local current = sf:GetVerticalScroll()
             local sfHeight = sf:GetHeight()
@@ -222,24 +250,24 @@ function CustomCode:CreateSettings(parentFrame)
 
         eb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
         
-        -- KATEGORİLİ SNIPPET DROPDOWN MENÜSÜ
-        local sY = bottomY - 215
+        -- HATA (LUA ERROR) VERMEYEN DÜZELTİLMİŞ ŞABLONLAR
+        local sY = bottomY - 235
         local sLbl = f.content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        sLbl:SetPoint("TOPLEFT", 20, sY)
+        sLbl:SetPoint("TOPLEFT", 10, sY)
         sLbl:SetText("Quick Snippets (Replaces current code):")
 
         local snippetList = {
             {text = "Select a snippet...", value = "NONE"},
             {text = "--- Player Info ---", value = "NONE"},
-            {text = "Health %", value = "local c = UnitHealth('player')\nlocal m = UnitHealthMax('player')\nif m == 0 then return '0%' end\nreturn string.format('HP: %.1f%%', (c/m)*100)"},
-            {text = "Class & Level", value = "local lvl = UnitLevel('player')\nlocal cls = UnitClass('player')\nreturn string.format('Lvl %d %s', lvl, cls)"},
-            {text = "Current Speed", value = "local speed = GetUnitSpeed('player')\nreturn string.format('Speed: %.0f%%', (speed/7)*100)"},
+            {text = "Health %", value = "local c = UnitHealth('player') or 0\nlocal m = UnitHealthMax('player') or 1\nif m == 0 then m = 1 end\nreturn string.format('HP: %.1f%%', (c/m)*100)"},
+            {text = "Class & Level", value = "local lvl = UnitLevel('player') or 0\nlocal cls = UnitClass('player') or 'Unknown'\nreturn string.format('Lvl %d %s', lvl, cls)"},
+            {text = "Current Speed", value = "local speed = GetUnitSpeed('player') or 0\nreturn string.format('Speed: %.0f%%', (speed/7)*100)"},
             {text = "--- Target Info ---", value = "NONE"},
-            {text = "Target Name", value = "local n = UnitName('target')\nreturn n and ('Target: '..n) or 'No Target'"},
-            {text = "Target HP %", value = "local c = UnitHealth('target')\nlocal m = UnitHealthMax('target')\nif m == 0 then return '' end\nreturn string.format('%.1f%%', (c/m)*100)"},
+            {text = "Target Name", value = "local n = UnitName('target')\nif not n then return 'No Target' end\nreturn 'Target: ' .. n"},
+            {text = "Target HP %", value = "local c = UnitHealth('target')\nlocal m = UnitHealthMax('target')\nif not c or not m or m == 0 then return '' end\nreturn string.format('%.1f%%', (c/m)*100)"},
             {text = "--- Utility ---", value = "NONE"},
             {text = "Current Zone", value = "return GetMinimapZoneText() or 'Unknown'"},
-            {text = "Gold Count", value = "return GetCoinTextureString(GetMoney())"},
+            {text = "Gold Count", value = "local money = GetMoney() or 0\nreturn GetCoinTextureString(money)"},
         }
 
         local ddSnippets = Skin:CreateDropdown(f.content, 250, snippetList, "NONE", function(val)
@@ -252,7 +280,7 @@ function CustomCode:CreateSettings(parentFrame)
                 eb:ClearFocus()
             end
         end)
-        ddSnippets:SetPoint("TOPLEFT", 20, sY - 15)
+        ddSnippets:SetPoint("TOPLEFT", 10, sY - 15)
 
         if f.content.SetHeight then 
             f.content:SetHeight(math.abs(sY - 60)) 

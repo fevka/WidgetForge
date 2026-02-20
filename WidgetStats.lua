@@ -52,7 +52,6 @@ function Stats:Initialize()
     f:RegisterEvent("PLAYER_XP_UPDATE")
     f:RegisterEvent("UPDATE_INVENTORY_DURABILITY")
     f:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-    f:RegisterEvent("TRAIT_CONFIG_UPDATED") -- Talent Değişimi Eventi
     
     -- Difficulty Events
     f:RegisterEvent("PLAYER_DIFFICULTY_CHANGED")
@@ -82,30 +81,25 @@ end
 
 function Stats:UpdateSpecInfo()
     local specIndex = GetSpecialization()
-    WIDGETFORGE_DEBUG("UpdateSpecInfo Triggered. SpecIndex:", specIndex)
     
     if specIndex then
         local specID = GetSpecializationInfo(specIndex)
-        WIDGETFORGE_DEBUG("SpecID Found:", specID)
         
         if specID and WIDGETFORGE_SPECS[specID] then
             Stats.ActiveMainStat = WIDGETFORGE_SPECS[specID]
-            WIDGETFORGE_DEBUG("ActiveMainStat Set to (from spec):", Stats.ActiveMainStat)
         else
             -- Fallback to Class Default
             local _, classFilename = UnitClassBase("player")
             Stats.ActiveMainStat = WIDGETFORGE_CLASS_DEFAULTS[classFilename] or "Strength"
-            WIDGETFORGE_DEBUG("ActiveMainStat Fallback (class):", Stats.ActiveMainStat)
         end
     else
         local _, classFilename = UnitClassBase("player")
         Stats.ActiveMainStat = WIDGETFORGE_CLASS_DEFAULTS[classFilename] or "Strength"
-        WIDGETFORGE_DEBUG("ActiveMainStat Default (no spec):", Stats.ActiveMainStat)
     end
 end
 
 -- =========================================================================
---  UPDATE LOGIC
+--  UPDATE LOGIC (Polled & Radar Checks)
 -- =========================================================================
 
 function Stats:UpdatePolledStats(elapsed)
@@ -169,50 +163,53 @@ function Stats:UpdatePolledStats(elapsed)
     local isGliding, canGlide, forwardSpeed = C_PlayerInfo.GetGlidingInfo()
     Stats.Data["DragonSpeed"] = forwardSpeed or 0
     Stats.Data["DragonActive"] = (GetBonusBarIndex() == 11)
-end
 
-function Stats:UpdateEventStat(event, arg1)
-    
-    -- TALENT LOADOUT EX - WEAKAURA SPOOFING (Ar-Ge Çalışması)
-    if event == "PLAYER_ENTERING_WORLD" then
-        if not Stats.WaHooked then
-            -- Eğer WeakAuras kuruluysa kanca at, değilse sahte bir WA yaratıp tuzağa düşür
-            if _G.WeakAuras and _G.WeakAuras.ScanEvents then
-                hooksecurefunc(_G.WeakAuras, "ScanEvents", function(ev, name, icon)
-                    if ev == "TalentLoadoutEx" then
-                        Stats.Data["Talent Loadout"] = tostring(name)
-                        if icon then Stats.Data["Talent Loadout Icon"] = icon end
-                        if WidgetForge and WidgetForge.UpdateAvailableBars then WidgetForge:UpdateAvailableBars() end
-                    end
-                end)
-            else
-                _G.WeakAuras = _G.WeakAuras or {}
-                _G.WeakAuras.ScanEvents = function(ev, name, icon)
-                    if ev == "TalentLoadoutEx" then
-                        Stats.Data["Talent Loadout"] = tostring(name)
-                        if icon then Stats.Data["Talent Loadout Icon"] = icon end
-                        if WidgetForge and WidgetForge.UpdateAvailableBars then WidgetForge:UpdateAvailableBars() end
-                    end
-                end
-            end
-            Stats.WaHooked = true
+    -- =======================================================
+    -- 8. TALENT LOADOUT RADARI (TLX ve Blizzard API Entegrasyonu)
+    -- =======================================================
+    local loadoutName = nil
+    local loadoutIcon = nil
+
+    -- Önce eklentiyi (TLX) kontrol et (HATA DÜZELTİLDİ: Tablo indeksi [1] silindi)
+    if _G.TLX and _G.TLX.GetLoadedData then
+        local success, tlxData = pcall(_G.TLX.GetLoadedData)
+        if success and type(tlxData) == "table" then
+            loadoutName = tlxData.name
+            loadoutIcon = tlxData.icon
         end
     end
 
-    -- STANDART TALENT LOADOUT KONTROLÜ (Fallback)
-    if event == "TRAIT_CONFIG_UPDATED" or event == "PLAYER_ENTERING_WORLD" then
+    -- TLX uykudaysa veya yoksa WoW'un standart menüsüne bak
+    if not loadoutName or loadoutName == "" then
         if C_ClassTalents and C_ClassTalents.GetActiveConfigID then
             local configID = C_ClassTalents.GetActiveConfigID()
             if configID then
                 local info = C_Traits.GetConfigInfo(configID)
-                if info then
-                    -- Talent Loadout Ex eklentisi bu ismi ezeceği için burası sadece yedek plan olarak kalır
-                    Stats.Data["Talent Loadout"] = info.name
+                if info and info.name and info.name ~= "" then
+                    loadoutName = info.name
+                else
+                    loadoutName = "Default"
                 end
             end
         end
     end
 
+    -- Hala ikon bulunamadıysa (TLX yoksa) standart spec ikonunu kullan
+    if not loadoutIcon then
+        local specIndex = GetSpecialization()
+        if specIndex then
+            local _, _, _, specIcon = GetSpecializationInfo(specIndex)
+            loadoutIcon = specIcon
+        end
+    end
+
+    -- Nihai verileri aktar (WidgetForge.lua otomatik olarak bu tabloyu çekip güncelleyecektir)
+    Stats.Data["Talent Loadout"] = loadoutName or "Unknown"
+    Stats.Data["Talent Loadout Icon"] = loadoutIcon or 132222
+end
+
+function Stats:UpdateEventStat(event, arg1)
+    
     if event == "PLAYER_MONEY" or event == "PLAYER_ENTERING_WORLD" then
         Stats.Data["Gold"] = GetMoneyString(GetMoney())
     end
