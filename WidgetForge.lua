@@ -217,6 +217,7 @@ function WidgetForge:RebuildBarComponents(index)
     if not f.icons then f.icons = {} end
     if not f.dragonFrames then f.dragonFrames = {} end
     if not f.codeFrames then f.codeFrames = {} end
+    if not f.castFrames then f.castFrames = {} end
     
     if f.customWidgets then
         for _, cw in ipairs(f.customWidgets) do
@@ -234,6 +235,7 @@ function WidgetForge:RebuildBarComponents(index)
     if f.dividers then for _, d in pairs(f.dividers) do d:Hide() end end
     for _, df in pairs(f.dragonFrames) do df:Hide() end
     for _, cf in pairs(f.codeFrames) do cf:Hide() end
+    for _, cf in pairs(f.castFrames) do cf:Hide() end
     
     local isLocked = not f:IsMouseEnabled()
     local clickThrough = conf.clickThrough
@@ -272,6 +274,7 @@ function WidgetForge:RebuildBarComponents(index)
             if f.dividers and f.dividers[i] then f.dividers[i]:Hide() end
             if f.dragonFrames and f.dragonFrames[i] then f.dragonFrames[i]:Hide() end
             if f.codeFrames and f.codeFrames[i] then f.codeFrames[i]:Hide() end
+            if f.castFrames and f.castFrames[i] then f.castFrames[i]:Hide() end
         elseif elem.type == "Divider" then
             if elem.dividerMode == "TEXT" then
                 if not f.textsVal[i] then f.textsVal[i] = f:CreateFontString(nil, "OVERLAY") end
@@ -328,7 +331,11 @@ function WidgetForge:RebuildBarComponents(index)
             if addonTable.TargetCastbar then
                  pcall(function()
                      local cw = addonTable.TargetCastbar:Load(f, elem)
-                     if cw then table.insert(f.customWidgets, cw) end
+                     if cw then 
+                         table.insert(f.customWidgets, cw) 
+                         if not f.castFrames then f.castFrames = {} end
+                         f.castFrames[i] = cw
+                     end
                  end)
             end
         elseif elem.type == "Custom Code" then
@@ -376,7 +383,6 @@ function WidgetForge:RebuildBarComponents(index)
                 if typeToIcon == "Main Stat" then typeToIcon = ForgeStats.ActiveMainStat or "Strength" end
                 local iconPath = WidgetForge.StatIcons[typeToIcon] or "Interface\\Icons\\INV_Misc_QuestionMark"
                 
-                -- Dinamik Talent Loadout Icon Desteği
                 if typeToIcon == "Talent Loadout" and ForgeStats.Data and ForgeStats.Data["Talent Loadout Icon"] then
                     iconPath = ForgeStats.Data["Talent Loadout Icon"]
                 end
@@ -429,7 +435,7 @@ function WidgetForge:RebuildBarComponents(index)
         if f:IsMouseEnabled() then
             if f.dragButton then f.dragButton:Hide(); f.dragButton = nil end
             local d = Skin:CreateGripHandle(f, 32, 32)
-            d:SetPoint("LEFT", f, "RIGHT", 40, 0)
+            d:SetPoint("LEFT", f, "RIGHT", 15, 0)
             d:SetFrameLevel(f:GetFrameLevel() + 50) 
             d:SetScript("OnMouseDown", function(self, button)
                 if button == "LeftButton" then
@@ -575,17 +581,15 @@ function WidgetForge:UpdateBarValues(index)
             else
                 totalW = totalW + wW
                 if i > 1 then totalW = totalW + conf.padding end
-                if i > 1 then totalW = totalW + conf.padding end
             end
         elseif elem.type == "Target Castbar" then
-            local wW = conf.width or 300
-            local wH = elem.widgetHeight or 30
+            local wW = elem.widgetWidth or 200
+            local wH = elem.widgetHeight or 25
             if conf.layout == "VERTICAL" then
                 totalH = totalH + wH
                 if i > 1 then totalH = totalH + conf.padding end
             else
                 totalW = totalW + wW
-                if i > 1 then totalW = totalW + conf.padding end
                 if i > 1 then totalW = totalW + conf.padding end
             end
         elseif elem.type == "Custom Code" then
@@ -628,6 +632,22 @@ function WidgetForge:UpdateBarValues(index)
             if elem.type == "Clock" then
                  local fmt = elem.timeFormat or "24h"
                  if fmt == "12h" then valStr = date("%I:%M %p") else valStr = date("%H:%M") end 
+            elseif elem.type == "Gold" then
+                 local money = GetMoney() or 0
+                 local gold = math.floor(money / 10000)
+                 local sep = elem.separator or "COMMA"
+                 local s = ""
+                 if sep == "COMMA" then s = "," elseif sep == "DOT" then s = "." elseif sep == "SPACE" then s = " " end
+                 
+                 local formatted = tostring(gold)
+                 if s ~= "" then
+                     while true do
+                         local k
+                         formatted, k = string.gsub(formatted, "^(-?%d+)(%d%d%d)", '%1'..s..'%2')
+                         if k == 0 then break end
+                     end
+                 end
+                 valStr = formatted
             end
             if not lblStr then lblStr = "" end
             
@@ -731,7 +751,7 @@ function WidgetForge:UpdateBarValues(index)
             elseif elem.type == "Dragonriding" then
                  elemHeight = elem.widgetHeight or 45
             elseif elem.type == "Target Castbar" then
-                 elemHeight = elem.widgetHeight or 30
+                 elemHeight = elem.widgetHeight or 25
             elseif elem.type == "Custom Code" then
                  elemHeight = elem.widgetHeight or 30
             elseif elem.type == "Skill Stream" then
@@ -779,6 +799,12 @@ function WidgetForge:UpdateBarValues(index)
             elseif elem.type == "Dragonriding" or elem.type == "Skill Stream" or elem.type == "Target Castbar" or elem.type == "Custom Code" then
                 if elem.type == "Custom Code" then
                     local cf = f.codeFrames and f.codeFrames[i]
+                    if cf then
+                        cf:ClearAllPoints()
+                        cf:SetPoint("CENTER", f, "CENTER", 0, placementY)
+                    end
+                elseif elem.type == "Target Castbar" then
+                    local cf = f.castFrames and f.castFrames[i]
                     if cf then
                         cf:ClearAllPoints()
                         cf:SetPoint("CENTER", f, "CENTER", 0, placementY)
@@ -888,7 +914,7 @@ function WidgetForge:UpdateBarValues(index)
         else startX = -(totalW / 2) end
         
         local currentX = startX
-        local currentY = contentCenterY - 1 
+        local currentY = contentCenterY
         
         for i, elem in ipairs(conf.elements) do
             local offset = elem.offset or 0
@@ -932,7 +958,12 @@ function WidgetForge:UpdateBarValues(index)
                 end
                 currentX = currentX + (elem.widgetWidth or 300) + conf.padding
             elseif elem.type == "Target Castbar" then
-                 local wW = conf.width or 300
+                 local cf = f.castFrames and f.castFrames[i]
+                 if cf then
+                     cf:ClearAllPoints()
+                     cf:SetPoint("LEFT", f, "CENTER", placementX, currentY)
+                 end
+                 local wW = elem.widgetWidth or 200
                  currentX = currentX + wW + conf.padding
             elseif elem.type == "Custom Code" then
                  local cf = f.codeFrames and f.codeFrames[i]

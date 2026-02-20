@@ -101,7 +101,10 @@ function Config:OpenConfigWindow()
     Skin:CreateTitleBar(f, "WidgetForge | Advanced Status Bars", function() f:Hide() end)
     
     f:SetScript("OnShow", function() WidgetForge:SetBarsLocked(false) end)
-    f:SetScript("OnHide", function() WidgetForge:SetBarsLocked(true) end)
+    f:SetScript("OnHide", function() 
+        WidgetForge:SetBarsLocked(true) 
+        Config:ToggleSlidePanel(false) 
+    end)
     WidgetForge:SetBarsLocked(false) 
     
     local needsNewSelection = false
@@ -155,6 +158,7 @@ function Config:OpenConfigWindow()
     local btnAdd = Skin:CreateButton(f, "+ New Empty Bar", 200, 25)
     btnAdd:SetPoint("TOPLEFT", sidebar, "BOTTOMLEFT", 0, -10)
     btnAdd:SetScript("OnClick", function()
+        Config:ToggleSlidePanel(false) 
         local newId = #WidgetForgeDB.bars + 1
         WidgetForgeDB.bars[newId] = CopyTable(Config.DefaultSettings.bars[1])
         WidgetForgeDB.bars[newId].name = "New Bar " .. newId
@@ -181,6 +185,7 @@ function Config:OpenConfigWindow()
     end
 
     ddPreset = Skin:CreateDropdown(f, 143, GetPresetList(), function(val)
+        Config:ToggleSlidePanel(false) 
         local newId = #WidgetForgeDB.bars + 1
         WidgetForgeDB.bars[newId] = CopyTable(val)
         WidgetForgeDB.bars[newId].enabled = true
@@ -259,6 +264,7 @@ function Config:OpenConfigWindow()
         Skin:CreateTextWindow("Import Profile Data", "", function(text)
             local t = WidgetForgeUtils:Deserialize(text)
             if t and t.bars then
+                Config:ToggleSlidePanel(false) 
                 WidgetForgeDB = t
                 Config:RefreshBarList()
                 WidgetForge:UpdateAvailableBars()
@@ -329,7 +335,9 @@ function Config:RefreshBarList()
             btnDel:SetScript("OnLeave", function() icon:SetVertexColor(1, 1, 1, 1) end)
             
             btnDel:SetScript("OnClick", function() 
+                Config:ToggleSlidePanel(false) 
                 table.remove(WidgetForgeDB.bars, i)
+                Config.SelectedBarIndex = nil 
                 Config:RefreshBarList()
                 Config.DetailsContent:HideAllChildren()
                 WidgetForge:UpdateAvailableBars()
@@ -344,6 +352,10 @@ function Config:RefreshBarList()
 end
 
 function Config:SelectBar(index)
+    if Config.SelectedBarIndex ~= index then
+        Config:ToggleSlidePanel(false)
+    end
+
     Config.isUpdatingScale = false
     Config.SelectedBarIndex = index
     
@@ -616,7 +628,6 @@ function Config:SelectBar(index)
         end
     end
     
-    -- KATEGORİ DÜZENLEMESİ (Combat Timer ve Difficulty, Dungeon & Raid altında)
     local categories = {
         { name = "System & Performance", elements = { "FPS", "MS", "Clock" } },
         { name = "Player Stats", elements = { "Main Stat", "Stamina", "Crit", "Haste", "Mastery", "Versatility", "Avoidance", "Leech", "Speed", "Run Speed", "Dodge", "Parry", "Armor", "Max HP" } },
@@ -962,6 +973,12 @@ function Config:SelectBar(index)
         local btnCol = CreateFrame("Button", nil, item, "BackdropTemplate"); btnCol:SetSize(20, 20); btnCol:SetPoint("RIGHT", dragHandle, "LEFT", -8, 0); Skin:ApplyBackdrop(btnCol); btnCol:SetBackdropColor(unpack(elem.color or {1, 1, 1, 1}))
         btnCol:SetScript("OnClick", function() local oldColor = elem.color or {1, 1, 1, 1}; local info = { r=oldColor[1], g=oldColor[2], b=oldColor[3], opacity=oldColor[4], swatchFunc = function(c) elem.color = c; btnCol:SetBackdropColor(unpack(c)); WidgetForge:RebuildBarComponents(index) end, cancelFunc = function() elem.color = oldColor; btnCol:SetBackdropColor(unpack(oldColor)); WidgetForge:RebuildBarComponents(index) end }; Skin:ShowColorPicker(info) end)
         
+        if bar.clickThrough then
+            chkTip:SetAlpha(0.5)
+            chkTip.box:EnableMouse(false)
+            chkTip.label:SetTextColor(0.5, 0.5, 0.5)
+        end
+        
         if elem.type == "Divider" then
              btnCol:Hide()
              local btnSettings = Skin:CreateButton(item, "Settings", 80, 22)
@@ -1022,7 +1039,16 @@ function Config:SelectBar(index)
                 chkTip.label:SetTextColor(0.5, 0.5, 0.5)
             end
             
-            if elem.type == "Clock" then local fmtList = { {text="24h", value="24h"}, {text="12h", value="12h"} }; local ddFmt = Skin:CreateDropdown(item, 50, fmtList, elem.timeFormat or "24h", function(v) elem.timeFormat = v; WidgetForge:RebuildBarComponents(index) end); ddFmt:SetPoint("RIGHT", chkTip, "LEFT", -5, 0) end
+            if elem.type == "Clock" then 
+                local fmtList = { {text="24h", value="24h"}, {text="12h", value="12h"} }; 
+                local ddFmt = Skin:CreateDropdown(item, 50, fmtList, elem.timeFormat or "24h", function(v) elem.timeFormat = v; WidgetForge:RebuildBarComponents(index) end); 
+                ddFmt:SetPoint("RIGHT", chkTip, "LEFT", -5, 0) 
+            elseif elem.type == "Gold" then
+                -- [YENİ] Gold için özel ayraç menüsü (Virgül, Nokta, Boşluk, Hiçbiri)
+                local sepList = { {text="10,000", value="COMMA"}, {text="10.000", value="DOT"}, {text="10 000", value="SPACE"}, {text="10000", value="NONE"} }
+                local ddSep = Skin:CreateDropdown(item, 70, sepList, elem.separator or "COMMA", function(v) elem.separator = v; WidgetForge:RebuildBarComponents(index) end)
+                ddSep:SetPoint("RIGHT", chkTip, "LEFT", -5, 0)
+            end
         end
         y = y - 36 
     end
