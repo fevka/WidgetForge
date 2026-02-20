@@ -32,7 +32,7 @@ Config.ElementTypes = {
     "Crit", "Haste", "Mastery", "Versatility", 
     "Avoidance", "Leech", "Speed", "Run Speed", "Dodge", "Parry", "Armor", "Max HP",
     "Gold", "Zone", "Coords", "Item Level", "Combat Timer", "XP",
-    "Dragonriding", "Skill Stream", "Dummy", "Guild", "Friends"
+    "Dragonriding", "Skill Stream", "Dummy", "Guild", "Friends", "Difficulty", "Target Castbar"
 }
 
 Config.Presets = {
@@ -384,7 +384,7 @@ function Config:SelectBar(index)
     local isExclusive = false
     local exclusiveType = nil
     for _, e in ipairs(bar.elements) do
-        if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" then 
+        if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" then 
             isExclusive = true
             exclusiveType = e.type
             break 
@@ -608,7 +608,7 @@ function Config:SelectBar(index)
     if bar.elements and #bar.elements > 0 then
         barMode = "STANDARD"
         for _, e in ipairs(bar.elements) do
-            if e.type == "Dragonriding" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" then 
+            if e.type == "Dragonriding" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" then 
                 barMode = "STRICT"
                 break 
             elseif OverlayTypes[e.type] then
@@ -617,14 +617,14 @@ function Config:SelectBar(index)
         end
     end
     
-    -- [GÜNCELLEME: Kategorilere Social eklendi, Skill Stream Utils'e koyuldu]
+    -- Target Castbar eklendi
     local categories = {
         { name = "System & Performance", elements = { "FPS", "MS", "Clock" } },
         { name = "Player Stats", elements = { "Main Stat", "Stamina", "Crit", "Haste", "Mastery", "Versatility", "Avoidance", "Leech", "Speed", "Run Speed", "Dodge", "Parry", "Armor", "Max HP" } },
         { name = "Progression & Goods", elements = { "XP", "Gold", "Bag Space", "Item Level", "Durability" } },
-        { name = "Navigation", elements = { "Zone", "Coords" } },
+        { name = "Navigation", elements = { "Zone", "Coords", "Difficulty" } },
         { name = "Social", elements = { "Guild", "Friends" } },
-        { name = "Dungeon & Raid", elements = { "Mythic+ Dashboard" } },
+        { name = "Dungeon & Raid", elements = { "Mythic+ Dashboard", "Target Castbar" } },
         { name = "Utils", elements = { "Dragonriding", "Cursor Ring", "Combat Timer", "Retirement Home", "Skill Stream", "Dummy" } }
     }
     
@@ -698,6 +698,7 @@ function Config:SelectBar(index)
         for i, typeName in ipairs(displayElements) do
             local isDragonBtn = (typeName == "Dragonriding")
             local isSkillStreamBtn = (typeName == "Skill Stream")
+            local isTargetCastBtn = (typeName == "Target Castbar")
             local isDivider = (typeName == "Divider")
             
             local isActive = false
@@ -713,7 +714,7 @@ function Config:SelectBar(index)
                     btn:SetBackdropColor(1, 0.8, 0, 1)
                     btn.text:SetTextColor(1, 1, 1, 1)
                     btn:SetBackdropBorderColor(0, 0, 0, 1)
-                elseif isDragonBtn or isSkillStreamBtn then
+                elseif isDragonBtn or isSkillStreamBtn or isTargetCastBtn then
                     if isActive then
                        btn:SetBackdropColor(0, 0.7, 0.7, 1); btn:SetBackdropBorderColor(0, 1, 1, 1)
                     else
@@ -737,7 +738,7 @@ function Config:SelectBar(index)
                 
                 if isDivider then
                     self:SetBackdropColor(1, 0.9, 0.2, 1)
-                elseif isDragonBtn or isSkillStreamBtn then
+                elseif isDragonBtn or isSkillStreamBtn or isTargetCastBtn then
                     if isActive then self:SetBackdropColor(0, 0.8, 0.8, 1)
                     else 
                         self:SetBackdropColor(unpack(Skin.Colors.buttonHover))
@@ -754,7 +755,7 @@ function Config:SelectBar(index)
             btn:SetScript("OnLeave", function(self) UpdateButtonStyle() end)
             
             local canAdd = true
-            local btnIsStrict = (typeName == "Dragonriding" or typeName == "Mythic+ Dashboard" or typeName == "Skill Stream")
+            local btnIsStrict = (typeName == "Dragonriding" or typeName == "Mythic+ Dashboard" or typeName == "Skill Stream" or typeName == "Target Castbar")
             local btnIsOverlay = OverlayTypes[typeName]
             local btnIsDivider = (typeName == "Divider")
             
@@ -795,6 +796,12 @@ function Config:SelectBar(index)
                          newEl.spacing = 5
                          newEl.speed = 8
                          newEl.direction = "RIGHT_TO_LEFT"
+                    elseif isTargetCastBtn then
+                         newEl.widgetHeight = 30
+                         newEl.colorReady = {1, 0.5, 0, 1}
+                         newEl.colorCooldown = {1, 0, 0, 1}
+                         newEl.colorShielded = {0.5, 0.5, 0.5, 1}
+                         newEl.colorInterrupted = {0, 1, 0, 1}
                     elseif btnIsOverlay then
                          newEl.size = 32 
                          if typeName == "Mythic+ Dashboard" then
@@ -967,6 +974,11 @@ function Config:SelectBar(index)
              local btnSettings = Skin:CreateButton(item, "Settings", 80, 22)
              btnSettings:SetPoint("RIGHT", dragHandle, "LEFT", -10, 0)
              btnSettings:SetScript("OnClick", function() Config:OpenSkillStreamSettings(index, i, elem) end)
+        elseif elem.type == "Target Castbar" then
+             btnCol:Hide()
+             local btnSettings = Skin:CreateButton(item, "Settings", 80, 22)
+             btnSettings:SetPoint("RIGHT", dragHandle, "LEFT", -10, 0)
+             btnSettings:SetScript("OnClick", function() Config:OpenTargetCastbarSettings(index, i, elem) end)
         elseif elem.type == "Cursor Ring" then
              btnCol:Hide()
              local btnSettings = Skin:CreateButton(item, "Settings", 80, 22)
@@ -1234,6 +1246,38 @@ function Config:OpenSkillStreamSettings(barIndex, elemIndex, elem)
     end
 end
 
+-- TARGET CASTBAR SETTINGS EKLENDİ
+function Config:OpenTargetCastbarSettings(barIndex, elemIndex, elem)
+    local panel = Config:GetSlidePanel()
+    local wasShown = panel:IsShown()
+    
+    if wasShown and panel.onCloseWidgetSpecific then
+        panel.onCloseWidgetSpecific()
+        panel.onCloseWidgetSpecific = nil
+    end
+    
+    Config:ToggleSlidePanel(true)
+    panel.header.title:SetText("Target Castbar Settings")
+    panel.config = elem
+    panel.barIndex = barIndex
+    
+    if not wasShown and panel.scroll then panel.scroll:SetVerticalScroll(0) end
+    
+    local content = panel.content
+    local kids = {content:GetChildren()}
+    for _, k in ipairs(kids) do k:Hide() end
+    local regions = {content:GetRegions()}
+    for _, r in ipairs(regions) do r:Hide() end
+    
+    if panel.builder then 
+        if panel.builder.Release then panel.builder:Release() end
+        panel.builder = nil 
+    end
+    
+    if _G.WidgetForge and _G.WidgetForge.TargetCastbar and _G.WidgetForge.TargetCastbar.CreateSettings then
+        _G.WidgetForge.TargetCastbar:CreateSettings(panel)
+    end
+end
 
 function Config:OpenCursorRingSettings(barIndex, elemIndex, elem)
     local panel = Config:GetSlidePanel()

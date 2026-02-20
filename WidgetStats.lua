@@ -15,7 +15,8 @@ Stats.Data = {
     -- Dragonriding / Skyriding
     ["DragonVigor"] = 0, ["DragonVigorMax"] = 0, ["DragonSpeed"] = 0, ["DragonActive"] = false,
     -- Social
-    ["Guild"] = "0", ["Friends"] = "0"
+    ["Guild"] = "0", ["Friends"] = "0",
+    ["Difficulty"] = "World"
 }
 -- Helper mappings
 Stats.ActiveMainStat = "Strength" -- Default
@@ -48,6 +49,11 @@ function Stats:Initialize()
     f:RegisterEvent("PLAYER_XP_UPDATE")
     f:RegisterEvent("UPDATE_INVENTORY_DURABILITY")
     f:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+    
+    -- Difficulty Events
+    f:RegisterEvent("PLAYER_DIFFICULTY_CHANGED")
+    f:RegisterEvent("UPDATE_INSTANCE_INFO")
+
     -- Stat Events
     f:RegisterEvent("UNIT_STATS")
     f:RegisterEvent("UNIT_AURA") 
@@ -216,6 +222,16 @@ function Stats:UpdateEventStat(event, arg1)
             self:UpdateCharacterStats()
         end
     end
+
+    -- Difficulty Events
+    if event == "ZONE_CHANGED_NEW_AREA" or event == "PLAYER_ENTERING_WORLD" or event == "PLAYER_DIFFICULTY_CHANGED" or event == "UPDATE_INSTANCE_INFO" then
+        local name, instanceType, difficultyID, difficultyName = GetInstanceInfo()
+        if name and difficultyName and difficultyName ~= "" and instanceType ~= "none" then
+            Stats.Data["Difficulty"] = difficultyName
+        else
+            Stats.Data["Difficulty"] = "World"
+        end
+    end
     
     -- Social Events
     if event == "PLAYER_ENTERING_WORLD" then
@@ -324,6 +340,7 @@ function Stats:GetStat(statType)
     elseif statType == "Max HP" then lbl = "HP"
     elseif statType == "Guild" then lbl = "Guild"
     elseif statType == "Friends" then lbl = "Friends"
+    elseif statType == "Difficulty" then lbl = "Diff"
     end
     
     return val or "", lbl
@@ -520,6 +537,22 @@ function Stats:AddTooltip(owner, statType, elemData)
             GameTooltip:AddLine("...and more", 0.5, 0.5, 0.5)
         end
         
+        added = true
+    end
+
+    if statType == "Difficulty" then
+        GameTooltip:AddLine("Instance Info", 1, 1, 1)
+        GameTooltip:AddLine(" ")
+        local name, instanceType, difficultyID, difficultyName, maxPlayers = GetInstanceInfo()
+        if name and difficultyName and difficultyName ~= "" and instanceType ~= "none" then
+            GameTooltip:AddDoubleLine("Instance:", name, 1,0.8,0, 1,1,1)
+            GameTooltip:AddDoubleLine("Difficulty:", difficultyName, 1,0.8,0, 1,1,1)
+            if maxPlayers and maxPlayers > 0 then
+                GameTooltip:AddDoubleLine("Max Players:", tostring(maxPlayers), 1,0.8,0, 1,1,1)
+            end
+        else
+            GameTooltip:AddLine("You are currently in the open world.", 0.7, 0.7, 0.7)
+        end
         added = true
     end
 
