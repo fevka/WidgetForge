@@ -1,6 +1,6 @@
 -- =========================================================================
 --  WidgetForge - Target Castbar Module
---  [API 12 FINAL STABLE] Independent Layout + Perfect Symmetry & Zoom
+--  [API 12 FINAL STABLE] Strict Secret Value Compliance
 -- =========================================================================
 
 local addonName, addonTable = ...
@@ -13,53 +13,42 @@ addonTable.TargetCastbar = TargetCastbar
 TargetCastbar.Instances = {}
 
 -- ============================================================================
--- 1. MANUEL INTERRUPT CD TAKİBİ
+-- 1. INTERRUPT BİLGİSİ (Hangi Skillin Sorgulanacağını Bilmek İçin)
 -- ============================================================================
 local INTERRUPT_DATA = {
-    WARRIOR = { DEFAULT = {id = 6552, cd = 15} },
-    ROGUE   = { DEFAULT = {id = 1766, cd = 15} },
-    MAGE    = { DEFAULT = {id = 2139, cd = 24} },
-    DEATHKNIGHT = { DEFAULT = {id = 47528, cd = 15} },
-    PALADIN = { DEFAULT = {id = 96231, cd = 15} },
-    MONK    = { DEFAULT = {id = 116705, cd = 15} },
-    DEMONHUNTER = { DEFAULT = {id = 183752, cd = 15} },
-    EVOKER  = { DEFAULT = {id = 351338, cd = 20} },
-    WARLOCK = { DEFAULT = {id = 119914, cd = 24} },
-    SHAMAN  = { DEFAULT = {id = 57994, cd = 12}, [3] = {id = 57994, cd = 30} },
-    PRIEST  = { DEFAULT = {id = 0, cd = 0}, [3] = {id = 15487, cd = 45} },
-    HUNTER  = { DEFAULT = {id = 147362, cd = 24}, [3] = {id = 187707, cd = 15} },
-    DRUID   = { DEFAULT = {id = 106839, cd = 15}, [1] = {id = 78675, cd = 60} },
+    WARRIOR = { DEFAULT = {id = 6552} },
+    ROGUE   = { DEFAULT = {id = 1766} },
+    MAGE    = { DEFAULT = {id = 2139} },
+    DEATHKNIGHT = { DEFAULT = {id = 47528} },
+    PALADIN = { DEFAULT = {id = 96231} },
+    MONK    = { DEFAULT = {id = 116705} },
+    DEMONHUNTER = { DEFAULT = {id = 183752} },
+    EVOKER  = { DEFAULT = {id = 351338} },
+    WARLOCK = { DEFAULT = {id = 119914} },
+    SHAMAN  = { DEFAULT = {id = 57994} },
+    PRIEST  = { DEFAULT = {id = 0}, [3] = {id = 15487} },
+    HUNTER  = { DEFAULT = {id = 147362} },
+    DRUID   = { DEFAULT = {id = 106839}, [1] = {id = 78675} },
 }
 
 TargetCastbar.interruptID = 0
-TargetCastbar.interruptCD = 0
-TargetCastbar.nextReadyTime = 0
 
 function TargetCastbar:LoadClassInterrupt()
     local class = select(2, UnitClass("player"))
     local data = INTERRUPT_DATA[class]
-    if not data then self.interruptID = 0; self.interruptCD = 0; return end
+    if not data then self.interruptID = 0; return end
     local specIndex = GetSpecialization() or 0
     local specData = data[specIndex] or data.DEFAULT
-    if specData then self.interruptID = specData.id; self.interruptCD = specData.cd
-    else self.interruptID = 0; self.interruptCD = 0 end
+    if specData then self.interruptID = specData.id else self.interruptID = 0 end
 end
 
 TargetCastbar:LoadClassInterrupt()
 
-local trackerFrame = CreateFrame("Frame")
-trackerFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
-trackerFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-trackerFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-trackerFrame:SetScript("OnEvent", function(self, event, ...)
-    if event == "UNIT_SPELLCAST_SUCCEEDED" then
-        local _, _, spellID = ...
-        if spellID == TargetCastbar.interruptID then
-            TargetCastbar.nextReadyTime = GetTime() + TargetCastbar.interruptCD
-        end
-    else
-        TargetCastbar:LoadClassInterrupt()
-    end
+local specTrackerFrame = CreateFrame("Frame")
+specTrackerFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+specTrackerFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+specTrackerFrame:SetScript("OnEvent", function()
+    TargetCastbar:LoadClassInterrupt()
 end)
 
 -- ============================================================================
@@ -146,7 +135,6 @@ function TargetCastbar:Load(parent, elem)
     container.icon:SetPoint("TOPLEFT", container.iconBg, "TOPLEFT", iconMargin, -iconMargin)
     container.icon:SetPoint("BOTTOMRIGHT", container.iconBg, "BOTTOMRIGHT", -iconMargin, iconMargin)
     
-    -- DİNAMİK İKON ZOOM
     local z = elem.iconZoom or 0.08
     container.icon:SetTexCoord(z, 1 - z, z, 1 - z)
     
@@ -226,19 +214,41 @@ function TargetCastbar:Load(parent, elem)
     container.durationObj = nil
     container.isChanneling = false
     container.isInterrupted = false
+    container.interruptTime = 0
 
+    -- =========================================================================
+    -- GÜVENLİ CD KONTROLÜ (PATCH 12 SECRET VALUE COMPLIANT)
+    -- =========================================================================
     local function UpdateNormalBarColor()
         local db = container.elem
         if container.isInterrupted then
             container.bar:SetStatusBarColor(unpack(db.colorSuccess or {0.1, 1.0, 0.3, 1}))
             return
         end
-        local ready = true
-        if TargetCastbar.interruptID > 0 and GetTime() < TargetCastbar.nextReadyTime then ready = false end
-        if ready then
-            container.bar:SetStatusBarColor(unpack(db.colorReady or {1.0, 0.72, 0.04, 1}))
+        
+        local intID = TargetCastbar.interruptID
+        if intID and intID > 0 then
+            -- Blizzard'ın yeni API objesini alıyoruz.
+            local cdDuration = C_Spell.GetSpellCooldownDuration(intID)
+            
+            -- Kullanıcının belirlediği renkleri WoW'un Color objesine çeviriyoruz.
+            local colReady = db.colorReady or {1.0, 0.72, 0.04, 1}
+            local colCD = db.colorOnCD or {1.0, 0.2, 0.2, 1}
+            local readyColor = CreateColor(colReady[1], colReady[2], colReady[3], colReady[4] or 1)
+            local cdColor = CreateColor(colCD[1], colCD[2], colCD[3], colCD[4] or 1)
+            
+            if cdDuration then
+                -- SECRET VALUE SAFE ZONE:
+                -- IsZero() fonksiyonu "Secret Boolean" döndürebilir.
+                -- Bu yüzden "if cdDuration:IsZero() then" yapmak YASAKTIR.
+                -- Yerine Blizzard'ın güvenli değerlendirme fonksiyonunu kullanıyoruz:
+                local finalColor = C_CurveUtil.EvaluateColorFromBoolean(cdDuration:IsZero(), readyColor, cdColor)
+                container.bar:SetStatusBarColor(finalColor:GetRGBA())
+            else
+                container.bar:SetStatusBarColor(readyColor:GetRGBA())
+            end
         else
-            container.bar:SetStatusBarColor(unpack(db.colorOnCD or {1.0, 0.2, 0.2, 1}))
+            container.bar:SetStatusBarColor(unpack(db.colorReady or {1.0, 0.72, 0.04, 1}))
         end
     end
 
@@ -256,6 +266,7 @@ function TargetCastbar:Load(parent, elem)
             end
 
             container.isInterrupted = false
+            container:SetAlpha(1)
 
             if container.isTesting then
                 name = "Pyroblast (Test)"
@@ -265,9 +276,10 @@ function TargetCastbar:Load(parent, elem)
             else
                 if not name then container:SetAlpha(0) return end
                 container.durationObj = container.isChanneling and _G.UnitChannelDuration("target") or _G.UnitCastingDuration("target")
-
+                
+                -- SECRET VALUE SAFE ZONE: Kalkan barının görünürlüğünü güvenle yönetiyoruz.
                 if container.shieldBar.SetAlphaFromBoolean then
-                    container.shieldBar:SetAlphaFromBoolean(notInt,1,0)
+                    container.shieldBar:SetAlphaFromBoolean(notInt, 1, 0)
                 else
                     if type(notInt) == "boolean" then container.shieldBar:SetAlpha(notInt and 1 or 0) end
                 end
@@ -283,20 +295,15 @@ function TargetCastbar:Load(parent, elem)
             container.shieldBar:SetMinMaxValues(0,totalDur)
 
             UpdateNormalBarColor()
-            container:SetAlpha(1)
 
         elseif event == "UNIT_SPELLCAST_NOT_INTERRUPTIBLE" then container.shieldBar:SetAlpha(1)
         elseif event == "UNIT_SPELLCAST_INTERRUPTIBLE" then container.shieldBar:SetAlpha(0)
         elseif event == "UNIT_SPELLCAST_INTERRUPTED" then
             container.isInterrupted = true
+            container.interruptTime = GetTime()
             UpdateNormalBarColor()
-            container.spellName:SetText("KESILDI")
-            C_Timer.After(0.75,function()
-                if container.isInterrupted then
-                    container:SetAlpha(0)
-                    container.isInterrupted = false
-                end
-            end)
+            container.spellName:SetText("SUCCESS")
+            
         elseif event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_CHANNEL_STOP" or event == "UNIT_SPELLCAST_FAILED" then
             if not container.isInterrupted then container:SetAlpha(0); container.durationObj = nil end
         end
@@ -330,9 +337,20 @@ function TargetCastbar:Load(parent, elem)
     container:SetScript("OnUpdate",function(self)
         if self:GetAlpha()==0 or not self.durationObj then return end
 
+        if self.isInterrupted then
+            local elapsedFade = GetTime() - self.interruptTime
+            if elapsedFade < 0.5 then
+                self:SetAlpha(1 - (elapsedFade / 0.5))
+            else
+                self:SetAlpha(0)
+                self.isInterrupted = false
+            end
+            return
+        end
+
         if not self.isTesting then
             local still = self.isChanneling and UnitChannelInfo("target") or UnitCastingInfo("target")
-            if not still and not self.isInterrupted then self:SetAlpha(0); return end
+            if not still then self:SetAlpha(0); return end
         end
 
         local rem = self.durationObj:GetRemainingDuration()
@@ -358,7 +376,7 @@ function TargetCastbar:Load(parent, elem)
 end
 
 -- =========================================================================
---  4. AYARLAR MENÜSÜ (ÖZEL İSTEĞE GÖRE SIRALANMIŞ)
+--  4. AYARLAR MENÜSÜ
 -- =========================================================================
 function TargetCastbar:CreateSettings(parentFrame)
     local f = parentFrame
@@ -384,7 +402,6 @@ function TargetCastbar:CreateSettings(parentFrame)
         end
     end
 
-    -- --- TEST MODU BUTONU ---
     if not parentFrame.testBtnCreated then
         local btnTest = Skin:CreateButton(f.content, "Test Mode: OFF", 130, 22)
         btnTest:SetPoint("TOPRIGHT", f.content, "TOPRIGHT", -15, -10)
@@ -429,7 +446,6 @@ function TargetCastbar:CreateSettings(parentFrame)
         end
     end
 
-    -- Doku (Texture) ve Font listelerini dropdownlar için önceden hazırla
     local texItems = {}
     if Skin and Skin.Media and Skin.Media.Textures then 
         for k, _ in pairs(Skin.Media.Textures) do table.insert(texItems, {text=tostring(k), value=k}) end 
@@ -444,30 +460,18 @@ function TargetCastbar:CreateSettings(parentFrame)
     if #fontItems == 0 then fontItems = {{text="Default", value="Fonts\\FRIZQT__.TTF"}} 
     else table.sort(fontItems, function(a,b) return a.text < b.text end) end
 
-    -- [GRUP 1] BAR & TEXT AYARLARI (Birleştirilmiş Grup)
     sb:AddHeader("Bar & Text Settings")
-    
-    -- Satır 1
     sb:AddSlider("barHeight", "Bar Height", 10, 60, 1, 25, elem, RefreshLive)
     sb:AddSlider("barWidth", "Bar Width", 50, 600, 5, 200, elem, RefreshLive)
-    
-    -- Satır 2
     sb:AddSlider("barBgAlpha", "Background Alpha (%)", 0, 100, 5, 80, elem, RefreshLive)
     sb:AddDropdown("texture", "Bar Texture", texItems, "Smooth", elem, RefreshLive)
-    
-    -- Satır 3
     sb:AddColor("barBorderColor", "Bar Border Color", {0.3, 0.3, 0.3, 1}, elem, RefreshLive)
     sb:AddSlider("barBorderSize", "Border Thickness (0 to Disable)", 0, 5, 1, 1, elem, RefreshLive)
-    
-    -- Satır 4
     sb:AddSlider("fontSize", "Font Size", 8, 36, 1, 12, elem, RefreshLive)
     sb:AddDropdown("font", "Font Style", fontItems, "Friz Quadrata", elem, RefreshLive)
-    
-    -- Satır 5
     sb:AddColor("textColor", "Text Color", {1, 1, 1, 1}, elem, RefreshLive)
     sb:AddDropdown("fontOutline", "Font Outline", { {text="None", value=""}, {text="Outline", value="OUTLINE"}, {text="Thick Outline", value="THICKOUTLINE"} }, "OUTLINE", elem, RefreshLive)
 
-    -- [GRUP 2] İKON AYARLARI
     sb:AddHeader("Icon Settings")
     sb:AddCheckbox("showIcon", "Show Spell Icon", true, elem, RefreshLive)
     sb:AddSlider("iconSpacing", "Spacing from Bar", 0, 50, 1, 5, elem, RefreshLive)
@@ -476,7 +480,6 @@ function TargetCastbar:CreateSettings(parentFrame)
     sb:AddColor("iconBorderColor", "Icon Border Color", {0.3, 0.3, 0.3, 1}, elem, RefreshLive)
     sb:AddSlider("iconBorderSize", "Border Thickness (0 to Disable)", 0, 5, 1, 1, elem, RefreshLive)
 
-    -- [GRUP 3] DURUM RENKLERİ
     sb:AddHeader("Status Colors")
     sb:AddColor("colorReady", "1. Can Interrupt (Ready)", {1.0, 0.72, 0.04, 1}, elem, RefreshLive)
     sb:AddColor("colorSuccess", "2. Interrupted (Success)", {0.1, 1.0, 0.3, 1}, elem, RefreshLive)
