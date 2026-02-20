@@ -101,7 +101,6 @@ function CustomCode:CreateSettings(parentFrame)
     local sb = f.builder or _G.WidgetForgeUtils:CreateSettingsBuilder(f.content)
     f.builder = sb 
     
-    -- TİTREMEYİ (BLINK) ÇÖZEN CANLI GÜNCELLEME SİSTEMİ
     local function RefreshLive()
         if barIndex and _G.WidgetForge then
             for _, inst in ipairs(CustomCode.Instances) do
@@ -117,7 +116,6 @@ function CustomCode:CreateSettings(parentFrame)
                     if inst.Compile then inst.Compile() end
                 end
             end
-            -- Widget'ı silmeden sadece pozisyonları günceller
             _G.WidgetForge:UpdateBarValues(barIndex)
         end
     end
@@ -141,7 +139,9 @@ function CustomCode:CreateSettings(parentFrame)
 
     sb:Finish()
 
-    -- --- PROFESYONEL IDE KOD EDİTÖRÜ ---
+    -- ==========================================================
+    --  %100 FORGESKIN IMPORT/EXPORT UYUMLU MODERN EDİTÖR
+    -- ==========================================================
     local bottomY = 0
     if f.content then
         for _, child in ipairs({f.content:GetChildren()}) do
@@ -164,67 +164,44 @@ function CustomCode:CreateSettings(parentFrame)
         warn:SetPoint("LEFT", lbl, "RIGHT", 10, 0)
         warn:SetText("WARNING: Do not paste untrusted code!")
 
+        -- 1. Arkaplan Kutusu
         local bg = CreateFrame("Frame", nil, f.content, "BackdropTemplate")
         bg:SetPoint("TOPLEFT", 10, bottomY - 20)
         bg:SetSize(600, 200)
-        if Skin then Skin:ApplyBackdrop(bg, 0.9, 1) end
-        bg:SetBackdropColor(0.04, 0.04, 0.04, 0.98)
+        if Skin then Skin:ApplyBackdrop(bg, 0.4, 0.8) end 
 
-        local sf, scrollChild = Skin:CreateScrollFrame(bg, 590, 190)
+        -- 2. Kendi Kütüphanemizin Hatasız ScrollFrame'i
+        -- [GÜNCELLEME] Genişlik arkaplanla aynı (600) yapıldı ve sol köşeye 0 noktasından yapıştırıldı.
+        -- Böylece sağdaki kaydırma çubuğu tam olarak duvara yapışacak.
+        local sf, scrollChild = Skin:CreateScrollFrame(bg, 600, 190)
         sf:SetPoint("TOPLEFT", bg, "TOPLEFT", 0, -5)
 
+        -- 3. EditBox
         local eb = CreateFrame("EditBox", nil, scrollChild)
         eb:SetMultiLine(true)
         eb:SetAutoFocus(false)
+        eb:SetFontObject("ChatFontNormal")
         eb:SetWidth(570) 
-        eb:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, 0)
-        
-        eb:SetFontObject("ChatFontNormal") 
-        eb:SetFont("Fonts\\FRIZQT__.TTF", 13, "") 
-        eb:SetTextColor(0.95, 0.95, 0.95, 1)
-        eb:SetTextInsets(10, 10, 10, 10)
+        -- [GÜNCELLEME] Yazılar soldan 10px boşlukla başlasın ki sol ve sağ simetrik gözüksün.
+        eb:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 10, -5)
         eb:SetText(elem.code or "return \"Hello World\"")
         
-        -- SCROLL HATASI ÇÖZÜMÜ: Fiziksel kaydırma çubuğuna bağlanma
-        eb:EnableMouseWheel(true)
-        eb:SetScript("OnMouseWheel", function(self, delta)
-            -- Kütüphanenin yarattığı fiziksel Scrollbar'ı bul
-            local scrollBar = sf.ScrollBar or sf.scrollBar or _G[sf:GetName().."ScrollBar"]
-            if scrollBar and scrollBar:IsShown() then
-                local minV, maxV = scrollBar:GetMinMaxValues()
-                local current = scrollBar:GetValue()
-                local new = current - (delta * 30)
-                if new < minV then new = minV end
-                if new > maxV then new = maxV end
-                scrollBar:SetValue(new)
-            else
-                -- Scrollbar gizliyse yedeğe düş
-                local current = sf:GetVerticalScroll()
-                local maxScroll = math.max(0, self:GetHeight() - sf:GetHeight())
-                local new = current - (delta * 30)
-                if new < 0 then new = 0 end
-                if new > maxScroll then new = maxScroll end
-                sf:SetVerticalScroll(new)
-            end
-        end)
+        -- DİKKAT: Boşluğa tıklayınca imlecin (editörün) aktif olması için arkaplanları tıklanabilir yaptık
+        bg:EnableMouse(true)
+        scrollChild:EnableMouse(true)
+        
+        local function FocusEditor()
+            eb:SetFocus()
+        end
+        
+        bg:SetScript("OnMouseDown", FocusEditor)
+        scrollChild:SetScript("OnMouseDown", FocusEditor)
+        sf:SetScript("OnMouseDown", FocusEditor)
 
-        local measure = scrollChild:CreateFontString(nil, "ARTWORK")
-        measure:SetFontObject("ChatFontNormal")
-        measure:SetFont("Fonts\\FRIZQT__.TTF", 13, "")
-        measure:SetWidth(550)
-        measure:SetWordWrap(true)
-        measure:Hide()
-
+        -- 4. BÜYÜLÜ ÇÖZÜM: Kendi GetHeight'ini kullanmak
         eb:SetScript("OnTextChanged", function(self, isUserInput)
-            measure:SetText(self:GetText() or "")
-            local textHeight = measure:GetStringHeight()
-            local newHeight = math.max(180, textHeight + 40) 
-            
-            self:SetHeight(newHeight)
-            scrollChild:SetHeight(newHeight)
-            
-            -- SCROLL TAKILMA ÇÖZÜMÜ: İçerik büyüdükçe Scroll limitlerini genişlet
-            sf:UpdateScrollChildRect()
+            local h = self:GetHeight()
+            scrollChild:SetHeight(math.max(190, h + 20))
             
             if isUserInput then
                 elem.code = self:GetText()
@@ -236,21 +213,22 @@ function CustomCode:CreateSettings(parentFrame)
         
         eb:GetScript("OnTextChanged")(eb, false)
 
+        -- EditBox'ta ok tuşlarına veya Enter'a basıldığında ScrollFrame'in kamerayı kaydırması
         eb:SetScript("OnCursorChanged", function(self, x, y, w, h)
-            local current = sf:GetVerticalScroll()
+            local cursorY = math.abs(y)
+            local currentScroll = sf:GetVerticalScroll()
             local sfHeight = sf:GetHeight()
-            local cursorTop = math.abs(y)
-            local cursorBottom = cursorTop + h
-            if cursorTop < current then
-                sf:SetVerticalScroll(cursorTop)
-            elseif cursorBottom > current + sfHeight then
-                sf:SetVerticalScroll(cursorBottom - sfHeight)
+            
+            if cursorY < currentScroll then
+                sf:SetVerticalScroll(math.max(0, cursorY - 10))
+            elseif cursorY + h > currentScroll + sfHeight then
+                sf:SetVerticalScroll((cursorY + h) - sfHeight + 10)
             end
         end)
 
         eb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
         
-        -- HATA (LUA ERROR) VERMEYEN DÜZELTİLMİŞ ŞABLONLAR
+        -- HATALARDAN ARINDIRILMIŞ ŞABLONLAR
         local sY = bottomY - 235
         local sLbl = f.content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         sLbl:SetPoint("TOPLEFT", 10, sY)
@@ -259,15 +237,16 @@ function CustomCode:CreateSettings(parentFrame)
         local snippetList = {
             {text = "Select a snippet...", value = "NONE"},
             {text = "--- Player Info ---", value = "NONE"},
-            {text = "Health %", value = "local c = UnitHealth('player') or 0\nlocal m = UnitHealthMax('player') or 1\nif m == 0 then m = 1 end\nreturn string.format('HP: %.1f%%', (c/m)*100)"},
+            {text = "Player Name & Realm", value = "return UnitName('player') .. ' - ' .. GetRealmName()"},
             {text = "Class & Level", value = "local lvl = UnitLevel('player') or 0\nlocal cls = UnitClass('player') or 'Unknown'\nreturn string.format('Lvl %d %s', lvl, cls)"},
             {text = "Current Speed", value = "local speed = GetUnitSpeed('player') or 0\nreturn string.format('Speed: %.0f%%', (speed/7)*100)"},
-            {text = "--- Target Info ---", value = "NONE"},
-            {text = "Target Name", value = "local n = UnitName('target')\nif not n then return 'No Target' end\nreturn 'Target: ' .. n"},
-            {text = "Target HP %", value = "local c = UnitHealth('target')\nlocal m = UnitHealthMax('target')\nif not c or not m or m == 0 then return '' end\nreturn string.format('%.1f%%', (c/m)*100)"},
-            {text = "--- Utility ---", value = "NONE"},
+            {text = "--- System & World ---", value = "NONE"},
+            {text = "FPS & Latency", value = "local _, _, lat = GetNetStats()\nreturn string.format('FPS: %d | MS: %d', floor(GetFramerate()), lat)"},
             {text = "Current Zone", value = "return GetMinimapZoneText() or 'Unknown'"},
+            {text = "Coordinates", value = "local m = C_Map.GetBestMapForUnit('player')\nif not m then return '0, 0' end\nlocal p = C_Map.GetPlayerMapPosition(m, 'player')\nif not p then return '0, 0' end\nreturn string.format('%.1f, %.1f', p.x*100, p.y*100)"},
+            {text = "--- Utility ---", value = "NONE"},
             {text = "Gold Count", value = "local money = GetMoney() or 0\nreturn GetCoinTextureString(money)"},
+            {text = "Free Bag Space", value = "local f, t = 0, 0\nfor i = 0, NUM_BAG_SLOTS do\n  f = f + C_Container.GetContainerNumFreeSlots(i)\n  t = t + C_Container.GetContainerNumSlots(i)\nend\nreturn string.format('Bags: %d/%d', f, t)"},
         }
 
         local ddSnippets = Skin:CreateDropdown(f.content, 250, snippetList, "NONE", function(val)
