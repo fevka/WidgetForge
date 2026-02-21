@@ -169,13 +169,35 @@ function Stats:UpdatePolledStats(elapsed)
     -- =======================================================
     local loadoutName = nil
     local loadoutIcon = nil
+    
+    local playerKey = UnitName("player") .. "-" .. GetRealmName()
+    if WidgetForgeDB and not WidgetForgeDB.talentCache then WidgetForgeDB.talentCache = {} end
 
     if _G.TLX and _G.TLX.GetLoadedData then
         local success, tlxData = pcall(_G.TLX.GetLoadedData)
         if success and type(tlxData) == "table" then
             loadoutName = tlxData.name
             loadoutIcon = tlxData.icon
+            
+            -- Kalıcı depolamaya kaydet veya sil
+            if WidgetForgeDB then
+                if loadoutName and loadoutName ~= "" then
+                    WidgetForgeDB.talentCache[playerKey] = {
+                        name = loadoutName,
+                        icon = loadoutIcon
+                    }
+                else
+                    -- Kullanıcı profil sildiyse veya aktif profil yoksa önbelleği temizle
+                    WidgetForgeDB.talentCache[playerKey] = nil
+                end
+            end
         end
+    end
+    
+    -- Eğer TLX verisi henüz yüklenmediyse (örneğin ilk girişte), saklanan veriyi kullan
+    if (not loadoutName or loadoutName == "") and WidgetForgeDB and WidgetForgeDB.talentCache and WidgetForgeDB.talentCache[playerKey] then
+        loadoutName = WidgetForgeDB.talentCache[playerKey].name
+        loadoutIcon = WidgetForgeDB.talentCache[playerKey].icon
     end
 
     if not loadoutName or loadoutName == "" then

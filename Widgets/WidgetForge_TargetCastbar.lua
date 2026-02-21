@@ -16,30 +16,31 @@ TargetCastbar.Instances = {}
 -- 1. INTERRUPT BİLGİSİ (Hangi Skillin Sorgulanacağını Bilmek İçin)
 -- ============================================================================
 local INTERRUPT_DATA = {
-    WARRIOR = { DEFAULT = {id = 6552} },
-    ROGUE   = { DEFAULT = {id = 1766} },
-    MAGE    = { DEFAULT = {id = 2139} },
-    DEATHKNIGHT = { DEFAULT = {id = 47528} },
-    PALADIN = { DEFAULT = {id = 96231} },
-    MONK    = { DEFAULT = {id = 116705} },
-    DEMONHUNTER = { DEFAULT = {id = 183752} },
-    EVOKER  = { DEFAULT = {id = 351338} },
-    WARLOCK = { DEFAULT = {id = 119914} },
-    SHAMAN  = { DEFAULT = {id = 57994} },
-    PRIEST  = { DEFAULT = {id = 0}, [3] = {id = 15487} },
-    HUNTER  = { DEFAULT = {id = 147362} },
-    DRUID   = { DEFAULT = {id = 106839}, [1] = {id = 78675} },
+    WARRIOR = { DEFAULT = {ids = {6552}} },
+    ROGUE   = { DEFAULT = {ids = {1766}} },
+    MAGE    = { DEFAULT = {ids = {2139}} },
+    DEATHKNIGHT = { DEFAULT = {ids = {47528}} },
+    PALADIN = { DEFAULT = {ids = {96231}} },
+    MONK    = { DEFAULT = {ids = {116705}} },
+    DEMONHUNTER = { DEFAULT = {ids = {183752}} },
+    EVOKER  = { DEFAULT = {ids = {351338}} },
+    -- Warlock Command Demon (119914), Grimoire of Sacrifice (132409), Pet Spell Lock (19647)
+    WARLOCK = { DEFAULT = {ids = {119914, 132409, 19647}} },
+    SHAMAN  = { DEFAULT = {ids = {57994}} },
+    PRIEST  = { DEFAULT = {ids = {0}}, [3] = {ids = {15487}} },
+    HUNTER  = { DEFAULT = {ids = {147362}} },
+    DRUID   = { DEFAULT = {ids = {106839}}, [1] = {ids = {78675}} },
 }
 
-TargetCastbar.interruptID = 0
+TargetCastbar.interruptIDs = {}
 
 function TargetCastbar:LoadClassInterrupt()
     local class = select(2, UnitClass("player"))
     local data = INTERRUPT_DATA[class]
-    if not data then self.interruptID = 0; return end
+    if not data then self.interruptIDs = {}; return end
     local specIndex = GetSpecialization() or 0
     local specData = data[specIndex] or data.DEFAULT
-    if specData then self.interruptID = specData.id else self.interruptID = 0 end
+    if specData and specData.ids then self.interruptIDs = specData.ids else self.interruptIDs = {} end
 end
 
 TargetCastbar:LoadClassInterrupt()
@@ -226,10 +227,31 @@ function TargetCastbar:Load(parent, elem)
             return
         end
         
-        local intID = TargetCastbar.interruptID
-        if intID and intID > 0 then
+        local intIDs = TargetCastbar.interruptIDs
+        local activeIntID = nil
+        
+        if intIDs and #intIDs > 0 then
+            for _, id in ipairs(intIDs) do
+                if IsPlayerSpell(id) or IsSpellKnown(id, true) then
+                    activeIntID = id
+                    break
+                end
+            end
+        end
+
+        if activeIntID then
+            -- Blizzard API Checks for Usability and Range
+            local usable, noMana = C_Spell.IsSpellUsable(activeIntID)
+            local inRange = C_Spell.IsSpellInRange(activeIntID, "target")
+            
+            -- If the spell exists but is unusable or explicitly out of range:
+            if not usable or inRange == false then
+                 container.bar:SetStatusBarColor(unpack(db.colorUnusable or {0.5, 0.5, 0.5, 1}))
+                 return
+            end
+
             -- Blizzard'ın yeni API objesini alıyoruz.
-            local cdDuration = C_Spell.GetSpellCooldownDuration(intID)
+            local cdDuration = C_Spell.GetSpellCooldownDuration(activeIntID)
             
             -- Kullanıcının belirlediği renkleri WoW'un Color objesine çeviriyoruz.
             local colReady = db.colorReady or {1.0, 0.72, 0.04, 1}
@@ -485,6 +507,7 @@ function TargetCastbar:CreateSettings(parentFrame)
     sb:AddColor("colorSuccess", "2. Interrupted (Success)", {0.1, 1.0, 0.3, 1}, elem, RefreshLive)
     sb:AddColor("colorOnCD", "3. Cannot Interrupt (On CD)", {1.0, 0.2, 0.2, 1}, elem, RefreshLive)
     sb:AddColor("colorShielded", "4. Not Interruptible (Shield)", {0.45, 0.45, 0.6, 1}, elem, RefreshLive)
+    sb:AddColor("colorUnusable", "5. Unusable / Out of Range", {0.5, 0.5, 0.5, 1}, elem, RefreshLive)
 
     sb:Finish()
 

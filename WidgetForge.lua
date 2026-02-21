@@ -522,9 +522,25 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
             local fullText = isSplit and valStr or (valStr .. WithSpace(lblStr))
             fetchedValues[i] = {val = valStr, lbl = lblStr, full = fullText}
             
-            if f.statCache[i] ~= fullText then
+            local currentIcon = nil
+            if elem.type == "Talent Loadout" and ForgeStats.Data then
+                currentIcon = ForgeStats.Data["Talent Loadout Icon"]
+            end
+            
+            if not f.statCache then f.statCache = {} end
+            if not f.iconCache then f.iconCache = {} end
+            
+            if f.statCache[i] ~= fullText or f.iconCache[i] ~= currentIcon then
                 f.statCache[i] = fullText
+                f.iconCache[i] = currentIcon
                 layoutNeedsUpdate = true 
+            end
+        elseif elem.type == "Dragonriding" then
+            local df = f.dragonFrames and f.dragonFrames[i]
+            if df and addonTable.Dragonriding then
+                if df.UpdateVisuals or addonTable.Dragonriding.UpdateVisuals then
+                     addonTable.Dragonriding:UpdateVisuals(df, elem)
+                end
             end
         end
     end
@@ -564,12 +580,6 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
              end
              
         elseif elem.type == "Dragonriding" then
-            local df = f.dragonFrames and f.dragonFrames[i]
-            if df and addonTable.Dragonriding then
-                if df.UpdateVisuals or addonTable.Dragonriding.UpdateVisuals then
-                     addonTable.Dragonriding:UpdateVisuals(df, elem)
-                end
-            end
             elemWidth = elem.widgetWidth or 300
             elemHeight = elem.widgetHeight or 45
         elseif elem.type == "Target Castbar" then

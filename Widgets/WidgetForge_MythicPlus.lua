@@ -26,9 +26,26 @@ MPlus.GlobalState = {
     affixIDs = {}
 }
 MPlus.initialized = false
-MPlus.hiddenFrame = nil 
+MPlus.hiddenFrame = nil
 
--- --- DB & EVENTS INIT ---
+-- Helper: scan all world elapsed timers to find the M+ timer (type 2)
+local function GetChallengeElapsedTime()
+    local num = GetNumWorldElapsedTimers and GetNumWorldElapsedTimers() or 0
+    for i = 1, num do
+        local timerType, elapsed = GetWorldElapsedTime(i)
+        if timerType == 2 then -- LE_WORLD_ELAPSED_TIMER_TYPE_CHALLENGE_MODE
+            return elapsed
+        end
+    end
+    -- Fallback: try index 1
+    if GetWorldElapsedTime then
+        local _, t = GetWorldElapsedTime(1)
+        if t and t >= 0 then return t end
+    end
+    return nil
+end
+
+
 function MPlus:InitGlobal()
     if MPlus.initialized then return end
     
@@ -49,7 +66,10 @@ function MPlus:InitGlobal()
                 showBosses = true,
                 showTimer = true,
                 showForces = true,
-                showDeathCounter = true
+                showDeathCounter = true,
+                timerChunk1Color = {0, 1, 0.5, 1},
+                timerChunk2Color = {1, 0.8, 0, 1},
+                timerChunk3Color = {1, 0.3, 0.3, 1}
             }
         }
     end
@@ -60,6 +80,21 @@ function MPlus:InitGlobal()
     
     MPlus:RegisterEvents()
     MPlus.initialized = true
+end
+
+-- Called when Blizzard_ChallengesUI is loaded (load-on-demand)
+function MPlus:HookKeystoneFrame()
+    if MPlus.keystoneHooked then return end
+    if not ChallengesKeystoneFrame then return end
+    MPlus.keystoneHooked = true
+    
+    ChallengesKeystoneFrame:HookScript("OnShow", function()
+        if MPlus.config and MPlus.config.Settings and MPlus.config.Settings.autoKeystone then
+            C_Timer.After(0.3, function()
+                MPlus:TrySlotKeystone()
+            end)
+        end
+    end)
 end
 
 -- --- UI YARDIMCILARI ---
@@ -75,12 +110,57 @@ local function CreateProgressBar(parent, labelText)
         bar:SetStatusBarColor(unpack(Skin.Colors.accent))
     end
     
-    bar.text = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local textFrame = CreateFrame("Frame", nil, bar)
+    textFrame:SetAllPoints()
+    textFrame:SetFrameLevel(bar:GetFrameLevel() + 5)
+    
+    bar.text = textFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     bar.text:SetPoint("CENTER", 0, 0)
     
     bar.label = bar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     bar.label:SetPoint("BOTTOMLEFT", bar, "TOPLEFT", 0, 3)
     bar.label:SetText(labelText)
+    
+    -- Chest markers for Timer Bar (LINES mode)
+    bar.marker2 = bar:CreateTexture(nil, "OVERLAY")
+    bar.marker2:SetColorTexture(1, 0.8, 0, 0.8) -- Gold for 2-chest
+    bar.marker2:SetSize(2, 18)
+    bar.marker2:Hide()
+    
+    bar.marker3 = bar:CreateTexture(nil, "OVERLAY")
+    bar.marker3:SetColorTexture(0, 1, 0.5, 0.8) -- Green for 3-chest
+    bar.marker3:SetSize(2, 18)
+    bar.marker3:Hide()
+    
+    -- Chunks for SPLIT mode
+    bar.chunk1 = CreateFrame("StatusBar", nil, bar, "BackdropTemplate")
+    bar.chunk2 = CreateFrame("StatusBar", nil, bar, "BackdropTemplate")
+    bar.chunk3 = CreateFrame("StatusBar", nil, bar, "BackdropTemplate")
+    
+    local c1text = CreateFrame("Frame", nil, bar.chunk1)
+    c1text:SetAllPoints()
+    c1text:SetFrameLevel(bar.chunk1:GetFrameLevel() + 5)
+    bar.chunk1.text = c1text:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    bar.chunk1.text:SetPoint("CENTER", 0, 0)
+    
+    local c2text = CreateFrame("Frame", nil, bar.chunk2)
+    c2text:SetAllPoints()
+    c2text:SetFrameLevel(bar.chunk2:GetFrameLevel() + 5)
+    bar.chunk2.text = c2text:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    bar.chunk2.text:SetPoint("CENTER", 0, 0)
+    
+    local c3text = CreateFrame("Frame", nil, bar.chunk3)
+    c3text:SetAllPoints()
+    c3text:SetFrameLevel(bar.chunk3:GetFrameLevel() + 5)
+    bar.chunk3.text = c3text:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    bar.chunk3.text:SetPoint("CENTER", 0, 0)
+    
+    for _, chunk in ipairs({bar.chunk1, bar.chunk2, bar.chunk3}) do
+        chunk:SetHeight(18)
+        chunk:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+        if Skin then Skin:ApplyBackdrop(chunk, 0.4, 0.6) end
+        chunk:Hide()
+    end
     
     return bar
 end
@@ -141,6 +221,12 @@ function MPlus:Load(parent, elem)
     container.deathCount:SetJustifyH("LEFT") -- Yazıyı tam sola dayalı hale getiriyoruz
     container.deathCount:SetText("")
     
+    -- Key level label (top-right)
+    container.keyLevel = container:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    container.keyLevel:SetJustifyH("RIGHT")
+    container.keyLevel:SetTextColor(0, 0.8, 1, 1)
+    container.keyLevel:SetText("")
+    
     table.insert(MPlus.Instances, container)
     
     container:SetScript("OnUpdate", function(self)
@@ -191,6 +277,10 @@ function MPlus:UpdateLayout(container)
         showAffixes = false
         showDeaths = false
     end
+
+    -- Key level (top-right, always visible when widget is shown)
+    container.keyLevel:ClearAllPoints()
+    container.keyLevel:SetPoint("TOPRIGHT", container, "TOPRIGHT", -10, -8)
 
     -- 1. TIMER BAR (En Üst)
     if showTimer then
@@ -296,25 +386,119 @@ function MPlus:UpdateVisuals(container)
     MPlus:UpdateLayout(container)
     
     if state.currentTime and state.timeLimit and state.timeLimit > 0 then
-        container.timerBar:SetMinMaxValues(0, state.timeLimit)
-        container.timerBar:SetValue(state.currentTime)
-        container.timerBar:SetStatusBarTexture(barTexture)
+        local mode = conf.timerChestMode or "LINES"
+        
+        container.timerBar.chunk1:Hide()
+        container.timerBar.chunk2:Hide()
+        container.timerBar.chunk3:Hide()
+        container.timerBar.marker2:Hide()
+        container.timerBar.marker3:Hide()
         
         local timeLeft = state.timeLimit - state.currentTime
         local isOver = timeLeft < 0
         local color = isOver and "|cffff0000" or "|cffffffff"
-        container.timerBar.text:SetText(format("%s%02d:%02d|r / %02d:%02d", color, abs(timeLeft) / 60, abs(timeLeft) % 60, state.timeLimit / 60, state.timeLimit % 60))
         
-        if conf.dynamicTimerColor ~= false then
-            if state.currentTime < state.threeChestLimit then container.timerBar:SetStatusBarColor(0, 1, 0.5, 1) 
-            elseif state.currentTime < state.twoChestLimit then container.timerBar:SetStatusBarColor(1, 0.8, 0, 1) 
-            else container.timerBar:SetStatusBarColor(1, 0.3, 0.3, 1) end
+        if mode == "SPLIT" and state.threeChestLimit > 0 and state.twoChestLimit > 0 then
+            container.timerBar.text:SetText("") -- Disable main text in split mode
+            container.timerBar:SetStatusBarTexture("")
+            if container.timerBar.SetBackdropColor then container.timerBar:SetBackdropColor(0,0,0,0) end
+            if container.timerBar.SetBackdropBorderColor then container.timerBar:SetBackdropBorderColor(0,0,0,0) end
+            
+            container.timerBar.chunk1:Show()
+            container.timerBar.chunk2:Show()
+            container.timerBar.chunk3:Show()
+            
+            local w = container.timerBar:GetWidth()
+            local gap = 4
+            local pct3 = state.threeChestLimit / state.timeLimit
+            local pct2 = state.twoChestLimit / state.timeLimit
+            
+            local w1 = math.max(1, (w * pct3) - gap)
+            local w2 = math.max(1, (w * (pct2 - pct3)) - gap)
+            local w3 = math.max(1, w - w1 - w2 - (gap * 2))
+            
+            container.timerBar.chunk1:SetPoint("LEFT", container.timerBar, "LEFT", 0, 0)
+            container.timerBar.chunk1:SetWidth(w1)
+            container.timerBar.chunk2:SetPoint("LEFT", container.timerBar.chunk1, "RIGHT", gap, 0)
+            container.timerBar.chunk2:SetWidth(w2)
+            container.timerBar.chunk3:SetPoint("LEFT", container.timerBar.chunk2, "RIGHT", gap, 0)
+            container.timerBar.chunk3:SetWidth(w3)
+            
+            container.timerBar.chunk1:SetMinMaxValues(0, state.threeChestLimit)
+            container.timerBar.chunk2:SetMinMaxValues(0, state.twoChestLimit - state.threeChestLimit)
+            container.timerBar.chunk3:SetMinMaxValues(0, state.timeLimit - state.twoChestLimit)
+            
+            local val1 = math.min(state.threeChestLimit, state.currentTime)
+            local val2 = math.max(0, math.min(state.twoChestLimit - state.threeChestLimit, state.currentTime - state.threeChestLimit))
+            local val3 = math.max(0, state.currentTime - state.twoChestLimit)
+            
+            container.timerBar.chunk1:SetValue(val1)
+            container.timerBar.chunk2:SetValue(val2)
+            container.timerBar.chunk3:SetValue(val3)
+            
+            -- Cumulative countdown: each bar shows time remaining to ITS OWN milestone
+            -- Bar1 = time to 3-chest, Bar2 = time to 2-chest (bar1+self), Bar3 = total time left
+            local f1 = math.max(0, state.threeChestLimit - state.currentTime)
+            local f2 = math.max(0, state.twoChestLimit - state.currentTime)
+            local f3 = state.timeLimit - state.currentTime  -- can be negative (overtime)
+            
+            container.timerBar.chunk1.text:SetText(format("%02d:%02d", f1 / 60, f1 % 60))
+            container.timerBar.chunk2.text:SetText(format("%02d:%02d", f2 / 60, f2 % 60))
+            if f3 < 0 then
+                container.timerBar.chunk3.text:SetText(format("|cffff0000-%02d:%02d|r", abs(f3) / 60, abs(f3) % 60))
+            else
+                container.timerBar.chunk3.text:SetText(format("%02d:%02d", f3 / 60, f3 % 60))
+            end
+            
+            container.timerBar.chunk1:SetStatusBarTexture(barTexture)
+            container.timerBar.chunk2:SetStatusBarTexture(barTexture)
+            container.timerBar.chunk3:SetStatusBarTexture(barTexture)
+            
+            container.timerBar.chunk1:SetStatusBarColor(unpack(conf.timerChunk1Color or {0, 1, 0.5, 1}))
+            container.timerBar.chunk2:SetStatusBarColor(unpack(conf.timerChunk2Color or {1, 0.8, 0, 1}))
+            container.timerBar.chunk3:SetStatusBarColor(unpack(conf.timerChunk3Color or {1, 0.3, 0.3, 1}))
+            
+            container.timerBar:SetMinMaxValues(0, state.timeLimit)
+            container.timerBar:SetValue(0)
         else
-            container.timerBar:SetStatusBarColor(unpack(conf.timerColor or {0, 0.8, 1, 1}))
+            container.timerBar.text:SetText(format("%s%02d:%02d|r / %02d:%02d", color, abs(timeLeft) / 60, abs(timeLeft) % 60, state.timeLimit / 60, state.timeLimit % 60))
+            container.timerBar:SetStatusBarTexture(barTexture)
+            if container.timerBar.SetBackdropColor then container.timerBar:SetBackdropColor(0,0,0,0.6) end
+            if container.timerBar.SetBackdropBorderColor then container.timerBar:SetBackdropBorderColor(0,0,0,1) end
+            
+            container.timerBar:SetMinMaxValues(0, state.timeLimit)
+            container.timerBar:SetValue(state.currentTime)
+            
+            if conf.dynamicTimerColor ~= false then
+                if state.currentTime < state.threeChestLimit then container.timerBar:SetStatusBarColor(0, 1, 0.5, 1) 
+                elseif state.currentTime < state.twoChestLimit then container.timerBar:SetStatusBarColor(1, 0.8, 0, 1) 
+                else container.timerBar:SetStatusBarColor(1, 0.3, 0.3, 1) end
+            else
+                container.timerBar:SetStatusBarColor(unpack(conf.timerColor or {0, 0.8, 1, 1}))
+            end
+            
+            if mode == "LINES" and state.threeChestLimit > 0 and state.twoChestLimit > 0 then
+                local barWidth = container.timerBar:GetWidth()
+                local pct3 = state.threeChestLimit / state.timeLimit
+                local pct2 = state.twoChestLimit / state.timeLimit
+                
+                container.timerBar.marker3:Show()
+                container.timerBar.marker3:ClearAllPoints()
+                container.timerBar.marker3:SetPoint("LEFT", container.timerBar, "LEFT", barWidth * pct3, 0)
+                
+                container.timerBar.marker2:Show()
+                container.timerBar.marker2:ClearAllPoints()
+                container.timerBar.marker2:SetPoint("LEFT", container.timerBar, "LEFT", barWidth * pct2, 0)
+            end
         end
     else
         container.timerBar:SetValue(0)
         container.timerBar.text:SetText("00:00 / 00:00")
+        container.timerBar.marker2:Hide()
+        container.timerBar.marker3:Hide()
+        if container.timerBar.chunk1 then container.timerBar.chunk1:Hide() end
+        if container.timerBar.chunk2 then container.timerBar.chunk2:Hide() end
+        if container.timerBar.chunk3 then container.timerBar.chunk3:Hide() end
     end
     
     if state.enemyForces then
@@ -441,6 +625,15 @@ function MPlus:UpdateVisuals(container)
             end
         end
     end
+    
+    -- Key level (top-right)
+    if container.keyLevel then
+        if state.keystoneLevel and state.keystoneLevel > 0 then
+            container.keyLevel:SetText("+" .. state.keystoneLevel)
+        else
+            container.keyLevel:SetText("")
+        end
+    end
 end
 
 function MPlus:UpdateAllInstances()
@@ -470,11 +663,13 @@ function MPlus:CheckVisibility(container)
         }
         state.splits = {[1] = 300, [2] = 650}
         state.affixIDs = {9, 10, 11, 122}
+        state.keystoneLevel = 12
         return
     end
 
     if C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive() then 
         container:Show()
+        container:SetAlpha(1)
         MPlus:HideDefaultTracker()
     else
         container:Hide()
@@ -504,13 +699,14 @@ function MPlus:RegisterEvents()
             MPlus:EndRun()
         elseif event == "CHALLENGE_MODE_RESET" then
             MPlus.GlobalState.activeRun = false
+            MPlus.GlobalState.isCompleted = false
             MPlus:ShowDefaultTracker()
             for _, inst in ipairs(MPlus.Instances) do MPlus:CheckVisibility(inst) end
         elseif event == "SCENARIO_UPDATE" or event == "SCENARIO_CRITERIA_UPDATE" then
             MPlus:UpdateObjectivesData()
         elseif event == "PLAYER_ENTERING_WORLD" then
             if C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive() then
-                if not MPlus.GlobalState.activeRun then
+                if not MPlus.GlobalState.activeRun and not MPlus.GlobalState.isCompleted then
                     MPlus.GlobalState.activeRun = true
                     MPlus.GlobalState.splits = MPlus.GlobalState.splits or {}
                 end
@@ -529,7 +725,11 @@ function MPlus:RegisterEvents()
                 MPlus:UpdateAllInstances()
             end)
         elseif event == "CHALLENGE_MODE_KEYSTONE_RECEPTACLE_OPEN" then
-            MPlus:OnKeystoneOpen()
+            if MPlus.config and MPlus.config.Settings and MPlus.config.Settings.autoKeystone then
+                C_Timer.After(0.3, function()
+                    MPlus:TrySlotKeystone()
+                end)
+            end
         end
     end)
     
@@ -542,9 +742,20 @@ function MPlus:RegisterEvents()
 
         local state = MPlus.GlobalState
         if state.activeRun then
-            local _, timeElapsed = GetWorldElapsedTime(1)
+            -- Primary: scan all world timers for M+ timer type
+            local timeElapsed = GetChallengeElapsedTime()
+            -- Last resort fallback: compute from GetTime() recorded at run start
+            if (not timeElapsed or timeElapsed <= 0) and state.runStartTime then
+                timeElapsed = GetTime() - state.runStartTime
+            end
             if timeElapsed and timeElapsed >= 0 then state.currentTime = timeElapsed end
-            MPlus:HideDefaultTracker() 
+            MPlus:HideDefaultTracker()
+            -- Also poll objectives every ~1s to catch kill count updates
+            self.forcePoll = (self.forcePoll or 0) + tick
+            if self.forcePoll >= 1.0 then
+                self.forcePoll = 0
+                MPlus:UpdateObjectivesData()
+            end
             MPlus:UpdateAllInstances()
         else
             self.slowTick = (self.slowTick or 0) + tick
@@ -575,12 +786,30 @@ function MPlus:UpdateTimerData()
 
     local isChallengersPeril = false
     if C_ChallengeMode.GetActiveKeystoneInfo then
-        local activeAffixes = select(2, C_ChallengeMode.GetActiveKeystoneInfo())
-        if activeAffixes then
-             state.affixIDs = activeAffixes
-             for _, id in ipairs(activeAffixes) do
-                 if id == 152 then isChallengersPeril = true; break end
-             end
+        -- Returns: level, affixes (table of affix IDs), wasEnergized
+        local keystoneLevel, affixes = C_ChallengeMode.GetActiveKeystoneInfo()
+        if affixes and type(affixes) == "table" then
+            state.affixIDs = {}
+            for _, affixID in ipairs(affixes) do
+                table.insert(state.affixIDs, affixID)
+                if affixID == 152 then isChallengersPeril = true end
+            end
+        elseif affixes == nil then
+            -- Fallback: try C_MythicPlus.GetCurrentAffixes
+            if C_MythicPlus and C_MythicPlus.GetCurrentAffixes then
+                local currentAffixes = C_MythicPlus.GetCurrentAffixes()
+                if currentAffixes then
+                    state.affixIDs = {}
+                    for _, a in ipairs(currentAffixes) do
+                        table.insert(state.affixIDs, a.id)
+                        if a.id == 152 then isChallengersPeril = true end
+                    end
+                end
+            end
+        end
+        -- Store keystone level in global state
+        if keystoneLevel and keystoneLevel > 0 then
+            state.keystoneLevel = keystoneLevel
         end
     end
 
@@ -599,29 +828,46 @@ end
 function MPlus:StartRun()
     local state = MPlus.GlobalState
     state.activeRun = true
-    state.splits = {} 
+    state.isCompleted = false
+    state.splits = {}
+    -- Record wall-clock start time as a GetTime() fallback for the timer
+    state.runStartTime = GetTime()
     MPlus:UpdateTimerData()
     MPlus:HideDefaultTracker()
     
     if C_ChallengeMode.GetActiveChallengeMapID then
         local mapID = C_ChallengeMode.GetActiveChallengeMapID()
-        local level = select(2, C_ChallengeMode.GetActiveKeystoneInfo())
+        -- GetActiveKeystoneInfo returns: level, affixes, wasEnergized
+        local level = C_ChallengeMode.GetActiveKeystoneInfo()
+        if level and level > 0 then state.keystoneLevel = level end
         state.bestRunCompare = MPlus:GetBestRun(mapID, level)
     end
 
     MPlus:UpdateObjectivesData()
     for _, inst in ipairs(MPlus.Instances) do MPlus:CheckVisibility(inst) end
+    MPlus:UpdateAllInstances()
+    
+    -- Delayed retry: scenario data may not be available immediately at key start
+    C_Timer.After(1.0, function()
+        if state.activeRun then
+            MPlus:UpdateTimerData()
+            MPlus:UpdateObjectivesData()
+            for _, inst in ipairs(MPlus.Instances) do MPlus:CheckVisibility(inst) end
+            MPlus:UpdateAllInstances()
+        end
+    end)
 end
 
 function MPlus:EndRun()
     local state = MPlus.GlobalState
     state.activeRun = false
+    state.isCompleted = true
     state.bestRunCompare = nil
     MPlus:ShowDefaultTracker()
     
     if C_ChallengeMode.GetActiveChallengeMapID and state.currentTime then
         local mapID = C_ChallengeMode.GetActiveChallengeMapID()
-        local level = select(2, C_ChallengeMode.GetActiveKeystoneInfo()) or 0
+        local level = C_ChallengeMode.GetActiveKeystoneInfo() or 0  -- first return value is the keystone level
         local entry = { level = level, time = state.currentTime, date = date("%Y-%m-%d %H:%M:%S"), completed = (state.currentTime <= (state.timeLimit or 0)), splits = state.splits }
         MPlus.config.History[mapID] = MPlus.config.History[mapID] or { Runs = {} }
         table.insert(MPlus.config.History[mapID].Runs, entry)
@@ -629,26 +875,38 @@ function MPlus:EndRun()
     print("|cff00ffff[WidgetForge]|r Mythic+ Run Completed!")
 end
 
-function MPlus:OnKeystoneOpen()
-    if not MPlus.config.Settings.autoKeystone then return end
+-- Uses the official WoW API to slot the keystone
+function MPlus:TrySlotKeystone()
+    -- Method 1: C_ChallengeMode.SlotKeystone (modern API)
+    if C_ChallengeMode and C_ChallengeMode.SlotKeystone then
+        local success = C_ChallengeMode.SlotKeystone()
+        if success then return end
+    end
+    
+    -- Method 2: Fallback - find keystone in bags and use it
     for bag = 0, 4 do
-        for slot = 1, C_Container.GetContainerNumSlots(bag) do
+        local numSlots = C_Container.GetContainerNumSlots(bag)
+        for slot = 1, numSlots do
             local info = C_Container.GetContainerItemInfo(bag, slot)
-            if info and info.itemID == 158923 then 
-                C_Container.UseContainerItem(bag, slot)
-                if MPlus.config.Settings.autoCloseBags then C_Timer.After(0.5, function() CloseAllBags() end) end
-                return
+            if info and info.hyperlink then
+                local link = info.hyperlink:lower()
+                if link:find("keystone") then
+                    C_Container.UseContainerItem(bag, slot)
+                    return
+                end
             end
         end
     end
 end
 
 function MPlus:UpdateObjectivesData()
+    local state = MPlus.GlobalState
+    if state.isCompleted then return end -- Don't clear bosses if completed
+    
     if not _G.C_Scenario or not C_Scenario.GetStepInfo then return end
     local _, _, numStages = C_Scenario.GetStepInfo()
     if not numStages or numStages == 0 then return end
     
-    local state = MPlus.GlobalState
     if not state.splits then state.splits = {} end
     if not state.bossStatus then state.bossStatus = {} end
 
@@ -657,21 +915,29 @@ function MPlus:UpdateObjectivesData()
     if not numCriteria then return end
     
     for i = 1, numCriteria do
-        local description, quantity, totalQuantity, quantityString, isEnemyForces, completed
+        local description, quantity, totalQuantity, quantityString, isEnemyForces, completed, criteriaType
         
         if _G.C_ScenarioInfo and _G.C_ScenarioInfo.GetCriteriaInfo then
             local tbl = C_ScenarioInfo.GetCriteriaInfo(i)
             if tbl then
                 description = tbl.description; completed = tbl.completed
                 quantity = tbl.quantity; totalQuantity = tbl.totalQuantity
-                if tbl.isWeightedProgress then isEnemyForces = true end
+                criteriaType = tbl.criteriaType
+                -- isWeightedProgress = enemy forces bar (kill count)
+                -- criteriaType 4 is also used for enemy forces in some versions
+                if tbl.isWeightedProgress or criteriaType == 4 then isEnemyForces = true end
             end
         else
-            description, _, completed, quantity, totalQuantity, _, _, quantityString, _, _, _, isEnemyForces = C_Scenario.GetCriteriaInfo(i)
+            -- Legacy fallback: returns description, criteriaType, completed, quantity, totalQuantity, ..., isWeightedProgress
+            local c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12
+            description, c2, completed, quantity, totalQuantity, c6, c7, quantityString, c9, c10, c11, isEnemyForces = C_Scenario.GetCriteriaInfo(i)
+            criteriaType = c2
+            -- Also check criteriaType 4 for enemy forces
+            if criteriaType == 4 then isEnemyForces = true end
         end
         
         if isEnemyForces then
-            state.enemyForces = { cur = quantity, max = totalQuantity, pct = (totalQuantity and totalQuantity > 0) and (quantity / totalQuantity) * 100 or 0 }
+            state.enemyForces = { cur = quantity or 0, max = totalQuantity or 100, pct = (totalQuantity and totalQuantity > 0) and ((quantity or 0) / totalQuantity) * 100 or 0 }
         else
             if state.bossStatus[i] == nil then state.bossStatus[i] = completed end
             if completed and state.bossStatus[i] == false then
@@ -755,6 +1021,16 @@ function MPlus:CreateSettings(parentFrame)
     sb:AddColor("forcesColor", "Forces Bar Color", {0.8, 0, 0, 1}, globalSets, UpdateGlobal)
     
     sb:AddHeader("Splits & Mechanics")
+    sb:AddDropdown("timerChestMode", "Timer Bar Style", {
+        {text = "Lines (Markers)", value = "LINES"},
+        {text = "Split into 3 Bars", value = "SPLIT"},
+        {text = "No Marks", value = "NONE"}
+    }, "LINES", globalSets, UpdateGlobal, true)
+    
+    sb:AddColor("timerChunk1Color", "Chunk 1 Color (3-Chest)", {0, 1, 0.5, 1}, globalSets, UpdateGlobal)
+    sb:AddColor("timerChunk2Color", "Chunk 2 Color (2-Chest)", {1, 0.8, 0, 1}, globalSets, UpdateGlobal)
+    sb:AddColor("timerChunk3Color", "Chunk 3 Color (Base)", {1, 0.3, 0.3, 1}, globalSets, UpdateGlobal)
+    
     sb:AddCheckbox("showSplits", "Show Split Times", true, globalSets, UpdateGlobal)
     sb:AddDropdown("splitComparisonMode", "Compare Splits With:", {
         {text = "Best of Zone (Any Level)", value = "ZONE"},
@@ -764,7 +1040,6 @@ function MPlus:CreateSettings(parentFrame)
     
     sb:AddHeader("Automation & Quality of Life")
     sb:AddCheckbox("autoKeystone", "Auto-Insert Keystone", true, globalSets, UpdateGlobal)
-    sb:AddCheckbox("autoCloseBags", "Auto-Close Bags", true, globalSets, UpdateGlobal)
     
     sb:AddCheckbox("hideBlizzardTracker", "Hide Blizzard Tracker", true, globalSets, function(v)
         globalSets.hideBlizzardTracker = v
@@ -784,5 +1059,11 @@ end
 local fEvents = CreateFrame("Frame")
 fEvents:RegisterEvent("ADDON_LOADED")
 fEvents:SetScript("OnEvent", function(self, event, arg1)
-    if arg1 == addonName then MPlus:InitGlobal() end
+    if arg1 == addonName then
+        MPlus:InitGlobal()
+    end
+    -- ChallengesKeystoneFrame is inside Blizzard_ChallengesUI (load-on-demand)
+    if arg1 == "Blizzard_ChallengesUI" then
+        MPlus:HookKeystoneFrame()
+    end
 end)
