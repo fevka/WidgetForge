@@ -129,7 +129,6 @@ function MPlus:Load(parent, elem)
     container.affixFrame.icons = {}
 
     container.bossList = CreateFrame("Frame", nil, container)
-    container.bossList:SetSize(320, 10) 
     container.bossList.rows = {}
 
     container.timerBar = CreateProgressBar(container, "RUN TIMER")
@@ -139,6 +138,7 @@ function MPlus:Load(parent, elem)
     container.forcesBar:SetMinMaxValues(0, 100)
     
     container.deathCount = container:CreateFontString(nil, "OVERLAY", "GameFontRedSmall")
+    container.deathCount:SetJustifyH("LEFT") -- Yazıyı tam sola dayalı hale getiriyoruz
     container.deathCount:SetText("")
     
     table.insert(MPlus.Instances, container)
@@ -194,7 +194,7 @@ function MPlus:UpdateLayout(container)
 
     -- 1. TIMER BAR (En Üst)
     if showTimer then
-        y = y - 12 -- Barın üstündeki label için boşluk
+        y = y - 12
         container.timerBar:Show()
         container.timerBar:SetPoint("TOPLEFT", container, "TOPLEFT", 10, y)
         container.timerBar:SetPoint("TOPRIGHT", container, "TOPRIGHT", -10, y)
@@ -205,7 +205,7 @@ function MPlus:UpdateLayout(container)
 
     -- 2. FORCES BAR
     if showForces then
-        y = y - 12 -- Barın üstündeki label için boşluk
+        y = y - 12
         container.forcesBar:Show()
         container.forcesBar:SetPoint("TOPLEFT", container, "TOPLEFT", 10, y)
         container.forcesBar:SetPoint("TOPRIGHT", container, "TOPRIGHT", -10, y)
@@ -214,15 +214,15 @@ function MPlus:UpdateLayout(container)
         container.forcesBar:Hide()
     end
     
-    -- Küçük bir ek boşluk (Barlar ile Bosslar arası)
     if (showTimer or showForces) and showBosses then
         y = y - 5
     end
 
-    -- 3. BOSS LIST
+    -- 3. BOSS LIST (Barlara dinamik olarak zincirlendi)
     if showBosses and state.bosses and #state.bosses > 0 then
         container.bossList:Show()
         container.bossList:SetPoint("TOPLEFT", container, "TOPLEFT", 10, y)
+        container.bossList:SetPoint("TOPRIGHT", container, "TOPRIGHT", -10, y) -- Barlarla aynı hizalama
         local bossHeight = #state.bosses * 20
         container.bossList:SetHeight(bossHeight)
         y = y - bossHeight - padding
@@ -253,22 +253,20 @@ function MPlus:UpdateLayout(container)
     end
 
     if hasBottomRow then
-        y = y - bottomRowHeight - 10 -- Alt padding
+        y = y - bottomRowHeight - 10
     end
 
-    -- COMPACT MOD: Alt taraftan 3 piksel fazladan uzat (Kullanıcı İsteği)
+    -- COMPACT MOD: Alt taraftan 5 piksel fazladan uzat
     if isCompact then
-        y = y - 3
+        y = y - 5
     end
 
-    -- BOYUTU KAPAT (Arka planın tam sarması için anahtar nokta)
     local finalHeight = math.abs(y)
     if not conf.autoSize and container.elem.widgetHeight then
         finalHeight = container.elem.widgetHeight
     end
     container:SetHeight(finalHeight)
 
-    -- WidgetForge Ana Motoruna (Sürükleme kutusu) senkronize ol
     if conf.autoSize then
         if container.elem.widgetHeight ~= finalHeight then
             container.elem.widgetHeight = finalHeight
@@ -327,6 +325,7 @@ function MPlus:UpdateVisuals(container)
         container.forcesBar:SetStatusBarColor(unpack(conf.forcesColor or {0.8, 0, 0, 1}))
     end
 
+    -- DİNAMİK BOSS SATIRLARI
     if state.bosses then
         local spacing = 20
         local mediaPath = "Interface\\AddOns\\WidgetForge\\media\\"
@@ -335,26 +334,33 @@ function MPlus:UpdateVisuals(container)
             local row = container.bossList.rows[i]
             if not row then
                 row = CreateFrame("Frame", nil, container.bossList)
-                row:SetSize(300, 18)
+                row:SetHeight(18)
+                
                 row.box = row:CreateTexture(nil, "OVERLAY")
                 row.box:SetSize(12, 12)
-                row.box:SetPoint("LEFT", 0, 0)
+                row.box:SetPoint("LEFT", row, "LEFT", 0, 0) -- Tam olarak hizaya yapışır
+                
                 row.box:SetTexture(mediaPath .. "square_emty.tga")
                 row.check = row:CreateTexture(nil, "OVERLAY")
                 row.check:SetSize(12, 12)
                 row.check:SetPoint("CENTER", row.box, "CENTER", 0, 0)
                 row.check:SetTexture(mediaPath .. "square_full.tga")
+                
                 row.name = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
                 row.name:SetPoint("LEFT", row.box, "RIGHT", 5, 0) 
                 local bossFont = (Skin and Skin.Constants and Skin.Constants.FONT_NORMAL) or "Fonts\\FRIZQT__.TTF"
                 row.name:SetFont(bossFont, 11, "OUTLINE")
+                
                 row.time = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-                row.time:SetPoint("RIGHT", 0, 0) 
+                row.time:SetPoint("RIGHT", row, "RIGHT", 0, 0) -- Sağ tarafa (bar sonuna) tam yapışır
+                
                 container.bossList.rows[i] = row
             end
             
             row:Show()
-            row:SetPoint("TOPLEFT", 5, -(i-1) * spacing)
+            row:SetPoint("TOPLEFT", container.bossList, "TOPLEFT", 0, -(i-1) * spacing)
+            row:SetPoint("TOPRIGHT", container.bossList, "TOPRIGHT", 0, -(i-1) * spacing)
+            
             row.name:SetText(boss.name)
             
             if boss.done then
