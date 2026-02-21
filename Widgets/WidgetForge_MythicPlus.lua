@@ -43,10 +43,8 @@ function MPlus:InitGlobal()
                 autoCloseBags = true,
                 hideBlizzardTracker = true,
                 splitComparisonMode = "LEVEL",
-                -- Yeni Adaptive Layout Ayarları
                 autoSize = true,
                 hoverExpand = false,
-                showTitle = true,
                 showAffixes = true,
                 showBosses = true,
                 showTimer = true,
@@ -57,7 +55,6 @@ function MPlus:InitGlobal()
     end
     MPlus.config = _G.WidgetForgeDB.MythicPlus
     
-    -- Taint Korumalı Gizli Frame
     MPlus.hiddenFrame = CreateFrame("Frame")
     MPlus.hiddenFrame:Hide()
     
@@ -82,7 +79,7 @@ local function CreateProgressBar(parent, labelText)
     bar.text:SetPoint("CENTER", 0, 0)
     
     bar.label = bar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    bar.label:SetPoint("BOTTOMLEFT", bar, "TOPLEFT", 0, 2)
+    bar.label:SetPoint("BOTTOMLEFT", bar, "TOPLEFT", 0, 3)
     bar.label:SetText(labelText)
     
     return bar
@@ -116,18 +113,19 @@ function MPlus:Load(parent, elem)
     MPlus:InitGlobal()
     local Skin = _G.ForgeSkin
     
-    local container = CreateFrame("Frame", nil, parent)
-    container:SetAllPoints(parent)
+    local container = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    container:SetPoint("CENTER", parent, "CENTER") 
     container.elem = elem
     container.isHovered = false
     
-    container.title = container:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    local font = (Skin and Skin.Constants and Skin.Constants.FONT_NORMAL) or "Fonts\\FRIZQT__.TTF"
-    container.title:SetFont(font, 14, "OUTLINE")
-    container.title:SetTextColor(unpack((Skin and Skin.Colors.accent) or {0, 0.8, 1, 1}))
+    if Skin and Skin.ApplyBackdrop then
+        Skin:ApplyBackdrop(container)
+        container:SetBackdropColor(unpack(elem.bgColor or {0, 0, 0, 0.5}))
+        container:SetBackdropBorderColor(0, 0, 0, 0)
+    end
 
     container.affixFrame = CreateFrame("Frame", nil, container)
-    container.affixFrame:SetSize(120, 32)
+    container.affixFrame:SetSize(120, 24)
     container.affixFrame.icons = {}
 
     container.bossList = CreateFrame("Frame", nil, container)
@@ -145,7 +143,6 @@ function MPlus:Load(parent, elem)
     
     table.insert(MPlus.Instances, container)
     
-    -- Hover (Mouse Over) Dinleme Döngüsü (Minimalist mod için)
     container:SetScript("OnUpdate", function(self)
         if MPlus.config.Settings.hoverExpand then
             local hovered = MouseIsOver(self)
@@ -168,96 +165,120 @@ function MPlus:Load(parent, elem)
     return container
 end
 
--- --- DİNAMİK DÜZEN MOTORU (ADAPTIVE LAYOUT) ---
+-- --- YENİLENMİŞ DİNAMİK DÜZEN MOTORU (REDESIGN) ---
 function MPlus:UpdateLayout(container)
     if not container then return end
     
     local conf = MPlus.config.Settings
     local state = MPlus.GlobalState
-    local y = -10
     
-    -- Görünürlük Kontrolleri (Hover durumuna göre ezilebilir)
-    local showTitle = conf.showTitle ~= false
+    local width = container.elem.widgetWidth or 300
+    container:SetWidth(width)
+    
+    local y = -10
+    local padding = 5
+    
     local showAffixes = conf.showAffixes ~= false
     local showBosses = conf.showBosses ~= false
     local showTimer = conf.showTimer ~= false
     local showForces = conf.showForces ~= false
     local showDeaths = conf.showDeathCounter ~= false
     
-    -- Hover-to-Expand Mantığı
-    if conf.hoverExpand and not container.isHovered then
+    local isCompact = conf.hoverExpand and not container.isHovered
+    
+    if isCompact then
         showBosses = false
         showAffixes = false
-        showTitle = false
         showDeaths = false
     end
 
-    -- 1. TITLE
-    if showTitle then
-        container.title:Show()
-        container.title:SetPoint("TOPLEFT", 15, y)
-        container.title:SetText("MYTHIC+ DASHBOARD")
+    -- 1. TIMER BAR (En Üst)
+    if showTimer then
+        y = y - 12 -- Barın üstündeki label için boşluk
+        container.timerBar:Show()
+        container.timerBar:SetPoint("TOPLEFT", container, "TOPLEFT", 10, y)
+        container.timerBar:SetPoint("TOPRIGHT", container, "TOPRIGHT", -10, y)
+        y = y - 18 - padding
     else
-        container.title:Hide()
+        container.timerBar:Hide()
     end
 
-    -- 2. AFFIXES (Başlıkla aynı satırda sağda)
-    if showAffixes and state.affixIDs and #state.affixIDs > 0 then
-        container.affixFrame:Show()
-        container.affixFrame:SetPoint("TOPRIGHT", container, "TOPRIGHT", -12, showTitle and (y + 8) or y)
-        if not showTitle then y = y - 35 else y = y - 30 end
+    -- 2. FORCES BAR
+    if showForces then
+        y = y - 12 -- Barın üstündeki label için boşluk
+        container.forcesBar:Show()
+        container.forcesBar:SetPoint("TOPLEFT", container, "TOPLEFT", 10, y)
+        container.forcesBar:SetPoint("TOPRIGHT", container, "TOPRIGHT", -10, y)
+        y = y - 18 - padding
     else
-        container.affixFrame:Hide()
-        if showTitle then y = y - 30 end
+        container.forcesBar:Hide()
     end
     
+    -- Küçük bir ek boşluk (Barlar ile Bosslar arası)
+    if (showTimer or showForces) and showBosses then
+        y = y - 5
+    end
+
     -- 3. BOSS LIST
     if showBosses and state.bosses and #state.bosses > 0 then
         container.bossList:Show()
         container.bossList:SetPoint("TOPLEFT", container, "TOPLEFT", 10, y)
         local bossHeight = #state.bosses * 20
         container.bossList:SetHeight(bossHeight)
-        y = y - bossHeight - 10
+        y = y - bossHeight - padding
     else
         container.bossList:Hide()
     end
 
-    -- 4. TIMER BAR
-    if showTimer then
-        container.timerBar:Show()
-        container.timerBar:SetPoint("TOPLEFT", container, "TOPLEFT", 10, y - 10)
-        container.timerBar:SetPoint("TOPRIGHT", container, "TOPRIGHT", -10, y - 10)
-        y = y - 35
-    else
-        container.timerBar:Hide()
-    end
+    -- 4. AFFIXES & DEATH COUNTER (En Alt Satır - Sağ ve Sol)
+    local bottomRowHeight = 0
+    local hasBottomRow = false
 
-    -- 5. FORCES BAR
-    if showForces then
-        container.forcesBar:Show()
-        container.forcesBar:SetPoint("TOPLEFT", container, "TOPLEFT", 10, y - 10)
-        container.forcesBar:SetPoint("TOPRIGHT", container, "TOPRIGHT", -10, y - 10)
-        y = y - 35
-    else
-        container.forcesBar:Hide()
-    end
-
-    -- 6. DEATH COUNTER (En alta sağa yapıştır)
     if showDeaths then
         container.deathCount:Show()
-        container.deathCount:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", -15, 12)
-        -- Death counter ufak olduğu için ekstra y eklemeye gerek yok, çerçevenin alt payına girer
+        container.deathCount:SetPoint("BOTTOMLEFT", container, "BOTTOMLEFT", 10, 10)
+        bottomRowHeight = math.max(bottomRowHeight, 14)
+        hasBottomRow = true
     else
         container.deathCount:Hide()
     end
 
-    -- Çerçeve Boyutunu Otomatik Ayarla
-    if conf.autoSize ~= false then
-        local minHeight = math.abs(y) + 15
-        if showDeaths then minHeight = minHeight + 15 end
-        container:SetHeight(math.max(minHeight, 30))
-    elseif container.elem.widgetHeight then
-        container:SetHeight(container.elem.widgetHeight)
+    if showAffixes and state.affixIDs and #state.affixIDs > 0 then
+        container.affixFrame:Show()
+        container.affixFrame:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", -10, 10)
+        bottomRowHeight = math.max(bottomRowHeight, 24)
+        hasBottomRow = true
+    else
+        container.affixFrame:Hide()
+    end
+
+    if hasBottomRow then
+        y = y - bottomRowHeight - 10 -- Alt padding
+    end
+
+    -- COMPACT MOD: Alt taraftan 3 piksel fazladan uzat (Kullanıcı İsteği)
+    if isCompact then
+        y = y - 3
+    end
+
+    -- BOYUTU KAPAT (Arka planın tam sarması için anahtar nokta)
+    local finalHeight = math.abs(y)
+    if not conf.autoSize and container.elem.widgetHeight then
+        finalHeight = container.elem.widgetHeight
+    end
+    container:SetHeight(finalHeight)
+
+    -- WidgetForge Ana Motoruna (Sürükleme kutusu) senkronize ol
+    if conf.autoSize then
+        if container.elem.widgetHeight ~= finalHeight then
+            container.elem.widgetHeight = finalHeight
+            local parentBar = container:GetParent()
+            if parentBar and parentBar.index and _G.WidgetForge and _G.WidgetForge.UpdateBarValues then
+                C_Timer.After(0.01, function()
+                    _G.WidgetForge:UpdateBarValues(parentBar.index, true)
+                end)
+            end
+        end
     end
 end
 
@@ -270,10 +291,12 @@ function MPlus:UpdateVisuals(container)
     local Skin = _G.ForgeSkin
     local barTexture = conf.barTexture or "Interface\\TargetingFrame\\UI-StatusBar"
     
-    -- Düzeni Yeniden Hesapla (Eğer boss sayısı veya modlar değişirse)
+    if container.SetBackdropColor then
+        container:SetBackdropColor(unpack(container.elem.bgColor or {0, 0, 0, 0.5}))
+    end
+    
     MPlus:UpdateLayout(container)
     
-    -- TIMER BAR DATA
     if state.currentTime and state.timeLimit and state.timeLimit > 0 then
         container.timerBar:SetMinMaxValues(0, state.timeLimit)
         container.timerBar:SetValue(state.currentTime)
@@ -296,7 +319,6 @@ function MPlus:UpdateVisuals(container)
         container.timerBar.text:SetText("00:00 / 00:00")
     end
     
-    -- FORCES BAR DATA
     if state.enemyForces then
         container.forcesBar:SetValue(state.enemyForces.pct)
         container.forcesBar:SetStatusBarTexture(barTexture)
@@ -305,7 +327,6 @@ function MPlus:UpdateVisuals(container)
         container.forcesBar:SetStatusBarColor(unpack(conf.forcesColor or {0.8, 0, 0, 1}))
     end
 
-    -- BOSS LIST DATA
     if state.bosses then
         local spacing = 20
         local mediaPath = "Interface\\AddOns\\WidgetForge\\media\\"
@@ -367,7 +388,6 @@ function MPlus:UpdateVisuals(container)
         for i = #state.bosses + 1, #container.bossList.rows do container.bossList.rows[i]:Hide() end
     end
 
-    -- AFFIXES DATA
     if state.affixIDs and #state.affixIDs > 0 then
         local iconSize = 24
         local spacing = 4
@@ -402,7 +422,6 @@ function MPlus:UpdateVisuals(container)
         for i = #state.affixIDs + 1, #container.affixFrame.icons do container.affixFrame.icons[i]:Hide() end
     end
 
-    -- DEATH COUNTER DATA
     if container.deathCount then
         local unlocked = (_G.WidgetForge and _G.WidgetForge.BarsLocked == false) or (_G.EsrefConfigFrame and _G.EsrefConfigFrame:IsShown())
         if MPlus.previewMode or unlocked then
@@ -673,16 +692,14 @@ function MPlus:GetBestRun(mapID, level)
     return best
 end
 
--- --- AYARLAR (SETTINGS) ---
+-- --- AYARLAR (SETTINGS) İYİLEŞTİRİLMİŞ SIRALAMA ---
 function MPlus:CreateSettings(parentFrame)
     MPlus:InitGlobal()
     local f = parentFrame
     local elem = f.config
     local globalSets = MPlus.config.Settings
 
-    -- Ayar eksiklerini tamamla (Geriyedönük uyumluluk)
     if globalSets.autoSize == nil then globalSets.autoSize = true end
-    if globalSets.showTitle == nil then globalSets.showTitle = true end
 
     local sb = f.builder or WidgetForgeUtils:CreateSettingsBuilder(f.content)
     f.builder = sb 
@@ -693,25 +710,15 @@ function MPlus:CreateSettings(parentFrame)
              if inst.elem == elem then
                  if not globalSets.autoSize and elem.widgetHeight then inst:SetHeight(elem.widgetHeight) end
                  if elem.widgetWidth then inst:SetWidth(elem.widgetWidth) end
+                 if inst.SetBackdropColor then
+                     inst:SetBackdropColor(unpack(elem.bgColor or {0, 0, 0, 0.5}))
+                 end
              end
+             MPlus:UpdateLayout(inst)
         end
-        if WidgetForge.RebuildBarComponents then WidgetForge:RebuildBarComponents(f.barIndex) end
+        if _G.WidgetForge and _G.WidgetForge.RebuildBarComponents then _G.WidgetForge:RebuildBarComponents(f.barIndex) end
     end
 
-    sb:AddHeader("Layout & Visibility (Flexible UI)")
-    sb:AddCheckbox("autoSize", "Auto-Adjust Height (Recommended)", true, globalSets, UpdateGlobal)
-    sb:AddCheckbox("hoverExpand", "Hover to Expand (Minimalist Mode)", false, globalSets, UpdateGlobal)
-    sb:AddCheckbox("showTitle", "Show Title", true, globalSets, UpdateGlobal)
-    sb:AddCheckbox("showAffixes", "Show Affixes", true, globalSets, UpdateGlobal)
-    sb:AddCheckbox("showBosses", "Show Boss List", true, globalSets, UpdateGlobal)
-    sb:AddCheckbox("showTimer", "Show Timer Bar", true, globalSets, UpdateGlobal)
-    sb:AddCheckbox("showForces", "Show Enemy Forces Bar", true, globalSets, UpdateGlobal)
-    sb:AddCheckbox("showDeathCounter", "Show Death Counter", true, globalSets, UpdateGlobal)
-
-    sb:AddHeader("Visual Configuration")
-    sb:AddSlider("widgetWidth", "Dashboard Width", 200, 600, 1, 350, elem, UpdateVisual)
-    sb:AddSlider("widgetHeight", "Manual Height (If Auto-Size Off)", 50, 400, 1, 160, elem, UpdateVisual)
-    
     local Skin = _G.ForgeSkin
     local textureItems = {}
     if Skin and Skin.Media and Skin.Media.Textures then
@@ -719,6 +726,20 @@ function MPlus:CreateSettings(parentFrame)
     else
         textureItems = {{text = "Default", value = "Interface\\TargetingFrame\\UI-StatusBar"}}
     end
+
+    sb:AddHeader("Layout & Visibility (Flexible UI)")
+    sb:AddCheckbox("autoSize", "Auto-Adjust Height (Recommended)", true, globalSets, UpdateVisual)
+    sb:AddCheckbox("hoverExpand", "Hover to Expand (Minimalist Mode)", false, globalSets, UpdateGlobal)
+    sb:AddCheckbox("showTimer", "Show Timer Bar", true, globalSets, UpdateGlobal)
+    sb:AddCheckbox("showForces", "Show Enemy Forces Bar", true, globalSets, UpdateGlobal)
+    sb:AddCheckbox("showBosses", "Show Boss List", true, globalSets, UpdateGlobal)
+    sb:AddCheckbox("showAffixes", "Show Affixes", true, globalSets, UpdateGlobal)
+    sb:AddCheckbox("showDeathCounter", "Show Death Counter", true, globalSets, UpdateGlobal)
+
+    sb:AddHeader("Visual Configuration")
+    sb:AddSlider("widgetWidth", "Dashboard Width", 200, 600, 1, 300, elem, UpdateVisual)
+    sb:AddSlider("widgetHeight", "Manual Height (If Auto-Size Off)", 50, 400, 1, 160, elem, UpdateVisual)
+    sb:AddColor("bgColor", "Background Color", {0, 0, 0, 0.5}, elem, UpdateVisual)
     sb:AddDropdown("barTexture", "Bar Texture", textureItems, "Interface\\TargetingFrame\\UI-StatusBar", globalSets, UpdateGlobal)
     
     sb:AddHeader("Component Colors")
