@@ -180,10 +180,10 @@ function WidgetForgeUtils:CreateSettingsBuilder(canvas)
     sb.y = -10
     
     -- Dynamic Grid System
-    local totalW = 600
-    local colW = 290
+    local totalW = 610
+    local colW = 285
     local gap = 20
-    local sidePad = 3
+    local sidePad = 0
     
     sb.col1 = 10 + sidePad
     sb.col2 = 10 + sidePad + colW + gap
@@ -243,11 +243,11 @@ local function GetControl(pool, createFunc, parent)
     return c
 end
 
-function SB:AddHeader(text)
+function SB:AddHeader(text, hideLine)
     if self.isRight then self.y = self.y - 50; self.isRight = false end
     
     local h = GetControl(Pool.headers, function(p)
-        return ForgeSkin:CreateSectionHeader(p, "", 480)
+        return ForgeSkin:CreateSectionHeader(p, "", self.fullWidth)
     end, self.canvas)
     
     h.type = "Header"
@@ -256,7 +256,10 @@ function SB:AddHeader(text)
     
     -- Update Width
     h:SetWidth(self.fullWidth)
-    if h.line then h.line:SetWidth(self.fullWidth) end
+    if h.line then 
+        h.line:SetWidth(self.fullWidth) 
+        if hideLine == true then h.line:Hide() else h.line:Show() end
+    end
     
     table.insert(self.controls, h)
     self.y = self.y - 45
@@ -335,10 +338,10 @@ function SB:AddCheckbox(key, label, defaultVal, configTable, callback)
         if callback then callback(v) end
     end
     
-    c:SetPoint("TOPLEFT", x, self.y - 10)
+    c:SetPoint("TOPLEFT", x, self.y - 12)
     table.insert(self.controls, c)
     
-    if self.isRight then self.y = self.y - 35 end
+    if self.isRight then self.y = self.y - 50 end
     self.isRight = not self.isRight
 end
 
@@ -382,6 +385,10 @@ function SB:AddColor(key, label, defaultVal, configTable, callback)
     if c.label then c.label:SetWidth(self.colWidth - 40) end
     c.label:SetText(label)
     
+    if c.swatch and val then
+        c.swatch:SetColorTexture(unpack(val))
+    end
+    
     c.swatchBtn:SetScript("OnClick", function()
         local current = configTable[key] or defaultVal
         local info = {
@@ -401,13 +408,20 @@ function SB:AddColor(key, label, defaultVal, configTable, callback)
         ForgeSkin:ShowColorPicker(info) 
     end)
     
-    -- Init Visuals
-    if val then c.swatch:SetColorTexture(unpack(val)) end
-    
-    c:SetPoint("TOPLEFT", x, self.y - 10)
+    -- In Background Setting, Color is left, Checkbox is right. Checkbox is at -12. Slider is at -15.
+    -- Color needs to go UP compared to checkbox (i.e offset closer to 0). Checkbox is at -12. 
+    -- Border Setting: Slider is left (-15), Color is right. Color needs to go DOWN compared to slider.
+    -- To fix this generically, let's pass a custom Y offset or inspect the key name.
+    local yOffset = -12
+    if key == "bgColor" then
+        yOffset = -8   -- Move UP when next to Checkbox
+    elseif key == "borderColor" then
+        yOffset = -16  -- Move UP exactly 2px to align perfectly with Slider
+    end
+    c:SetPoint("TOPLEFT", x, self.y + yOffset)
     table.insert(self.controls, c)
-    
-    if self.isRight then self.y = self.y - 50 end 
+
+    if self.isRight then self.y = self.y - 50 end
     self.isRight = not self.isRight
 end
 
@@ -449,5 +463,5 @@ end
 
 function SB:Finish()
     if self.isRight then self.y = self.y - 50 end
-    self.canvas:SetHeight(math.abs(self.y) + 10)
+    self.canvas:SetHeight(math.abs(self.y) + 0)
 end

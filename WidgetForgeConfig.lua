@@ -33,7 +33,7 @@ Config.ElementTypes = {
     "Avoidance", "Leech", "Speed", "Run Speed", "Dodge", "Parry", "Armor", "Max HP",
     "Gold", "Zone", "Coords", "Item Level", "Combat Timer", "XP",
     "Dragonriding", "Skill Stream", "Dummy", "Guild", "Friends", "Difficulty", "Target Castbar", "Talent Loadout", "Custom Code", 
-    "Interrupt Sync" 
+    "Interrupt Sync", "VaultEye"
 }
 
 Config.Presets = {
@@ -396,7 +396,7 @@ function Config:SelectBar(index)
     local isExclusive = false
     local exclusiveType = nil
     for _, e in ipairs(bar.elements) do
-        if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" then 
+        if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" or e.type == "VaultEye" then 
             isExclusive = true
             exclusiveType = e.type
             break 
@@ -407,9 +407,9 @@ function Config:SelectBar(index)
     
     local hLayout
     if not isExclusive then
-        hLayout = Skin:CreateSectionHeader(content, "Bar Layout: " .. bar.name, 600)
+        hLayout = Skin:CreateSectionHeader(content, "Bar Layout: " .. bar.name, 610)
     else
-        hLayout = Skin:CreateSectionHeader(content, "Bar: " .. bar.name .. " LAYOUT LOCKED", 600)
+        hLayout = Skin:CreateSectionHeader(content, "Bar: " .. bar.name .. " LAYOUT LOCKED", 610)
         if hLayout.text then hLayout.text:SetTextColor(1, 0.3, 0.3, 1) end
     end
     hLayout:SetPoint("TOPLEFT", 10, y)
@@ -484,135 +484,78 @@ function Config:SelectBar(index)
     end)
     ebName:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
 
+    local settingsContentH = 550
+    if isExclusive then settingsContentH = 150 end
+    
+    local settingsAcc = Skin:CreateAccordion(content, "BAR CONFIGURATION", settingsContentH, function(expanded)
+        Config.SettingsAccordionExpanded = expanded
+        if Config.UpdateAccordionLayout then Config.UpdateAccordionLayout() end
+    end)
+    settingsAcc.onAnimUpdate = function() if Config.UpdateAccordionLayout then Config.UpdateAccordionLayout() end end
+    if Config.SettingsAccordionExpanded == nil then Config.SettingsAccordionExpanded = false end
+    settingsAcc:SetExpanded(Config.SettingsAccordionExpanded)
+    
+    -- Exclisive widget'larda BAR CONFIGURATION kısmını Cursor Ring ve Retirement Home için tamamen gizle
+    if exclusiveType == "Cursor Ring" or exclusiveType == "Retirement Home" then
+        settingsAcc:Hide()
+    end
+    
+    local settingsSep = Skin:CreateSeparator(content, 610)
+    settingsSep:Hide()
+    
+    if Config.mainBuilder then Config.mainBuilder:Release() end
+    local sb = WidgetForgeUtils:CreateSettingsBuilder(settingsAcc.content)
+    Config.mainBuilder = sb
+    sb.y = -10 
+
     if not isExclusive then
-        local chkTitle = Skin:CreateCheckbox(content, "Show Title Bar", bar.showTitle, function(v) bar.showTitle = v; WidgetForge:RebuildBarComponents(index) end)
-        chkTitle:SetPoint("TOPLEFT", 260, y - 3)
-
-        local chkLayout = Skin:CreateCheckbox(content, "Vertical Layout", bar.layout == "VERTICAL", function(v) bar.layout = v and "VERTICAL" or "HORIZONTAL"; Config:SelectBar(index); WidgetForge:RebuildBarComponents(index) end)
-        chkLayout:SetPoint("TOPLEFT", 430, y - 3)
-        y = y - 40
-
-        local lblJ = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        lblJ:SetPoint("TOPLEFT", 10, y - 8); lblJ:SetText("Alignment:"); lblJ:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
-        local ddJustify = Skin:CreateDropdown(content, 150, { "LEFT", "CENTER", "RIGHT" }, bar.justify or "CENTER", function(v) bar.justify = v; WidgetForge:RebuildBarComponents(index) end)
-        ddJustify:SetPoint("TOPLEFT", 90, y)
-
-        local slPad = Skin:CreateSlider(content, -10, 50, 1, bar.padding or 5, function(v) bar.padding = v; WidgetForge:UpdateAvailableBars() end, 150)
-        slPad:SetPoint("TOPLEFT", 260, y)
-        local lblPad = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        lblPad:SetPoint("LEFT", slPad, "RIGHT", 5, 0); lblPad:SetText("Spacing"); lblPad:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
-
-        y = y - 40
-
-    else
-        y = y - 40 
+        sb:AddHeader("Bar Layout & Styling")
+        sb:AddCheckbox("showTitle", "Show Title Bar", true, bar, function(v) WidgetForge:RebuildBarComponents(index) end)
+        sb:AddCheckbox("layout", "Vertical Layout", false, bar, function(v) 
+             bar.layout = v and "VERTICAL" or "HORIZONTAL"
+             Config:SelectBar(index); WidgetForge:RebuildBarComponents(index)
+        end)
+        sb:AddDropdown("justify", "Alignment", { "LEFT", "CENTER", "RIGHT" }, "CENTER", bar, function(v) WidgetForge:RebuildBarComponents(index) end)
+        sb:AddSlider("padding", "Spacing", -10, 50, 1, 5, bar, function(v) WidgetForge:UpdateAvailableBars() end)
     end
 
     if exclusiveType ~= "Cursor Ring" and exclusiveType ~= "Retirement Home" then
-        local lblPos = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        lblPos:SetPoint("TOPLEFT", 10, y - 8); lblPos:SetText("Position:"); lblPos:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
-        
-        local slX = Skin:CreateSlider(content, -math.floor(GetScreenWidth()/2), math.floor(GetScreenWidth()/2), 1, bar.x or 0, function(v) 
+        sb:AddHeader("Position")
+        sb:AddSlider("x", "X Offset", -math.floor(GetScreenWidth()/2), math.floor(GetScreenWidth()/2), 1, 0, bar, function(v) 
             if Config.isUpdatingScale then return end
-            bar.x = v; 
             WidgetForge:UpdateAvailableBars() 
-        end, 150)
-        slX:SetPoint("TOPLEFT", 90, y)
-        local slXLabel = slX.track:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        slXLabel:SetPoint("TOP", slX.track, "BOTTOM", 0, -12); slXLabel:SetText("X")
-        Config.slX = slX
+        end)
+        Config.slX = sb.controls[#sb.controls] -- capture the slider ref
         
-        local slY = Skin:CreateSlider(content, -math.floor(GetScreenHeight()/2), math.floor(GetScreenHeight()/2), 1, bar.y or 0, function(v) 
+        sb:AddSlider("y", "Y Offset", -math.floor(GetScreenHeight()/2), math.floor(GetScreenHeight()/2), 1, 0, bar, function(v) 
             if Config.isUpdatingScale then return end
-            bar.y = v; 
             WidgetForge:UpdateAvailableBars() 
-        end, 150)
-        slY:SetPoint("TOPLEFT", 260, y)
-        local slYLabel = slY.track:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        slYLabel:SetPoint("TOP", slY.track, "BOTTOM", 0, -12); slYLabel:SetText("Y")
-        Config.slY = slY
-    end
-
-    if exclusiveType == "Cursor Ring" or exclusiveType == "Retirement Home" then
-        y = y - 10
-    else
-        y = y - 50
+        end)
+        Config.slY = sb.controls[#sb.controls] -- capture the slider ref
     end
 
     if not isExclusive then
-        local hSize = Skin:CreateSectionHeader(content, "Background Bar Settings", 600); hSize:SetPoint("TOPLEFT", 10, y); y = y - 40
-        local lblW = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); lblW:SetPoint("TOPLEFT", 10, y - 8); lblW:SetText("Width:"); lblW:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
-        local slW = Skin:CreateSlider(content, 50, 600, 5, bar.width, function(v) bar.width = v; WidgetForge:UpdateAvailableBars() end, 150); slW:SetPoint("TOPLEFT", 90, y)
-        
-        local slH = Skin:CreateSlider(content, 10, 200, 2, bar.height, function(v) bar.height = v; WidgetForge:UpdateAvailableBars() end, 150); slH:SetPoint("TOPLEFT", 260, y)
-        local lblH = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); lblH:SetPoint("LEFT", slH, "RIGHT", 5, 0); lblH:SetText("Height"); lblH:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
-        
-        y = y - 40
-
-        local lblBg = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        lblBg:SetPoint("TOPLEFT", 10, y - 8); lblBg:SetText("Bg Color:"); lblBg:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
-        local btnBg = CreateFrame("Button", nil, content, "BackdropTemplate")
-        btnBg:SetSize(20, 20); btnBg:SetPoint("TOPLEFT", 90, y - 3 ) 
-        Skin:ApplyBackdrop(btnBg); local bg = bar.bgColor or {0, 0, 0, 0.5}; btnBg:SetBackdropColor(unpack(bg))
-        
-        btnBg:SetScript("OnClick", function()
-            local oldColor = {bg[1], bg[2], bg[3], bg[4]} 
-            local info = { 
-                r=bg[1], g=bg[2], b=bg[3], opacity=bg[4], 
-                swatchFunc = function(c) 
-                    bar.bgColor = c; 
-                    btnBg:SetBackdropColor(unpack(c)); 
-                    WidgetForge:UpdateAvailableBars() 
-                end,
-                cancelFunc = function()
-                    bar.bgColor = oldColor 
-                    btnBg:SetBackdropColor(unpack(oldColor))
-                    WidgetForge:UpdateAvailableBars()
-                end
-            }
-            Skin:ShowColorPicker(info)
-        end)
-
-        local chkClick = Skin:CreateCheckbox(content, "Click Through (Non-Interactive)", bar.clickThrough, function(v) 
-            bar.clickThrough = v
+        sb:AddHeader("Background Settings")
+        sb:AddSlider("width", "Width", 50, 600, 5, 250, bar, function(v) WidgetForge:UpdateAvailableBars() end)
+        sb:AddSlider("height", "Height", 10, 200, 2, 30, bar, function(v) WidgetForge:UpdateAvailableBars() end)
+        sb:AddColor("bgColor", "Background Color", {0, 0, 0, 0.5}, bar, function(v) WidgetForge:UpdateAvailableBars() end)
+        sb:AddCheckbox("clickThrough", "Click Through (Non-Interactive)", false, bar, function(v) 
             WidgetForge:SetBarsLocked(false) 
             C_Timer.After(0.05, function() Config:SelectBar(index) end)
         end)
-        chkClick:SetPoint("TOPLEFT", 260, y - 3)
 
-        y = y - 40
+        sb:AddHeader("Border Settings")
+        sb:AddSlider("borderSize", "Border Size", 1, 10, 1, 1, bar, function(v) WidgetForge:UpdateAvailableBars() end)
+        sb:AddColor("borderColor", "Border Color", {0.2, 0.2, 0.2, 1}, bar, function(v) WidgetForge:UpdateAvailableBars() end)
+        sb:AddCheckbox("showBorder", "Show Border", true, bar, function(v) WidgetForge:UpdateAvailableBars() end)
     end
 
-    if not isExclusive then
-        local hBorder = Skin:CreateSectionHeader(content, "Border Settings", 600); hBorder:SetPoint("TOPLEFT", 10, y); y = y - 40
-        local lblBS = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); lblBS:SetPoint("TOPLEFT", 10, y - 8); lblBS:SetText("Border Size:"); lblBS:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
-        local slBS = Skin:CreateSlider(content, 1, 10, 1, bar.borderSize or 1, function(v) bar.borderSize = v; WidgetForge:UpdateAvailableBars() end, 150); slBS:SetPoint("TOPLEFT", 90, y)
-        local lblBC = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); lblBC:SetPoint("TOPLEFT", 260, y - 8); lblBC:SetText("Border Color:"); lblBC:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
-        local btnBC = CreateFrame("Button", nil, content, "BackdropTemplate"); btnBC:SetSize(20, 20); btnBC:SetPoint("TOPLEFT", 340, y - 3); Skin:ApplyBackdrop(btnBC); local bc = bar.borderColor or {0.2, 0.2, 0.2, 1}; btnBC:SetBackdropColor(unpack(bc))
-        
-        btnBC:SetScript("OnClick", function() 
-            local oldColor = {bc[1], bc[2], bc[3], bc[4]} 
-            local info = { 
-                r=bc[1], g=bc[2], b=bc[3], opacity=bc[4], 
-                swatchFunc = function(c) 
-                    bar.borderColor = c; 
-                    btnBC:SetBackdropColor(unpack(c)); 
-                    WidgetForge:UpdateAvailableBars() 
-                end,
-                cancelFunc = function()
-                    bar.borderColor = oldColor 
-                    btnBC:SetBackdropColor(unpack(oldColor))
-                    WidgetForge:UpdateAvailableBars()
-                end
-            }; 
-            Skin:ShowColorPicker(info) 
-        end)
-
-        local chkBorder = Skin:CreateCheckbox(content, "Show", bar.showBorder, function(v) bar.showBorder = v; WidgetForge:UpdateAvailableBars() end); chkBorder:SetPoint("TOPLEFT", 430, y - 3)
-        y = y - 40
-    end
-
-    local headEl = Skin:CreateSectionHeader(content, "Bar Elements", 600); headEl:SetPoint("TOPLEFT", 10, y); y = y - 40
+    sb:Finish()
+    settingsAcc:SetContentHeight(settingsAcc.content:GetHeight())
+    
+    -- Now fix the layout dynamically
+    local MasterY = y - 40
+    local headEl = Skin:CreateSectionHeader(content, "Bar Elements", 610)
     
     local barMode = "EMPTY"
     local OverlayTypes = { ["Cursor Ring"] = true, ["Retirement Home"] = true }
@@ -620,7 +563,7 @@ function Config:SelectBar(index)
     if bar.elements and #bar.elements > 0 then
         barMode = "STANDARD"
         for _, e in ipairs(bar.elements) do
-            if e.type == "Dragonriding" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" then 
+            if e.type == "Dragonriding" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" or e.type == "VaultEye" then 
                 barMode = "STRICT"
                 break 
             elseif OverlayTypes[e.type] then
@@ -635,7 +578,7 @@ function Config:SelectBar(index)
         { name = "Progression & Goods", elements = { "XP", "Gold", "Bag Space", "Item Level", "Durability" } },
         { name = "Navigation", elements = { "Zone", "Coords" } },
         { name = "Social", elements = { "Guild", "Friends" } },
-        { name = "Dungeon & Raid", elements = { "Mythic+ Dashboard", "Target Castbar", "Interrupt Sync", "Combat Timer", "Difficulty" } },
+        { name = "Dungeon & Raid", elements = { "Mythic+ Dashboard", "Target Castbar", "Interrupt Sync", "VaultEye", "Combat Timer", "Difficulty" } },
         { name = "Utils", elements = { "Dragonriding", "Cursor Ring", "Retirement Home", "Skill Stream", "Dummy", "Talent Loadout", "Custom Code" } }
     }
     
@@ -643,14 +586,31 @@ function Config:SelectBar(index)
     
     local accFrameList = {}
     local activeElementsFrame = CreateFrame("Frame", nil, content, "BackdropTemplate")
-    activeElementsFrame:SetWidth(600)
+    activeElementsFrame:SetWidth(610)
     activeElementsFrame:SetHeight(1) 
     
-    local listSeparator = Skin:CreateSeparator(content, 600) 
-    local accordionStartY = y 
+    local listSeparator = Skin:CreateSeparator(content, 610) 
+    local ddFilter
     
-    local function UpdateAccordionLayout()
-        local currentY = accordionStartY
+    Config.UpdateAccordionLayout = function()
+        local currentY = MasterY
+        
+        settingsAcc:SetPoint("TOPLEFT", 10, currentY)
+        currentY = currentY - settingsAcc:GetHeight() - 10
+        
+        if Config.SettingsAccordionExpanded then
+            settingsSep:ClearAllPoints()
+            settingsSep:SetPoint("TOPLEFT", 10, currentY)
+            settingsSep:Show()
+            currentY = currentY - 15
+        else
+            settingsSep:Hide()
+        end
+        
+        headEl:SetPoint("TOPLEFT", 10, currentY)
+        if ddFilter then ddFilter:SetPoint("TOPRIGHT", headEl, "TOPLEFT", 610, 5) end
+        currentY = currentY - 40
+        
         for _, acc in ipairs(accFrameList) do
             if acc:IsShown() then
                 acc:SetPoint("TOPLEFT", 10, currentY)
@@ -664,7 +624,7 @@ function Config:SelectBar(index)
         
         activeElementsFrame:SetPoint("TOPLEFT", 0, currentY - 25)
         
-        local totalH = math.abs(accordionStartY) + math.abs(currentY - accordionStartY) + activeElementsFrame:GetHeight() + 100
+        local totalH = math.abs(MasterY) + math.abs(currentY - MasterY) + activeElementsFrame:GetHeight() + 100
         content:SetHeight(totalH) 
     end
 
@@ -681,10 +641,10 @@ function Config:SelectBar(index)
             local isVisible = Config.SelectedElementCategories["ALL"] or Config.SelectedElementCategories[acc.catName]
             acc:SetShown(isVisible)
         end
-        UpdateAccordionLayout()
+        Config.UpdateAccordionLayout()
     end)
     
-    ddFilter:SetPoint("TOPRIGHT", headEl, "TOPLEFT", 600, 5) 
+    ddFilter:SetPoint("TOPRIGHT", headEl, "TOPLEFT", 610, 5) 
 
     for _, cat in ipairs(categories) do
         local displayElements = { "Divider" }
@@ -695,8 +655,9 @@ function Config:SelectBar(index)
         
         local acc = Skin:CreateAccordion(content, cat.name, contentH, function(expanded) 
             Config.AccordionStates[cat.name] = expanded
-            UpdateAccordionLayout() 
+            Config.UpdateAccordionLayout() 
         end)
+        acc.onAnimUpdate = Config.UpdateAccordionLayout
         acc.catName = cat.name 
         table.insert(accFrameList, acc)
         
@@ -711,6 +672,7 @@ function Config:SelectBar(index)
             local isSkillStreamBtn = (typeName == "Skill Stream")
             local isTargetCastBtn = (typeName == "Target Castbar")
             local isDivider = (typeName == "Divider")
+            local isBigWidget = (typeName == "Dragonriding" or typeName == "Skill Stream" or typeName == "Target Castbar" or typeName == "Mythic+ Dashboard" or typeName == "Interrupt Sync" or typeName == "VaultEye" or typeName == "Cursor Ring" or typeName == "Retirement Home" or typeName == "Custom Code" or typeName == "Dummy")
             
             local isActive = false
             for _, e in ipairs(bar.elements) do 
@@ -725,7 +687,7 @@ function Config:SelectBar(index)
                     btn:SetBackdropColor(1, 0.8, 0, 1)
                     btn.text:SetTextColor(1, 1, 1, 1)
                     btn:SetBackdropBorderColor(0, 0, 0, 1)
-                elseif isDragonBtn or isSkillStreamBtn or isTargetCastBtn then
+                elseif isBigWidget then
                     if isActive then
                        btn:SetBackdropColor(0, 0.7, 0.7, 1); btn:SetBackdropBorderColor(0, 1, 1, 1)
                     else
@@ -749,7 +711,7 @@ function Config:SelectBar(index)
                 
                 if isDivider then
                     self:SetBackdropColor(1, 0.9, 0.2, 1)
-                elseif isDragonBtn or isSkillStreamBtn or isTargetCastBtn then
+                elseif isBigWidget then
                     if isActive then self:SetBackdropColor(0, 0.8, 0.8, 1)
                     else 
                         self:SetBackdropColor(unpack(Skin.Colors.buttonHover))
@@ -766,7 +728,7 @@ function Config:SelectBar(index)
             btn:SetScript("OnLeave", function(self) UpdateButtonStyle() end)
             
             local canAdd = true
-            local btnIsStrict = (typeName == "Dragonriding" or typeName == "Mythic+ Dashboard" or typeName == "Skill Stream" or typeName == "Target Castbar" or typeName == "Interrupt Sync")
+            local btnIsStrict = (typeName == "Dragonriding" or typeName == "Mythic+ Dashboard" or typeName == "Skill Stream" or typeName == "Target Castbar" or typeName == "Interrupt Sync" or typeName == "VaultEye")
             local btnIsOverlay = OverlayTypes[typeName]
             local btnIsDivider = (typeName == "Divider")
             
@@ -834,6 +796,14 @@ function Config:SelectBar(index)
                          newEl.fontOutline = "OUTLINE"
                          newEl.announceInterrupts = false
                          newEl.announceChannel = "PARTY"
+                    elseif typeName == "VaultEye" then
+                         newEl.widgetWidth = 250
+                         newEl.widgetHeight = 150
+                         newEl.trackMythicPlus = true
+                         newEl.trackDelves = true
+                         newEl.trackRaid = true
+                         newEl.trackCurrencies = true
+                         newEl.hoverExpand = true
                     elseif isDivider then
                          newEl.size = 20; newEl.thickness = 2; newEl.dividerMode = "LINE"; newEl.dividerStyle = "VERTICAL"; newEl.offset = 0
                     end
@@ -855,7 +825,7 @@ function Config:SelectBar(index)
     end
     
     activeElementsFrame:SetHeight(math.max(1, #bar.elements * 35 + 10))
-    UpdateAccordionLayout() 
+    Config.UpdateAccordionLayout() 
     
     local fontList = {}; for k, v in pairs(Skin.Media.Fonts) do table.insert(fontList, {text=k, value=k, font=v}) end
     local outlineList = { {text="None", value=""}, {text="Outline", value="OUTLINE"}, {text="Thick", value="THICKOUTLINE"}, {text="Mono", value="MONOCHROME"}, {text="Mono+Out", value="MONOCHROME,OUTLINE"} }
@@ -863,7 +833,7 @@ function Config:SelectBar(index)
     Config.ElementRows = {}
     for i, elem in ipairs(bar.elements) do
         local item = CreateFrame("Frame", nil, activeElementsFrame, "BackdropTemplate")
-        item:SetSize(600, 32); item:SetPoint("TOPLEFT", 10, -((i-1) * 35))
+        item:SetSize(610, 32); item:SetPoint("TOPLEFT", 10, -((i-1) * 35))
         Skin:ApplyBackdrop(item, 0.3, 0.5)
         item.txt = item:CreateFontString(nil, "OVERLAY", "GameFontNormal"); item.txt:SetPoint("LEFT", 8, 0); item.txt:SetText(i..". "..elem.type); item.txt:SetFont(Skin.Constants.FONT_NORMAL, 11, "OUTLINE"); item.txt:SetWidth(110); item.txt:SetJustifyH("LEFT")
 
@@ -1039,6 +1009,11 @@ function Config:SelectBar(index)
              local btnSettings = Skin:CreateButton(item, "Settings", 80, 22)
              btnSettings:SetPoint("RIGHT", dragHandle, "LEFT", -10, 0)
              btnSettings:SetScript("OnClick", function() Config:OpenInterruptSyncSettings(index, i, elem) end)
+        elseif elem.type == "VaultEye" then
+             btnCol:Hide()
+             local btnSettings = Skin:CreateButton(item, "Settings", 80, 22)
+             btnSettings:SetPoint("RIGHT", dragHandle, "LEFT", -10, 0)
+             btnSettings:SetScript("OnClick", function() Config:OpenVaultEyeSettings(index, i, elem) end)
         else
             slSz = Skin:CreateSlider(item, 8, 50, 1, elem.size, function(v) elem.size = v; WidgetForge:RebuildBarComponents(index) end, 70); slSz:SetPoint("RIGHT", btnCol, "LEFT", -15, 0)
             ddOutline = Skin:CreateDropdown(item, 85, outlineList, elem.outline or "OUTLINE", function(v) elem.outline = v; WidgetForge:RebuildBarComponents(index) end); ddOutline:SetPoint("RIGHT", slSz, "LEFT", -10, 0) 
@@ -1438,6 +1413,23 @@ function Config:OpenInterruptSyncSettings(barIndex, elemIndex, elem)
     if panel.builder then if panel.builder.Release then panel.builder:Release() end panel.builder = nil end
     if _G.WidgetForge and _G.WidgetForge.InterruptSync and _G.WidgetForge.InterruptSync.CreateSettings then
         _G.WidgetForge.InterruptSync:CreateSettings(panel)
+    end
+end
+
+function Config:OpenVaultEyeSettings(barIndex, elemIndex, elem)
+    local panel = Config:GetSlidePanel()
+    Config:ToggleSlidePanel(true)
+    panel.header.title:SetText("VaultEye Settings")
+    panel.config = elem
+    panel.barIndex = barIndex 
+    local content = panel.content
+    local kids = {content:GetChildren()}
+    for _, k in ipairs(kids) do k:Hide() end
+    local regions = {content:GetRegions()}
+    for _, r in ipairs(regions) do r:Hide() end
+    if panel.builder then if panel.builder.Release then panel.builder:Release() end panel.builder = nil end
+    if _G.WidgetForge and _G.WidgetForge.VaultEye and _G.WidgetForge.VaultEye.CreateSettings then
+        _G.WidgetForge.VaultEye:CreateSettings(panel)
     end
 end
 

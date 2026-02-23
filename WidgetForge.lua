@@ -16,8 +16,8 @@ WidgetForge.StatIcons = {
     ["Bag Space"] = "Interface\\Icons\\INV_Misc_Bag_08",
     ["Gold"] = "Interface\\Icons\\INV_Misc_Coin_02",
     ["Zone"] = "Interface\\Icons\\INV_Misc_Map02",
-    ["Coords"] = "Interface\\Icons\\INV_Misc_Map02",
     ["Mythic+ Dashboard"] = "Interface\\Icons\\Achievement_GuildPerk_MobileBanking",
+    ["VaultEye"] = "Interface\\Icons\\inv_misc_treasurechest04",
     ["Item Level"] = "Interface\\Icons\\INV_Helmet_04",
     ["XP"] = "Interface\\Icons\\Spell_Holy_DivineProvidence",
     ["Combat Timer"] = "Interface\\Icons\\INV_Misc_PocketWatch_02",
@@ -331,7 +331,7 @@ function WidgetForge:RebuildBarComponents(index)
     local isSplit = (conf.layout == "VERTICAL" and justify ~= "CENTER")
 
     local OverlayTypes = { ["Cursor Ring"] = true, ["Retirement Home"] = true }
-    local StrictTypes = { ["Mythic+ Dashboard"] = true, ["Dragonriding"] = true, ["Skill Stream"] = true, ["Target Castbar"] = true, ["Interrupt Sync"] = true }
+    local StrictTypes = { ["Mythic+ Dashboard"] = true, ["Dragonriding"] = true, ["Skill Stream"] = true, ["Target Castbar"] = true, ["Interrupt Sync"] = true, ["VaultEye"] = true }
     
     local exclusiveType = nil
     for _, e in ipairs(conf.elements) do
@@ -363,6 +363,9 @@ function WidgetForge:RebuildBarComponents(index)
                 if WidgetForge.RetirementHome then LoadAddonWidget(f, elem, i, WidgetForge.RetirementHome, nil) end
             elseif elem.type == "Mythic+ Dashboard" then
                 if addonTable.MythicPlus then LoadAddonWidget(f, elem, i, addonTable.MythicPlus, nil) end
+            elseif elem.type == "VaultEye" then
+                local ref = addonTable.VaultEye or _G.WidgetForge.VaultEye
+                if ref then LoadAddonWidget(f, elem, i, ref, nil) end
             elseif elem.type == "Dragonriding" then
                 if addonTable.Dragonriding then LoadAddonWidget(f, elem, i, addonTable.Dragonriding, "dragonFrames") end
             elseif elem.type == "Skill Stream" then
@@ -495,7 +498,7 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
     
     local fetchedValues = {}
     for i, elem in ipairs(conf.elements) do
-        if not (elem.type == "Divider" or elem.type == "Custom Code" or elem.type == "Dragonriding" or elem.type == "Target Castbar" or elem.type == "Skill Stream" or elem.type == "Cursor Ring" or elem.type == "Retirement Home" or elem.type == "Mythic+ Dashboard" or elem.type == "Interrupt Sync") then
+        if not (elem.type == "Divider" or elem.type == "Custom Code" or elem.type == "Dragonriding" or elem.type == "Target Castbar" or elem.type == "Skill Stream" or elem.type == "Cursor Ring" or elem.type == "Retirement Home" or elem.type == "Mythic+ Dashboard" or elem.type == "Interrupt Sync" or elem.type == "VaultEye") then
             local valStr, lblStr = "---", ""
             if ForgeStats and ForgeStats.GetStat then
                 valStr, lblStr = ForgeStats:GetStat(elem.type) 
@@ -621,7 +624,7 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
             else
                 elemWidth = streamLength; elemHeight = size
             end
-        elseif elem.type == "Cursor Ring" or elem.type == "Retirement Home" or elem.type == "Mythic+ Dashboard" then
+        elseif elem.type == "Cursor Ring" or elem.type == "Retirement Home" or elem.type == "Mythic+ Dashboard" or elem.type == "VaultEye" then
             -- Handled
         else
             local tVal = f.textsVal[i]

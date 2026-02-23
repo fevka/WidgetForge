@@ -16,11 +16,13 @@ function WidgetForge:CreateCursorRing(bar, config)
     local f = CreateFrame("Frame", nil, bar)
     f:SetAllPoints()
     f.config = config -- [FIX] Store config for settings lookup
+    f.parentBar = bar
     
     -- Hide the parent bar since Cursor Ring follows mouse (no bar needed)
-    -- [MODIFIED] Do not hide bar blindly, as other widgets might be on it (e.g. M+ Dashboard)
-    -- bar:SetAlpha(0)
-    -- bar:EnableMouse(false)
+    if bar then
+        bar:SetAlpha(0)
+        bar:EnableMouse(false)
+    end
     
     -- Ring Frame (Visual) - Parented to UIParent to follow cursor freely
     local ring = CreateFrame("Frame", nil, UIParent)
@@ -382,6 +384,11 @@ function WidgetForge:CreateCursorRing(bar, config)
         ring:Hide()
         ring:SetScript("OnUpdate", nil)
         ring:SetParent(nil)
+        if f.parentBar then
+            f.parentBar:SetAlpha(1)
+            f.parentBar:EnableMouse(true)
+            f.parentBar = nil
+        end
     end
     
     bar.cursorRing = ring

@@ -43,7 +43,7 @@ function InterruptSync:LoadClassInterrupt()
     local specIndex = GetSpecialization() or 0
     local specData = data[specIndex] or data.DEFAULT
     if specData and specData.ids then self.interruptIDs = specData.ids else self.interruptIDs = {} end
-    print("[WF_INT_SYNC] Loaded interrupt IDs for " .. (class or "Unknown") .. " spec " .. (specIndex or 0) .. ": " .. table.concat(self.interruptIDs, ", "))
+    -- print("[WF_INT_SYNC] Loaded interrupt IDs for " .. (class or "Unknown") .. " spec " .. (specIndex or 0) .. ": " .. table.concat(self.interruptIDs, ", "))
 end
 
 InterruptSync:LoadClassInterrupt()
@@ -111,12 +111,15 @@ end
 -- ============================================================================
 function InterruptSync:UpdateGroupTracking()
     -- Register units
-    print("[WF_INT_SYNC] UpdateGroupTracking called")
+    -- print("[WF_INT_SYNC] UpdateGroupTracking called")
     self.eventFrame:UnregisterAllEvents()
     self.eventFrame:RegisterEvent("CHAT_MSG_ADDON")
     self.eventFrame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
     self.eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
     self.eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    self.eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+    
+    self.cachedIsValidContext = self:IsValidContext()
     
     -- Listen to party chat for interrupt announcements
     self.eventFrame:RegisterEvent("CHAT_MSG_PARTY")
@@ -165,45 +168,46 @@ end
 
 if not InterruptSync.eventFrame then
     InterruptSync.eventFrame = CreateFrame("Frame")
-    print("[WF_INT_SYNC] EventFrame created")
+    -- print("[WF_INT_SYNC] EventFrame created")
     C_ChatInfo.RegisterAddonMessagePrefix(InterruptSync.commPrefix)
     
     InterruptSync.eventFrame:SetScript("OnEvent", function(_, event, ...)
-        print("[WF_INT_SYNC] Event fired: " .. event)
+        -- print("[WF_INT_SYNC] Event fired: " .. event)
         if event == "CHAT_MSG_ADDON" then
-            print("[WF_INT_SYNC] CHAT_MSG_ADDON triggered")
+            -- print("[WF_INT_SYNC] CHAT_MSG_ADDON triggered")
             InterruptSync:OnCommReceived(...)
         elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
-            print("[WF_INT_SYNC] UNIT_SPELLCAST_SUCCEEDED triggered")
+            -- print("[WF_INT_SYNC] UNIT_SPELLCAST_SUCCEEDED triggered")
             InterruptSync:OnSpellcast(...)
         elseif event == "CHAT_MSG_PARTY" or event == "CHAT_MSG_PARTY_LEADER" then
-            print("[WF_INT_SYNC] CHAT_MSG_PARTY triggered")
+            -- print("[WF_INT_SYNC] CHAT_MSG_PARTY triggered")
             InterruptSync:OnPartyChat(...)
-        elseif event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_ENTERING_WORLD" then
-            print("[WF_INT_SYNC] GROUP_ROSTER_UPDATE triggered")
+        elseif event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
+            -- print("[WF_INT_SYNC] Context event triggered: " .. event)
+            InterruptSync.cachedIsValidContext = InterruptSync:IsValidContext()
             InterruptSync:UpdateGroupTracking()
         end
     end)
-    print("[WF_INT_SYNC] Calling initial UpdateGroupTracking")
+    -- print("[WF_INT_SYNC] Calling initial UpdateGroupTracking")
     InterruptSync:UpdateGroupTracking()
-    print("[WF_INT_SYNC] Initialization complete")
+    -- print("[WF_INT_SYNC] Initialization complete")
 end
 
 function InterruptSync:OnSpellcast(unit, castGUID, spellID)
     -- Only process player interrupts - party member data is protected
-    print("[WF_INT_SYNC] OnSpellcast called: unit=" .. tostring(unit) .. ", spellID=" .. tostring(spellID))
+    -- print("[WF_INT_SYNC] OnSpellcast called: unit=" .. tostring(unit) .. ", spellID=" .. tostring(spellID))
     if unit ~= "player" then 
-        print("[WF_INT_SYNC] Ignoring - not player unit")
+        -- print("[WF_INT_SYNC] Ignoring - not player unit")
         return 
     end
     
     -- Check if this is actually an interrupt spell
     if not INTERRUPT_SPELL_DATA[spellID] then 
-        print("[WF_INT_SYNC] Not an interrupt spell")
+        -- print("[WF_INT_SYNC] Not an interrupt spell")
         return 
     end
     
-    print("[WF_INT_SYNC] Processing player interrupt")
+    -- print("[WF_INT_SYNC] Processing player interrupt")
     
     -- Use class default cooldown duration (safest method - no secret number issues)
     local duration = 15 -- fallback
@@ -214,7 +218,7 @@ function InterruptSync:OnSpellcast(unit, castGUID, spellID)
                 for _, id in ipairs(specData.ids) do
                     if id == spellID then
                         duration = specData.duration or 15
-                        print("[WF_INT_SYNC] Found interrupt duration from class data: " .. duration .. "s")
+                        -- print("[WF_INT_SYNC] Found interrupt duration from class data: " .. duration .. "s")
                         break
                     end
                 end
@@ -223,17 +227,17 @@ function InterruptSync:OnSpellcast(unit, castGUID, spellID)
     end
     
     if not duration or duration <= 0 then 
-        print("[WF_INT_SYNC] Invalid duration, returning")
+        -- print("[WF_INT_SYNC] Invalid duration, returning")
         return 
     end
     
     local name = UnitName(unit)
     if not name then 
-        print("[WF_INT_SYNC] Could not get player name")
+        -- print("[WF_INT_SYNC] Could not get player name")
         return 
     end
     
-    print("[WF_INT_SYNC] You cast interrupt (ID: " .. spellID .. ", Real CD: " .. duration .. "s)")
+    -- print("[WF_INT_SYNC] You cast interrupt (ID: " .. spellID .. ", Real CD: " .. duration .. "s)")
     
     -- Track this interrupt for success detection (TargetCastbar integration)
     self.lastInterruptSpellID = spellID
@@ -321,14 +325,8 @@ end
 
 function InterruptSync:AnnounceInterruptSuccess(interruptSpellID)
     -- Announce successful interrupt with target info
-    -- CURRENTLY INACTIVE - can be enabled later
     local elem = self.Instances[1] and self.Instances[1].elem
     if not elem or not elem.announceInterruptSuccess then return end
-    
-    if InCombatLockdown() then
-        if self.DebugMode then print("[WF_INT_SYNC DEBUG] Cannot announce interrupt success - in combat") end
-        return
-    end
     
     local spellInfo = C_Spell.GetSpellInfo(interruptSpellID)
     local spellName = spellInfo and spellInfo.name or "Interrupt"
@@ -337,10 +335,21 @@ function InterruptSync:AnnounceInterruptSuccess(interruptSpellID)
     
     local channel = elem.announceChannel or "PARTY"
     if channel == "PARTY" and not IsInGroup() then return end
-    if channel == "RAID" and not IsInRaid() then return end
+    if (channel == "INSTANCE_CHAT" or channel == "INSTANCE") and not IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then 
+        if IsInGroup() then channel = "PARTY" else return end
+    end
     
-    if self.DebugMode then print("[WF_INT_SYNC DEBUG] Announcement: " .. msg) end
-    SendChatMessage(msg, channel)
+    if InCombatLockdown() then
+        -- VIRTUAL CHAT (Render locally to bypass Blizzard restrictions)
+        local channelName = (channel == "INSTANCE_CHAT") and "Instance" or "Party"
+        local color = (channel == "INSTANCE_CHAT") and "|cffFF7F00" or "|cffAAAAFF" 
+        local chatPrefix = color .. "[" .. channelName .. "] |r|cff69CCF0" .. UnitName("player") .. ": |r"
+        DEFAULT_CHAT_FRAME:AddMessage(chatPrefix .. msg)
+        if self.DebugMode then print("[WF_INT_SYNC DEBUG] Virtual Announcement: " .. msg) end
+    else
+        if self.DebugMode then print("[WF_INT_SYNC DEBUG] Announcement: " .. msg) end
+        SendChatMessage(msg, channel)
+    end
 end
 
 function InterruptSync:AnnounceInterrupt(spellID, duration)
@@ -357,13 +366,20 @@ function InterruptSync:AnnounceInterrupt(spellID, duration)
     
     -- Safety check for channel validity
     if channel == "PARTY" and not IsInGroup() then return end
-    if channel == "RAID" and not IsInRaid() then return end
     if (channel == "INSTANCE_CHAT" or channel == "INSTANCE") and not IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then 
         if IsInGroup() then channel = "PARTY" else return end
     end
-    
-    if self.DebugMode then print("[WF_INT_SYNC DEBUG] Announcing: " .. msg .. " to " .. channel) end
-    SendChatMessage(msg, channel)
+    if InCombatLockdown() then
+        -- VIRTUAL CHAT (Render locally to bypass Blizzard restrictions)
+        local channelName = (channel == "INSTANCE_CHAT") and "Instance" or "Party"
+        local color = (channel == "INSTANCE_CHAT") and "|cffFF7F00" or "|cffAAAAFF" 
+        local chatPrefix = color .. "[" .. channelName .. "] |r|cff69CCF0" .. UnitName("player") .. ": |r"
+        DEFAULT_CHAT_FRAME:AddMessage(chatPrefix .. msg)
+        if self.DebugMode then print("[WF_INT_SYNC DEBUG] Virtual Announcing: " .. msg .. " to " .. channel) end
+    else
+        if self.DebugMode then print("[WF_INT_SYNC DEBUG] Announcing: " .. msg .. " to " .. channel) end
+        SendChatMessage(msg, channel)
+    end
 end
 
 function InterruptSync:SendSync(spellID, duration, timestamp)
@@ -434,10 +450,10 @@ function InterruptSync:Load(parent, elem)
     container.bars = {}
     
     container:SetScript("OnUpdate", function(self, elapsed)
-         local isUnlocked = (_G.WidgetForge and _G.WidgetForge.BarsLocked == false) or (_G.WidgetForgeConfigFrame and _G.WidgetForgeConfigFrame:IsShown())
+         local isUnlocked = (_G.WidgetForge and _G.WidgetForge.BarsLocked == false) or (_G.EsrefConfigFrame and _G.EsrefConfigFrame:IsShown())
          
-         -- Check instance and group validation
-         local isValidContext = InterruptSync:IsValidContext()
+         -- Check instance and group validation (cached for performance)
+         local isValidContext = InterruptSync.cachedIsValidContext
          
          if not isValidContext and not isUnlocked and not InterruptSync.ForceTest then
              self:Hide()
@@ -471,6 +487,20 @@ function InterruptSync:Load(parent, elem)
             if inst == self then table.remove(InterruptSync.Instances, i); break end
         end
     end)
+    
+    function container:Unload()
+        if self.bars then
+            for name, bar in pairs(self.bars) do
+                bar:Hide()
+                if bar:GetParent() == self then
+                    bar:SetParent(nil)
+                end
+            end
+            self.bars = {}
+        end
+        self:Hide()
+        self:SetScript("OnUpdate", nil)
+    end
     
     return container
 end
@@ -943,17 +973,26 @@ function InterruptSync:CreateSettings(parentFrame)
     sb:AddCheckbox("announceInterrupts", "Announce my Interrupts", false, elem, RefreshLive)
     sb:AddCheckbox("announceInterruptSuccess", "Announce Successful Interrupts (Detected)", false, elem, RefreshLive)
     sb:AddDropdown("announceChannel", "Announce Channel", {
-        {text = "Say", value = "SAY"},
         {text = "Party", value = "PARTY"},
-        {text = "Raid", value = "RAID"},
         {text = "Instance", value = "INSTANCE_CHAT"}
     }, "PARTY", elem, RefreshLive)
     
     sb:AddHeader("Party Sync")
     sb:AddCheckbox("partySync", "Listen to party interrupts", false, elem, RefreshLive)
     
-    sb:AddHeader("Debug")
-    sb:AddCheckbox("debugMode", "Debug Mode (console output)", false, InterruptSync, function(v) InterruptSync.DebugMode = v end)
+    local txtHelp = f.content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    txtHelp:SetWordWrap(true)
+    txtHelp:SetWidth(610)
+    txtHelp:SetJustifyH("LEFT")
+    txtHelp:SetTextColor(1, 0.82, 0) -- Gold/Yellow color
+    txtHelp:SetText("Note: For the Party Sync to function correctly and track your group members' interrupts, all players in the party MUST have the WidgetForge addon installed.")
+    
+    -- sb.y is currently at the bottom of the checkbox. Move down by 5-10 pixels for padding.
+    sb.y = sb.y - 45
+    txtHelp:SetPoint("TOPLEFT", sb.canvas, "TOPLEFT", 12, sb.y)
+    
+    -- Reserve space for the text block itself (approx 30-40 pixels depending on wrap)
+    sb.y = sb.y - 0
     
     sb:Finish()
 end

@@ -878,34 +878,35 @@ function Skin:CreateSectionHeader(parent, text, width, showLine)
     t:SetTextColor(unpack(Skin.Colors.accent))
     h.text = t
     
-    if showLine ~= false then 
-        local line = h:CreateLine()
-        line:SetColorTexture(0.2, 0.2, 0.2, 1)
-        line:SetStartPoint("BOTTOMLEFT", 0, 0)
-        line:SetEndPoint("BOTTOMRIGHT", 0, 0)
-        line:SetThickness(1) 
-    end
+    local line = h:CreateTexture(nil, "BACKGROUND")
+    line:SetColorTexture(0.2, 0.2, 0.2, 1)
+    line:SetPoint("BOTTOMLEFT", 0, 0)
+    line:SetPoint("BOTTOMRIGHT", 0, 0)
+    line:SetHeight(1) 
+    h.line = line
+    
+    if showLine == false then h.line:Hide() end
     
     return h
 end
 
 function Skin:CreateSeparator(parent, width)
     local f = CreateFrame("Frame", nil, parent)
-    f:SetSize(width or 600, 1)
+    f:SetSize(width or 610, 1)
     
-    local line = f:CreateLine()
-    line:SetColorTexture(0.2, 0.2, 0.2, 1)
-    line:SetStartPoint("LEFT", 0, 0)
-    line:SetEndPoint("RIGHT", 0, 0)
-    line:SetThickness(1)
+    local tex = f:CreateTexture(nil, "BACKGROUND")
+    tex:SetAllPoints()
+    tex:SetColorTexture(0.2, 0.2, 0.2, 1)
+    f.tex = tex
     
     return f
 end
 
-function Skin:CreateAccordion(parent, title, contentHeight, onToggle)
+function Skin:CreateAccordion(parent, title, contentHeight, onToggle, width)
     local frame = CreateFrame("Frame", nil, parent, "BackdropTemplate")
-    frame:SetWidth(parent:GetWidth() - 16) -- Widened by 4px per user request
+    frame:SetWidth(width or 610) -- Exactly 594px to match lines
     frame:SetHeight(30) -- Initial collapsed height
+    frame:SetClipsChildren(true)
 
     -- Header Button
     local header = CreateFrame("Button", nil, frame, "BackdropTemplate")
@@ -950,41 +951,65 @@ function Skin:CreateAccordion(parent, title, contentHeight, onToggle)
         header.arrow:SetVertexColor(1, 1, 1, 1)
     end
 
+    -- Animation State
+    frame.targetHeight = 30
+    frame.currentHeight = 30
+    frame.animSpeed = 15 -- Speed factor for interpolation
+    
+    frame:SetScript("OnUpdate", function(self, elapsed)
+        if math.abs(self.currentHeight - self.targetHeight) > 0.5 then
+            self.currentHeight = self.currentHeight + (self.targetHeight - self.currentHeight) * (self.animSpeed * elapsed)
+            self:SetHeight(self.currentHeight)
+            if self.onAnimUpdate then self.onAnimUpdate() end -- Optional callback for live layout updates
+        elseif self.currentHeight ~= self.targetHeight then
+            self.currentHeight = self.targetHeight
+            self:SetHeight(self.currentHeight)
+            if self.onAnimUpdate then self.onAnimUpdate() end
+            if not self.expanded then content:Hide() end -- Fully hide only when animation finishes
+        end
+    end)
+
     header:SetScript("OnClick", function()
         frame.expanded = not frame.expanded
         
         if frame.expanded then
              content:Show()
-             frame:SetHeight(30 + 5 + contentHeight) 
+             frame.targetHeight = 30 + 5 + contentHeight
              header:SetBackdropColor(0.2, 0.2, 0.2, 1)
         else
-             content:Hide()
-             frame:SetHeight(30)
+             frame.targetHeight = 30
              header:SetBackdropColor(0.1, 0.1, 0.1, 0.8)
+             -- Note: content:Hide() happens in OnUpdate when fully closed for visual smoothness
         end
         UpdateArrow()
         
         if onToggle then onToggle(frame.expanded) end
     end)
     
-    -- Mimic X button press visual (Optional: button handles this internally usually)
-    -- Since we use a real button now, providing click feedback on the whole header might be redundant or needs different handling.
-    -- We force the feedback manually because the button itself is disabled.
-    
-    -- header:SetScript("OnMouseDown", function() header.toggleBtn.text:SetPoint("CENTER", 2, -1) end) -- Adjust for press (1+1, -1)
-    -- header:SetScript("OnMouseUp", function() header.toggleBtn.text:SetPoint("CENTER", 1, 0) end)   -- Restore offset (1, 0)
-    
-    -- Use this function to force state
     function frame:SetExpanded(expanded)
         frame.expanded = expanded
         if expanded then
              content:Show()
-             frame:SetHeight(30 + 5 + contentHeight)
+             frame.targetHeight = 30 + 5 + contentHeight
+             frame.currentHeight = frame.targetHeight
+             frame:SetHeight(frame.targetHeight)
         else
              content:Hide()
-             frame:SetHeight(30)
+             frame.targetHeight = 30
+             frame.currentHeight = frame.targetHeight
+             frame:SetHeight(frame.targetHeight)
         end
         UpdateArrow()
+    end
+    
+    function frame:SetContentHeight(height)
+        contentHeight = height
+        content:SetHeight(height)
+        if frame.expanded then
+             frame.targetHeight = 30 + 5 + height
+             frame.currentHeight = frame.targetHeight
+             frame:SetHeight(frame.targetHeight)
+        end
     end
     
     return frame

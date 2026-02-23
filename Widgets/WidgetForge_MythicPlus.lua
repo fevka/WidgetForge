@@ -82,6 +82,39 @@ function MPlus:InitGlobal()
     MPlus.initialized = true
 end
 
+
+local function CreateMythicPlusUtilityButtons()
+    if ChallengesKeystoneFrame.WidgetForgeButtonsCreated then return end
+
+    local readyBtn = CreateFrame("Button", "WFMPlusReadyBtn", ChallengesKeystoneFrame, "UIPanelButtonTemplate")
+    readyBtn:SetSize(110, 25)
+    readyBtn:SetText("Ready Check")
+    readyBtn:SetPoint("BOTTOMLEFT", ChallengesKeystoneFrame, "BOTTOMLEFT", 21, 20)
+    
+    readyBtn:SetScript("OnClick", function()
+        if UnitIsGroupLeader("player") or UnitIsGroupAssistant("player") then
+            DoReadyCheck()
+        else
+            print("|cffff0000[WidgetForge]|r Ready Check başlatmak için grup lideri olmalısınız.")
+        end
+    end)
+
+    local pullBtn = CreateFrame("Button", "WFMPlusPullBtn", ChallengesKeystoneFrame, "UIPanelButtonTemplate")
+    pullBtn:SetSize(110, 25)
+    pullBtn:SetText("Pull (10s)")
+    pullBtn:SetPoint("BOTTOMRIGHT", ChallengesKeystoneFrame, "BOTTOMRIGHT", -21, 20)
+    
+    pullBtn:SetScript("OnClick", function()
+        if UnitIsGroupLeader("player") or UnitIsGroupAssistant("player") then
+            C_PartyInfo.DoCountdown(10)
+        else
+            print("|cffff0000[WidgetForge]|r Geri sayım başlatmak için grup lideri olmalısınız.")
+        end
+    end)
+
+    ChallengesKeystoneFrame.WidgetForgeButtonsCreated = true
+end
+
 -- Called when Blizzard_ChallengesUI is loaded (load-on-demand)
 function MPlus:HookKeystoneFrame()
     if MPlus.keystoneHooked then return end
@@ -94,6 +127,9 @@ function MPlus:HookKeystoneFrame()
                 MPlus:TrySlotKeystone()
             end)
         end
+        
+        -- Yeni butonlarımızı buraya ekliyoruz
+        CreateMythicPlusUtilityButtons()
     end)
 end
 
