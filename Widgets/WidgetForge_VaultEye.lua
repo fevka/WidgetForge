@@ -12,18 +12,12 @@ local VaultEye = _G.WidgetForge.VaultEye
 local Skin = _G.ForgeSkin
 
 function VaultEye:Load(parent, elem)
-    local container = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    local container = CreateFrame("Frame", nil, parent)
     container:SetPoint("CENTER")
     
     local w = elem.widgetWidth or 250
     local h = elem.widgetHeight or 150
     container:SetSize(w, h)
-    
-    if Skin and Skin.ApplyBackdrop then
-        Skin:ApplyBackdrop(container)
-        container:SetBackdropColor(unpack(elem.bgColor or {0.05, 0.05, 0.05, 0.8}))
-        container:SetBackdropBorderColor(unpack(Skin.Colors.border or {0.2, 0.2, 0.2, 1}))
-    end
 
     -- State Data
     container.vaultData = {
@@ -49,15 +43,19 @@ function VaultEye:Load(parent, elem)
     container.summaryText:SetFont(fontNormal, 12, "OUTLINE")
     container.summaryText:SetJustifyH("CENTER")
 
-    -- Expanded Mode Elements
-    container.expandedView = CreateFrame("Frame", nil, container)
-    container.expandedView:SetAllPoints()
+    -- Expanded Mode Elements (Popout Dropdown Style to Prevent UI Overflow)
+    container.expandedView = CreateFrame("Frame", nil, container, "BackdropTemplate")
+    container.expandedView:SetPoint("TOPLEFT", container, "TOPLEFT", 0, 0)
+    container.expandedView:SetPoint("TOPRIGHT", container, "TOPRIGHT", 0, 0)
+    container.expandedView:SetHeight(150)
+    container.expandedView:SetFrameStrata("TOOLTIP") -- Pop over other elements unconditionally
+    ForgeSkin:ApplyBackdrop(container.expandedView, 0.95, 1) -- Opaque dark background
     container.expandedView:Hide()
-    
-    -- Scrollable content host for expanded view
+    -- Adaptive content host for expanded view (No main scrollbar, grows with children)
+    container.sfWidth = (elem.widgetWidth or 250) - 20
     container.expandedContent = CreateFrame("Frame", nil, container.expandedView)
-    container.expandedContent:SetPoint("TOPLEFT", 10, -30)
-    container.expandedContent:SetPoint("BOTTOMRIGHT", -10, 10)
+    container.expandedContent:SetSize(container.sfWidth, 120)
+    container.expandedContent:SetPoint("TOP", 0, -15)
     
     container.accordions = {} -- Store accordion references
     
@@ -69,6 +67,7 @@ function VaultEye:Load(parent, elem)
         local hoverFrame = CreateFrame("Frame", nil, container)
         hoverFrame:SetAllPoints()
         hoverFrame:SetHitRectInsets(-10, -10, -10, -10) -- Give a small buffer zone
+        hoverFrame:SetFrameStrata("TOOLTIP")
         hoverFrame:SetFrameLevel(container.expandedView:GetFrameLevel() + 50) -- Ensure it sits above the accordions
         hoverFrame:EnableMouse(true)
         -- We propagate clicks so you can still click accordions
@@ -78,6 +77,7 @@ function VaultEye:Load(parent, elem)
         hoverFrame:SetScript("OnEnter", function(self)
             self:SetFrameLevel(container:GetFrameLevel() - 1) -- Drop behind children while expanded so clicks work
             container.compactView:Hide()
+            
             container.expandedView:Show()
             VaultEye:UpdateDisplay(container, elem, true)
         end)
@@ -93,6 +93,7 @@ function VaultEye:Load(parent, elem)
                     if not isOver then
                         container.expandedView:Hide()
                         container.compactView:Show()
+                        
                         hoverFrame:SetFrameLevel(container.expandedView:GetFrameLevel() + 50) -- Rise to catch hover again
                         VaultEye:UpdateDisplay(container, elem, false)
                     end
@@ -105,13 +106,21 @@ function VaultEye:Load(parent, elem)
     container:RegisterEvent("WEEKLY_REWARDS_UPDATE")
     container:RegisterEvent("CURRENCY_DISPLAY_UPDATE")
     container:RegisterEvent("PLAYER_ENTERING_WORLD")
+    container:RegisterEvent("CHALLENGE_MODE_COMPLETED")
+    container:RegisterEvent("BOSS_KILL")
+    container:RegisterEvent("ZONE_CHANGED_NEW_AREA")
     container:SetScript("OnEvent", function(self, event, ...)
+        -- Force a fresh read on critical events that signal a run finish
+        if event == "WEEKLY_REWARDS_UPDATE" or event == "CHALLENGE_MODE_COMPLETED" or event == "BOSS_KILL" or event == "ZONE_CHANGED_NEW_AREA" then
+            self.lastFetchTime = 0
+        end
         VaultEye:FetchData(self)
         VaultEye:UpdateDisplay(self, elem, self.expandedView:IsShown())
     end)
     
     -- Initial Fetch
     C_Timer.After(1, function()
+        container.lastFetchTime = 0
         VaultEye:FetchData(container)
         VaultEye:UpdateDisplay(container, elem, false)
     end)
@@ -121,6 +130,12 @@ end
 
 function VaultEye:Refresh(container, elem)
     container:SetSize(elem.widgetWidth or 250, elem.widgetHeight or 150)
+    
+    container.sfWidth = (elem.widgetWidth or 250) - 20
+    if container.expandedContent then
+        container.expandedContent:SetWidth(container.sfWidth)
+    end
+    
     VaultEye:FetchData(container)
     VaultEye:UpdateDisplay(container, elem, container.expandedView:IsShown())
 end
@@ -138,6 +153,11 @@ local VAULT_ACTIVITIES = {
 
 function VaultEye:FetchData(container)
     if not C_WeeklyRewards or not C_WeeklyRewards.GetActivities then return end
+    
+    -- Cache check: Don't read raw data more than once every 10 seconds to prevent API spam
+    if container.lastFetchTime and (GetTime() - container.lastFetchTime < 10) then
+        return
+    end
 
     local activities = C_WeeklyRewards.GetActivities()
     
@@ -220,6 +240,8 @@ function VaultEye:FetchData(container)
             end
         end
     end
+    
+    container.lastFetchTime = GetTime()
 end
 
 -- ============================================================================
@@ -227,6 +249,14 @@ end
 -- ============================================================================
 function VaultEye:UpdateDisplay(container, elem, isExpanded)
     local data = container.vaultData
+    
+    -- Force hide WidgetForge's global backdrop manually just in case the type string check fails
+    local rootParent = container:GetParent()
+    if rootParent and rootParent.SetBackdrop then
+        rootParent:SetBackdrop(nil)
+        rootParent:SetBackdropColor(0,0,0,0)
+        rootParent:SetBackdropBorderColor(0,0,0,0)
+    end
     
     if not isExpanded then
         -- COMPACT VIEW
@@ -267,12 +297,13 @@ function VaultEye:UpdateDisplay(container, elem, isExpanded)
                     currentY = currentY - acc:GetHeight() - PADDING
                 end
             end
-            container.expandedContent:SetHeight(math.abs(currentY))
-            container.expandedView:SetHeight(math.abs(currentY) + 40)
+            local totalHeight = math.abs(currentY)
+            container.expandedContent:SetHeight(totalHeight)
+            container.expandedView:SetHeight(totalHeight + 30) -- exactly 15px top offset + 15px bottom padding
         end
         
         -- Helper to create or get an accordion
-        local function GetOrCreateAccordion(key, title, parent)
+        local function GetOrCreateAccordion(key, title, parent, useScroll)
             if not container.accordions[key] then
                 -- Add a callback to close others on expand
                 local function onAccToggle(isExpanding)
@@ -286,12 +317,30 @@ function VaultEye:UpdateDisplay(container, elem, isExpanded)
                     end
                     UpdateLayout()
                 end
-                
-                container.accordions[key] = ForgeSkin:CreateAccordion(parent, title, 220, onAccToggle)
+                container.accordions[key] = ForgeSkin:CreateAccordion(parent, title, 200, onAccToggle, container.sfWidth)
                 container.accordions[key].onAnimUpdate = UpdateLayout -- Hook into ForgeSkin animation Loop
                 container.accordions[key].content:Hide()
                 container.accordions[key].isExpanded = false
                 container.accordions[key].header.arrow:SetTexCoord(0, 1, 0, 1) -- Keep arrow state generic
+                
+                local scrollTarget = container.accordions[key].content
+                
+                if useScroll then
+                    -- Replace standard content frame with a ScrollFrame to limit expansion height
+                    local accScroll, accChild = ForgeSkin:CreateScrollFrame(scrollTarget, container.sfWidth - 10, 100)
+                    accScroll:SetPoint("TOPLEFT", 2, -2)
+                    accScroll:SetPoint("BOTTOMRIGHT", -2, 2)
+                    
+                    container.accordions[key].scrollFrame = accScroll
+                    container.accordions[key].scrollChild = accChild
+                else
+                    container.accordions[key].scrollChild = scrollTarget
+                end
+                
+                -- Add a subtle border to the content area for better visual separation
+                ForgeSkin:ApplyBackdrop(scrollTarget, 0.1, 0.5)
+                scrollTarget:SetBackdropColor(0, 0, 0, 0.3)
+                scrollTarget:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.8)
             end
             local acc = container.accordions[key]
             acc:Show()
@@ -302,24 +351,28 @@ function VaultEye:UpdateDisplay(container, elem, isExpanded)
         -- Helper to create or get a row inside an accordion
         local function GetOrCreateRow(acc, rowIndex)
             acc.rows = acc.rows or {}
+            
+            -- We put the rows inside the scrollChild, not the base content frame
+            local parentFrame = acc.scrollChild or acc.content
+            
             if not acc.rows[rowIndex] then
-                local row = CreateFrame("Frame", nil, acc.content)
-                row:SetSize(200, 20)
+                local row = CreateFrame("Frame", nil, parentFrame)
+                row:SetSize(container.sfWidth - 10, 20)
                 
                 row.label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
                 row.label:SetPoint("LEFT", 5, 0)
                 row.label:SetJustifyH("LEFT")
                 
                 row.value = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-                row.value:SetPoint("RIGHT", -5, 0)
+                row.value:SetPoint("RIGHT", -25, 0) -- Moved 5px away from potential scrollbars
                 row.value:SetJustifyH("RIGHT")
                 
                 acc.rows[rowIndex] = row
             end
             local r = acc.rows[rowIndex]
             r:ClearAllPoints()
-            r:SetPoint("TOPLEFT", acc.content, "TOPLEFT", 0, -(rowIndex - 1) * 22)
-            r:SetPoint("TOPRIGHT", acc.content, "TOPRIGHT", 0, -(rowIndex - 1) * 22)
+            r:SetPoint("TOPLEFT", parentFrame, "TOPLEFT", 0, -(rowIndex - 1) * 22)
+            r:SetPoint("TOPRIGHT", parentFrame, "TOPRIGHT", 0, -(rowIndex - 1) * 22)
             r:Show()
             return r
         end
@@ -339,7 +392,7 @@ function VaultEye:UpdateDisplay(container, elem, isExpanded)
         local function BuildActivitySection(key, title, groupData, isEnabled)
             if not isEnabled or not groupData.slots or #groupData.slots == 0 then return end
             
-            local acc = GetOrCreateAccordion(key, title, container.expandedContent)
+            local acc = GetOrCreateAccordion(key, title, container.expandedContent, false)
             local slots = groupData.slots
             table.sort(slots, function(a, b) return a.threshold < b.threshold end)
             
@@ -358,10 +411,17 @@ function VaultEye:UpdateDisplay(container, elem, isExpanded)
                 end
             end
             
-            -- Size accordion content
-            local contentHeight = #slots * 22
-            acc.content:SetHeight(contentHeight)
-            acc:SetHeight(24 + (acc.isExpanded and contentHeight or 0))
+            -- Size accordion content. Cap the physical size to ~106px (10% more than 97)
+            local rawHeight = #slots * 22
+            local boundedHeight = math.min(rawHeight, 106)
+            
+            if acc.scrollChild then
+                acc.scrollChild:SetHeight(rawHeight)
+                acc.scrollChild:SetWidth(container.sfWidth - 10)
+            end
+            
+            -- Use the library's proper sizing API instead of manually mutating frame height
+            acc:SetContentHeight(boundedHeight)
         end
 
         BuildActivitySection("mythic", "Mythic+ Dungeons", data.mythic, elem.trackMythicPlus ~= false)
@@ -370,7 +430,7 @@ function VaultEye:UpdateDisplay(container, elem, isExpanded)
         
         -- Build Currencies
         if elem.trackCurrencies ~= false and container.currencyData and #container.currencyData > 0 then
-            local acc = GetOrCreateAccordion("currencies", "Currencies", container.expandedContent)
+            local acc = GetOrCreateAccordion("currencies", "Currencies", container.expandedContent, true)
             
             for i, curr in ipairs(container.currencyData) do
                 local row = GetOrCreateRow(acc, i)
@@ -384,9 +444,17 @@ function VaultEye:UpdateDisplay(container, elem, isExpanded)
                 row.value:SetText("|cffffffff" .. amt .. "|r")
             end
             
-            local contentHeight = #container.currencyData * 22
-            acc.content:SetHeight(contentHeight)
-            acc:SetHeight(24 + (acc.isExpanded and contentHeight or 0))
+            -- Cap currency height since there are usually many
+            local rawHeight = #container.currencyData * 22
+            local boundedHeight = math.min(rawHeight, 133) -- 10% more than 121
+            
+            if acc.scrollChild then
+                acc.scrollChild:SetHeight(rawHeight)
+                acc.scrollChild:SetWidth(container.sfWidth - 10)
+            end
+            
+            -- Use the library's proper sizing API instead of manually mutating frame height
+            acc:SetContentHeight(boundedHeight)
         end
         
         -- Force initial layout once all elements are created
