@@ -165,7 +165,7 @@ function WidgetForge:UpdateAvailableBars()
             local isExclusive = false
             if conf.elements then
                 for _, e in ipairs(conf.elements) do
-                    if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" then 
+                    if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" then 
                         isExclusive = true
                         break 
                     end
@@ -224,7 +224,7 @@ end
 
 local function LoadAddonWidget(f, elem, i, AddonRef, targetList)
     if not AddonRef then return end
-    pcall(function()
+    local ok, err = pcall(function()
         local cw = AddonRef:Load(f, elem)
         if cw then 
             table.insert(f.customWidgets, cw)
@@ -234,6 +234,7 @@ local function LoadAddonWidget(f, elem, i, AddonRef, targetList)
             end
         end
     end)
+    if not ok then print("|cffff0000[WidgetForge Error]|r Loading " .. (elem.type or "Unknown") .. ": " .. tostring(err)) end
 end
 
 local function CreateTextAndIconElement(f, elem, i, isSplit, hbEnabled)
@@ -297,6 +298,7 @@ function WidgetForge:RebuildBarComponents(index)
     if not f.dragonFrames then f.dragonFrames = {} end
     if not f.codeFrames then f.codeFrames = {} end
     if not f.castFrames then f.castFrames = {} end
+    if not f.syncFrames then f.syncFrames = {} end
     
     if f.customWidgets then
         for _, cw in ipairs(f.customWidgets) do
@@ -318,6 +320,7 @@ function WidgetForge:RebuildBarComponents(index)
     for _, df in pairs(f.dragonFrames) do df:Hide() end
     for _, cf in pairs(f.codeFrames) do cf:Hide() end
     for _, cf in pairs(f.castFrames) do cf:Hide() end
+    for _, sf in pairs(f.syncFrames) do sf:Hide() end
     
     local isLocked = not f:IsMouseEnabled()
     local clickThrough = conf.clickThrough
@@ -328,7 +331,7 @@ function WidgetForge:RebuildBarComponents(index)
     local isSplit = (conf.layout == "VERTICAL" and justify ~= "CENTER")
 
     local OverlayTypes = { ["Cursor Ring"] = true, ["Retirement Home"] = true }
-    local StrictTypes = { ["Mythic+ Dashboard"] = true, ["Dragonriding"] = true, ["Skill Stream"] = true, ["Target Castbar"] = true }
+    local StrictTypes = { ["Mythic+ Dashboard"] = true, ["Dragonriding"] = true, ["Skill Stream"] = true, ["Target Castbar"] = true, ["Interrupt Sync"] = true }
     
     local exclusiveType = nil
     for _, e in ipairs(conf.elements) do
@@ -366,6 +369,9 @@ function WidgetForge:RebuildBarComponents(index)
                 if addonTable.SkillStream then LoadAddonWidget(f, elem, i, addonTable.SkillStream, nil) end
             elseif elem.type == "Target Castbar" then
                 if addonTable.TargetCastbar then LoadAddonWidget(f, elem, i, addonTable.TargetCastbar, "castFrames") end
+            elseif elem.type == "Interrupt Sync" then
+                local ref = addonTable.InterruptSync or _G.WidgetForge.InterruptSync
+                if ref then LoadAddonWidget(f, elem, i, ref, "syncFrames") end
             elseif elem.type == "Custom Code" then
                 if addonTable.CustomCode then LoadAddonWidget(f, elem, i, addonTable.CustomCode, "codeFrames") end
             else
@@ -489,7 +495,7 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
     
     local fetchedValues = {}
     for i, elem in ipairs(conf.elements) do
-        if not (elem.type == "Divider" or elem.type == "Custom Code" or elem.type == "Dragonriding" or elem.type == "Target Castbar" or elem.type == "Skill Stream" or elem.type == "Cursor Ring" or elem.type == "Retirement Home" or elem.type == "Mythic+ Dashboard") then
+        if not (elem.type == "Divider" or elem.type == "Custom Code" or elem.type == "Dragonriding" or elem.type == "Target Castbar" or elem.type == "Skill Stream" or elem.type == "Cursor Ring" or elem.type == "Retirement Home" or elem.type == "Mythic+ Dashboard" or elem.type == "Interrupt Sync") then
             local valStr, lblStr = "---", ""
             if ForgeStats and ForgeStats.GetStat then
                 valStr, lblStr = ForgeStats:GetStat(elem.type) 
@@ -542,6 +548,14 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
                      addonTable.Dragonriding:UpdateVisuals(df, elem)
                 end
             end
+        elseif elem.type == "Interrupt Sync" then
+            local sf = f.syncFrames and f.syncFrames[i]
+            if sf then
+                local ref = addonTable.InterruptSync or _G.WidgetForge.InterruptSync
+                if ref and ref.RefreshBars then
+                    ref:RefreshBars(sf)
+                end
+            end
         end
     end
 
@@ -582,6 +596,12 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
         elseif elem.type == "Dragonriding" then
             elemWidth = elem.widgetWidth or 300
             elemHeight = elem.widgetHeight or 45
+        elseif elem.type == "Interrupt Sync" then
+            local limit = 5 -- Test mode or standard limit
+            local h = elem.barHeight or 30
+            local s = elem.spacing or 5
+            elemWidth = elem.barWidth or 220
+            elemHeight = (limit * h) + ((limit - 1) * s)
         elseif elem.type == "Target Castbar" then
             elemWidth = elem.widgetWidth or 200
             elemHeight = elem.widgetHeight or 25
@@ -728,13 +748,16 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
                 end
                 currentY = currentY - elemHeight
                 if i < #conf.elements then currentY = currentY - conf.padding end
-            elseif elem.type == "Dragonriding" or elem.type == "Skill Stream" or elem.type == "Target Castbar" or elem.type == "Custom Code" then
+            elseif elem.type == "Dragonriding" or elem.type == "Skill Stream" or elem.type == "Target Castbar" or elem.type == "Custom Code" or elem.type == "Interrupt Sync" then
                 if elem.type == "Custom Code" then
                     local cf = f.codeFrames and f.codeFrames[i]
                     if cf then cf:ClearAllPoints(); cf:SetPoint("CENTER", f, "CENTER", 0, placementY) end
                 elseif elem.type == "Target Castbar" then
                     local cf = f.castFrames and f.castFrames[i]
                     if cf then cf:ClearAllPoints(); cf:SetPoint("CENTER", f, "CENTER", 0, placementY) end
+                elseif elem.type == "Interrupt Sync" then
+                    local sf = f.syncFrames and f.syncFrames[i]
+                    if sf then sf:ClearAllPoints(); sf:SetPoint("CENTER", f, "CENTER", 0, placementY) end
                 end
                 currentY = currentY - elemHeight
                 if i < #conf.elements then currentY = currentY - conf.padding end
@@ -864,6 +887,10 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
                      cf:SetPoint("LEFT", f, "CENTER", placementX, currentY)
                  end
                  currentX = currentX + (elem.widgetWidth or 200) + conf.padding
+            elseif elem.type == "Interrupt Sync" then
+                local sf = f.syncFrames and f.syncFrames[i]
+                if sf then sf:ClearAllPoints(); sf:SetPoint("LEFT", f, "CENTER", placementX, currentY) end
+                currentX = currentX + (elem.barWidth or 220) + conf.padding
             elseif elem.type == "Custom Code" then
                  local cf = f.codeFrames and f.codeFrames[i]
                  if cf then

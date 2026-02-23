@@ -326,6 +326,11 @@ function TargetCastbar:Load(parent, elem)
             UpdateNormalBarColor()
             container.spellName:SetText("SUCCESS")
             
+            -- Interrupt detected - notify InterruptSync for party announcement
+            if _G.WidgetForge and _G.WidgetForge.InterruptSync then
+                _G.WidgetForge.InterruptSync:ReportInterruptSuccess("target")
+            end
+            
         elseif event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_CHANNEL_STOP" or event == "UNIT_SPELLCAST_FAILED" then
             if not container.isInterrupted then container:SetAlpha(0); container.durationObj = nil end
         end
@@ -408,12 +413,12 @@ function TargetCastbar:CreateSettings(parentFrame)
 
     local sb = f.builder or _G.WidgetForgeUtils:CreateSettingsBuilder(f.content)
     f.builder = sb 
-    parentFrame.isTestingGlobal = parentFrame.isTestingGlobal or false
+    parentFrame.isTestingGlobal_TargetCastbar = parentFrame.isTestingGlobal_TargetCastbar or false
     
     local function RefreshLive()
         if barIndex and _G.WidgetForge then
             _G.WidgetForge:RebuildBarComponents(barIndex)
-            if parentFrame.isTestingGlobal then
+            if parentFrame.isTestingGlobal_TargetCastbar then
                 for _, inst in ipairs(TargetCastbar.Instances) do
                     if inst.elem == elem then 
                         inst.isTesting = true
@@ -424,13 +429,13 @@ function TargetCastbar:CreateSettings(parentFrame)
         end
     end
 
-    if not parentFrame.testBtnCreated then
+    if not parentFrame.testBtnTargetCastbar then
         local btnTest = Skin:CreateButton(f.content, "Test Mode: OFF", 130, 22)
         btnTest:SetPoint("TOPRIGHT", f.content, "TOPRIGHT", -15, -10)
-        parentFrame.testBtnCreated = btnTest
+        parentFrame.testBtnTargetCastbar = btnTest
         
         local function UpdateTestButtonVisuals()
-            if parentFrame.isTestingGlobal then 
+            if parentFrame.isTestingGlobal_TargetCastbar then 
                 btnTest:SetBackdropColor(0, 0.8, 0, 1)
                 btnTest.text:SetText("Test Mode: ON")
             else 
@@ -442,19 +447,19 @@ function TargetCastbar:CreateSettings(parentFrame)
         UpdateTestButtonVisuals()
         
         btnTest:SetScript("OnEnter", function()
-            if parentFrame.isTestingGlobal then btnTest:SetBackdropColor(0, 1, 0, 1) 
+            if parentFrame.isTestingGlobal_TargetCastbar then btnTest:SetBackdropColor(0, 1, 0, 1) 
             else btnTest:SetBackdropColor(unpack(Skin.Colors.buttonHover)) end
         end)
         btnTest:SetScript("OnLeave", function() UpdateTestButtonVisuals() end)
         
         btnTest:SetScript("OnClick", function()
-            parentFrame.isTestingGlobal = not parentFrame.isTestingGlobal
+            parentFrame.isTestingGlobal_TargetCastbar = not parentFrame.isTestingGlobal_TargetCastbar
             UpdateTestButtonVisuals()
             
             for _, inst in ipairs(TargetCastbar.Instances) do
                 if inst.elem == elem then 
-                    inst.isTesting = parentFrame.isTestingGlobal
-                    if parentFrame.isTestingGlobal then inst:GetScript("OnEvent")(inst, "UNIT_SPELLCAST_START", "target")
+                    inst.isTesting = parentFrame.isTestingGlobal_TargetCastbar
+                    if parentFrame.isTestingGlobal_TargetCastbar then inst:GetScript("OnEvent")(inst, "UNIT_SPELLCAST_START", "target")
                     else inst:SetAlpha(0) end
                 end
             end
@@ -462,9 +467,13 @@ function TargetCastbar:CreateSettings(parentFrame)
         
         if not parentFrame.onCloseWidgetSpecific then
              parentFrame.onCloseWidgetSpecific = function() 
-                 parentFrame.isTestingGlobal = false
+                 parentFrame.isTestingGlobal_TargetCastbar = false
                  for _, inst in ipairs(TargetCastbar.Instances) do inst.isTesting = false; inst:SetAlpha(0) end
              end
+        end
+    else
+        if parentFrame.testBtnTargetCastbar then
+            parentFrame.testBtnTargetCastbar:Show()
         end
     end
 
@@ -482,17 +491,19 @@ function TargetCastbar:CreateSettings(parentFrame)
     if #fontItems == 0 then fontItems = {{text="Default", value="Fonts\\FRIZQT__.TTF"}} 
     else table.sort(fontItems, function(a,b) return a.text < b.text end) end
 
-    sb:AddHeader("Bar & Text Settings")
+    sb:AddHeader("Bar Settings")
     sb:AddSlider("barHeight", "Bar Height", 10, 60, 1, 25, elem, RefreshLive)
     sb:AddSlider("barWidth", "Bar Width", 50, 600, 5, 200, elem, RefreshLive)
     sb:AddSlider("barBgAlpha", "Background Alpha (%)", 0, 100, 5, 80, elem, RefreshLive)
     sb:AddDropdown("texture", "Bar Texture", texItems, "Smooth", elem, RefreshLive)
     sb:AddColor("barBorderColor", "Bar Border Color", {0.3, 0.3, 0.3, 1}, elem, RefreshLive)
     sb:AddSlider("barBorderSize", "Border Thickness (0 to Disable)", 0, 5, 1, 1, elem, RefreshLive)
+    
+    sb:AddHeader("Text Settings")
     sb:AddSlider("fontSize", "Font Size", 8, 36, 1, 12, elem, RefreshLive)
     sb:AddDropdown("font", "Font Style", fontItems, "Friz Quadrata", elem, RefreshLive)
-    sb:AddColor("textColor", "Text Color", {1, 1, 1, 1}, elem, RefreshLive)
     sb:AddDropdown("fontOutline", "Font Outline", { {text="None", value=""}, {text="Outline", value="OUTLINE"}, {text="Thick Outline", value="THICKOUTLINE"} }, "OUTLINE", elem, RefreshLive)
+    sb:AddColor("textColor", "Text Color", {1, 1, 1, 1}, elem, RefreshLive)
 
     sb:AddHeader("Icon Settings")
     sb:AddCheckbox("showIcon", "Show Spell Icon", true, elem, RefreshLive)

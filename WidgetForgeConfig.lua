@@ -32,7 +32,8 @@ Config.ElementTypes = {
     "Crit", "Haste", "Mastery", "Versatility", 
     "Avoidance", "Leech", "Speed", "Run Speed", "Dodge", "Parry", "Armor", "Max HP",
     "Gold", "Zone", "Coords", "Item Level", "Combat Timer", "XP",
-    "Dragonriding", "Skill Stream", "Dummy", "Guild", "Friends", "Difficulty", "Target Castbar", "Talent Loadout", "Custom Code"
+    "Dragonriding", "Skill Stream", "Dummy", "Guild", "Friends", "Difficulty", "Target Castbar", "Talent Loadout", "Custom Code", 
+    "Interrupt Sync" 
 }
 
 Config.Presets = {
@@ -395,7 +396,7 @@ function Config:SelectBar(index)
     local isExclusive = false
     local exclusiveType = nil
     for _, e in ipairs(bar.elements) do
-        if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" then 
+        if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" then 
             isExclusive = true
             exclusiveType = e.type
             break 
@@ -619,7 +620,7 @@ function Config:SelectBar(index)
     if bar.elements and #bar.elements > 0 then
         barMode = "STANDARD"
         for _, e in ipairs(bar.elements) do
-            if e.type == "Dragonriding" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" then 
+            if e.type == "Dragonriding" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" then 
                 barMode = "STRICT"
                 break 
             elseif OverlayTypes[e.type] then
@@ -634,7 +635,7 @@ function Config:SelectBar(index)
         { name = "Progression & Goods", elements = { "XP", "Gold", "Bag Space", "Item Level", "Durability" } },
         { name = "Navigation", elements = { "Zone", "Coords" } },
         { name = "Social", elements = { "Guild", "Friends" } },
-        { name = "Dungeon & Raid", elements = { "Mythic+ Dashboard", "Target Castbar", "Combat Timer", "Difficulty" } },
+        { name = "Dungeon & Raid", elements = { "Mythic+ Dashboard", "Target Castbar", "Interrupt Sync", "Combat Timer", "Difficulty" } },
         { name = "Utils", elements = { "Dragonriding", "Cursor Ring", "Retirement Home", "Skill Stream", "Dummy", "Talent Loadout", "Custom Code" } }
     }
     
@@ -765,7 +766,7 @@ function Config:SelectBar(index)
             btn:SetScript("OnLeave", function(self) UpdateButtonStyle() end)
             
             local canAdd = true
-            local btnIsStrict = (typeName == "Dragonriding" or typeName == "Mythic+ Dashboard" or typeName == "Skill Stream" or typeName == "Target Castbar")
+            local btnIsStrict = (typeName == "Dragonriding" or typeName == "Mythic+ Dashboard" or typeName == "Skill Stream" or typeName == "Target Castbar" or typeName == "Interrupt Sync")
             local btnIsOverlay = OverlayTypes[typeName]
             local btnIsDivider = (typeName == "Divider")
             
@@ -823,6 +824,16 @@ function Config:SelectBar(index)
                          newEl.widgetWidth = 100
                          newEl.widgetHeight = 30
                          newEl.code = "return 'Hello World'"
+                    elseif typeName == "Interrupt Sync" then
+                         newEl.barWidth = 220
+                         newEl.barHeight = 30
+                         newEl.iconSize = 30
+                         newEl.spacing = 5
+                         newEl.barColor = {0, 1, 0, 1}
+                         newEl.colorReady = {1.0, 0.72, 0.04, 1}
+                         newEl.fontOutline = "OUTLINE"
+                         newEl.announceInterrupts = false
+                         newEl.announceChannel = "PARTY"
                     elseif isDivider then
                          newEl.size = 20; newEl.thickness = 2; newEl.dividerMode = "LINE"; newEl.dividerStyle = "VERTICAL"; newEl.offset = 0
                     end
@@ -1023,6 +1034,11 @@ function Config:SelectBar(index)
              local btnSettings = Skin:CreateButton(item, "Settings", 80, 22)
              btnSettings:SetPoint("RIGHT", dragHandle, "LEFT", -10, 0)
              btnSettings:SetScript("OnClick", function() Config:OpenDummySettings(index, i, elem) end)
+        elseif elem.type == "Interrupt Sync" then
+             btnCol:Hide()
+             local btnSettings = Skin:CreateButton(item, "Settings", 80, 22)
+             btnSettings:SetPoint("RIGHT", dragHandle, "LEFT", -10, 0)
+             btnSettings:SetScript("OnClick", function() Config:OpenInterruptSyncSettings(index, i, elem) end)
         else
             slSz = Skin:CreateSlider(item, 8, 50, 1, elem.size, function(v) elem.size = v; WidgetForge:RebuildBarComponents(index) end, 70); slSz:SetPoint("RIGHT", btnCol, "LEFT", -15, 0)
             ddOutline = Skin:CreateDropdown(item, 85, outlineList, elem.outline or "OUTLINE", function(v) elem.outline = v; WidgetForge:RebuildBarComponents(index) end); ddOutline:SetPoint("RIGHT", slSz, "LEFT", -10, 0) 
@@ -1406,6 +1422,23 @@ function Config:OpenDummySettings(barIndex, elemIndex, elem)
     txt:SetJustifyH("LEFT")
     txt:SetText("This panel slides in from the right side, covering the main configuration area without being a separate popup window. This allows for a more integrated settings experience.")
     if content.SetHeight then content:SetHeight(math.abs(y) + 100) end
+end
+
+function Config:OpenInterruptSyncSettings(barIndex, elemIndex, elem)
+    local panel = Config:GetSlidePanel()
+    Config:ToggleSlidePanel(true)
+    panel.header.title:SetText("Interrupt Sync Settings")
+    panel.config = elem
+    panel.barIndex = barIndex
+    local content = panel.content
+    local kids = {content:GetChildren()}
+    for _, k in ipairs(kids) do k:Hide() end
+    local regions = {content:GetRegions()}
+    for _, rgn in ipairs(regions) do rgn:Hide() end
+    if panel.builder then if panel.builder.Release then panel.builder:Release() end panel.builder = nil end
+    if _G.WidgetForge and _G.WidgetForge.InterruptSync and _G.WidgetForge.InterruptSync.CreateSettings then
+        _G.WidgetForge.InterruptSync:CreateSettings(panel)
+    end
 end
 
 SLASH_WIDGETFORGE1 = "/wf"

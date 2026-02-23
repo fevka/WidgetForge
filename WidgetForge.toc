@@ -20,3 +20,4 @@ Widgets\WidgetForge_SkillStream.lua
 Widgets\WidgetForge_Dummy.lua
 Widgets\WidgetForge_TargetCastbar.lua
 Widgets\WidgetForge_CustomCode.lua
+Widgets\WidgetForge_interruptPartySync.lua
