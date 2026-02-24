@@ -781,10 +781,9 @@ function Config:SelectBar(index)
                          newEl.colorInterrupted = {0, 1, 0, 1}
                     elseif btnIsOverlay then
                          newEl.size = 32 
-                         if typeName == "Mythic+ Dashboard" then
-                             newEl.widgetWidth = 340
-                             newEl.widgetHeight = 260
-                         end
+                    elseif typeName == "Mythic+ Dashboard" then
+                         newEl.widgetWidth = 340
+                         newEl.widgetHeight = 260
                     elseif typeName == "Custom Code" then
                          newEl.widgetWidth = 100
                          newEl.widgetHeight = 30

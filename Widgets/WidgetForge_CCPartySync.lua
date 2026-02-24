@@ -306,13 +306,28 @@ function CCSync:EnsureBarIsReady(container, name, class)
             bar.timerBar:SetStatusBarColor(c[1], c[2], c[3], c[4] or 1)
             
             bar:Show()
+            if bar.cooldown then
+                if container.elem.attachToParty then
+                    bar.cooldown:SetCooldown(mem.endTime - mem.duration, mem.duration)
+                    bar.cooldown:Show()
+                else
+                    bar.cooldown:Hide()
+                end
+            end
+            
             bar:SetScript("OnUpdate", function(f)
                 local rem = f.endTime - GetTime()
                 if rem <= 0 then
                     CCSync:SetBarReady(container, f, f.currentSpellID)
                 else
                     f.timerBar:SetMinMaxValues(0, f.duration); f.timerBar:SetValue(rem); f.timerText:SetText(string.format("%.1f", rem))
-                    if f.iconTimerText then f.iconTimerText:SetText(string.format("%.0f", rem)) end
+                    if f.iconTimerText then
+                        if container.elem.attachToParty then
+                            f.iconTimerText:SetText(string.format("%.0f", rem))
+                        else
+                            f.iconTimerText:SetText("")
+                        end
+                    end
                 end
             end)
         end
@@ -611,6 +626,14 @@ function CCSync:CreateBar(container, name)
     row.iconTimerText:SetPoint("CENTER", row.iconBox, "CENTER", 0, 0)
     row.iconTimerText:SetFont(fontPath, fontSize * 1.2, "OUTLINE")
     row.iconTimerText:SetTextColor(1, 1, 1, 1)
+
+    -- Icon overlay cooldown swipe
+    row.cooldown = CreateFrame("Cooldown", nil, row.iconBox, "CooldownFrameTemplate")
+    row.cooldown:SetAllPoints(row.iconBox)
+    row.cooldown:SetDrawEdge(false)
+    row.cooldown:SetDrawBling(false)
+    row.cooldown:SetHideCountdownNumbers(true)
+    row.cooldown:SetReverse(false)
     
     return row
 end
@@ -632,6 +655,10 @@ function CCSync:SetBarReady(container, bar, spellID)
     bar.timerBar:SetMinMaxValues(0, 1); bar.timerBar:SetValue(1)
     bar.timerText:SetText("READY")
     if bar.iconTimerText then bar.iconTimerText:SetText("") end
+    if bar.cooldown then
+        bar.cooldown:Clear()
+        bar.cooldown:Hide()
+    end
     
     local classColor = {r=0.5, g=0.5, b=0.5}
     local unit = nil
@@ -694,6 +721,14 @@ function CCSync:UpdateBar(container, senderName, spellID, duration)
     self.activeCooldowns[senderName] = { spellID = spellID, endTime = bar.endTime, duration = duration }
     
     bar:Show()
+    if bar.cooldown then
+        if container.elem.attachToParty then
+            bar.cooldown:SetCooldown(GetTime(), duration)
+            bar.cooldown:Show()
+        else
+            bar.cooldown:Hide()
+        end
+    end
     
     bar:SetScript("OnUpdate", function(f)
         local rem = f.endTime - GetTime()
@@ -701,7 +736,13 @@ function CCSync:UpdateBar(container, senderName, spellID, duration)
             CCSync:SetBarReady(container, f, f.currentSpellID)
         else
             f.timerBar:SetMinMaxValues(0, f.duration); f.timerBar:SetValue(rem); f.timerText:SetText(string.format("%.1f", rem))
-            if f.iconTimerText then f.iconTimerText:SetText(string.format("%.0f", rem)) end
+            if f.iconTimerText then
+                if container.elem.attachToParty then
+                    f.iconTimerText:SetText(string.format("%.0f", rem))
+                else
+                    f.iconTimerText:SetText("")
+                end
+            end
         end
     end)
     self:LayoutBars(container)
@@ -989,9 +1030,19 @@ function CCSync:RefreshBars(container)
         if row:GetScript("OnUpdate") then
              local c = elem.colorOnCD or {1.0, 0.5, 0.0, 1}
              row.timerBar:SetStatusBarColor(c[1], c[2], c[3], c[4] or 1)
+             if row.cooldown then
+                 if attachMode then
+                     local startTime = row.endTime - row.duration
+                     row.cooldown:SetCooldown(startTime, row.duration)
+                     row.cooldown:Show()
+                 else
+                     row.cooldown:Hide()
+                 end
+             end
         else
              local c = elem.colorReady or {0.2, 0.8, 1.0, 1}
              row.timerBar:SetStatusBarColor(c[1], c[2], c[3], c[4] or 1)
+             if row.cooldown then row.cooldown:Hide() end
         end
         count = count + 1
     end
