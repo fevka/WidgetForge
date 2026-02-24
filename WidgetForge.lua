@@ -117,6 +117,7 @@ function WidgetForge:SetBarsLocked(locked)
         end
         WidgetForge:RebuildBarComponents(index)
     end
+    WidgetForge:UpdateBarVisibilityStates()
 end
 
 function WidgetForge:UpdateAvailableBars()
@@ -201,6 +202,41 @@ function WidgetForge:UpdateAvailableBars()
             WidgetForge:RebuildBarComponents(index)
         else
             if Bars[index] then Bars[index]:Hide() end
+        end
+    end
+    WidgetForge:UpdateBarVisibilityStates()
+end
+
+function WidgetForge:IsBarVisible(conf)
+    if not conf then return false end
+    if not WidgetForge.BarsLocked then return true end
+
+    local vis = conf.visibility or "ALWAYS"
+    if vis == "ALWAYS" then 
+        return true 
+    elseif vis == "COMBAT" then
+        return UnitAffectingCombat("player")
+    elseif vis == "OUT_OF_COMBAT" then
+        return not UnitAffectingCombat("player")
+    end
+    
+    return true
+end
+
+function WidgetForge:UpdateBarVisibilityStates()
+    if not WidgetForgeDB or not WidgetForgeDB.bars then return end
+
+    for index, conf in ipairs(WidgetForgeDB.bars) do
+        local isRelevant = WidgetForge:IsBarRelevant(conf)
+        local isEnabled = conf.enabled
+        
+        if isRelevant and isEnabled and Bars[index] then
+            local shouldShow = WidgetForge:IsBarVisible(conf)
+            if shouldShow then
+                Bars[index]:Show()
+            else
+                Bars[index]:Hide()
+            end
         end
     end
 end
@@ -986,8 +1022,10 @@ loadFrame:SetScript("OnEvent", function(self, event, arg1)
         print("|cff00ccffWidgetForge|r v" .. WIDGETFORGE_CONSTANTS.VERSION .. " Loaded. Type |cff00ccff/wf|r to configure.")
     elseif event == "PLAYER_REGEN_DISABLED" then
         if ForgeStats then ForgeStats.CombatStart = GetTime() end
+        WidgetForge:UpdateBarVisibilityStates()
     elseif event == "PLAYER_REGEN_ENABLED" then
         if ForgeStats then ForgeStats.CombatStart = nil end
+        WidgetForge:UpdateBarVisibilityStates()
     elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
         WidgetForge:UpdateAvailableBars()
     elseif event == "PLAYER_ENTERING_WORLD" then

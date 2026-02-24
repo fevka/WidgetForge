@@ -9,6 +9,7 @@ Config.DefaultSettings = {
         [1] = {
             name = "Main Info",
             enabled = true,
+            visibility = "ALWAYS",
             width = 250, height = 30,
             point = "CENTER", x = 0, y = 150,
             bgColor = {0, 0, 0, 0.6},
@@ -469,6 +470,22 @@ function Config:SelectBar(index)
         Config:RefreshBarList(); self:ClearFocus() 
     end)
     ebName:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+
+    local lblVis = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    lblVis:SetPoint("TOPLEFT", ebNameFrame, "TOPRIGHT", 20, -6); lblVis:SetText("Visibility:"); lblVis:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
+    
+    local visList = {
+        {text = "Always Show", value = "ALWAYS"},
+        {text = "Combat Only", value = "COMBAT"},
+        {text = "Out of Combat", value = "OUT_OF_COMBAT"}
+    }
+    local currentVisVal = bar.visibility or "ALWAYS"
+    
+    local ddVis = Skin:CreateDropdown(content, 130, visList, currentVisVal, function(v)
+        bar.visibility = v
+        if WidgetForge.UpdateBarVisibilityStates then WidgetForge:UpdateBarVisibilityStates() end
+    end)
+    ddVis:SetPoint("TOPLEFT", lblVis, "TOPRIGHT", 5, 4)
 
     local settingsContentH = 550
     if isExclusive then settingsContentH = 150 end
