@@ -33,7 +33,7 @@ Config.ElementTypes = {
     "Avoidance", "Leech", "Speed", "Run Speed", "Dodge", "Parry", "Armor", "Max HP",
     "Gold", "Zone", "Coords", "Item Level", "Combat Timer", "XP",
     "Dragonriding", "Skill Stream", "Dummy", "Guild", "Friends", "Difficulty", "Target Castbar", "Talent Loadout", "Custom Code", 
-    "Interrupt Sync", "VaultEye"
+    "Interrupt Sync", "VaultEye", "CCPartySync"
 }
 
 Config.Presets = {
@@ -71,20 +71,6 @@ Config.Presets = {
             {type="Gold", size=12, color={1,1,0,1}, showIcon=true}, 
             {type="Bag Space", size=12, color={1,1,1,1}, showIcon=true},
             {type="Item Level", size=12, color={1,0.5,1,1}, showIcon=true}
-        }
-    }},
-    { text = "Dragonriding HUD", value = {
-        name = "Skyriding", width = 320, height = 50, bgColor = {0,0,0,0}, layout="HORIZONTAL", padding=0,
-        showBorder = false,
-        elements = {
-            {type="Dragonriding", size=14, color={1,1,1,1},
-             vigorFillColor = {0, 0.85, 0.85, 1},
-             vigorEmptyColor = {0.15, 0.15, 0.15, 1},
-             speedBarColor = {0.7, 0, 0.7, 1},
-             speedEmptyColor = {0.15, 0.15, 0.15, 1},
-             speedTextColor = {1, 1, 1, 1},
-             widgetWidth = 300, widgetHeight = 45
-            }
         }
     }}
 }
@@ -396,7 +382,7 @@ function Config:SelectBar(index)
     local isExclusive = false
     local exclusiveType = nil
     for _, e in ipairs(bar.elements) do
-        if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" or e.type == "VaultEye" then 
+        if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" or e.type == "VaultEye" or e.type == "CCPartySync" then 
             isExclusive = true
             exclusiveType = e.type
             break 
@@ -563,7 +549,7 @@ function Config:SelectBar(index)
     if bar.elements and #bar.elements > 0 then
         barMode = "STANDARD"
         for _, e in ipairs(bar.elements) do
-            if e.type == "Dragonriding" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" or e.type == "VaultEye" then 
+            if e.type == "Dragonriding" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" or e.type == "VaultEye" or e.type == "CCPartySync" then 
                 barMode = "STRICT"
                 break 
             elseif OverlayTypes[e.type] then
@@ -578,7 +564,7 @@ function Config:SelectBar(index)
         { name = "Progression & Goods", elements = { "XP", "Gold", "Bag Space", "Item Level", "Durability" } },
         { name = "Navigation", elements = { "Zone", "Coords" } },
         { name = "Social", elements = { "Guild", "Friends" } },
-        { name = "Dungeon & Raid", elements = { "Mythic+ Dashboard", "Target Castbar", "Interrupt Sync", "VaultEye", "Combat Timer", "Difficulty" } },
+        { name = "Dungeon & Raid", elements = { "Mythic+ Dashboard", "Target Castbar", "Interrupt Sync", "VaultEye", "Combat Timer", "Difficulty", "CCPartySync" } },
         { name = "Utils", elements = { "Dragonriding", "Cursor Ring", "Retirement Home", "Skill Stream", "Dummy", "Talent Loadout", "Custom Code" } }
     }
     
@@ -672,7 +658,7 @@ function Config:SelectBar(index)
             local isSkillStreamBtn = (typeName == "Skill Stream")
             local isTargetCastBtn = (typeName == "Target Castbar")
             local isDivider = (typeName == "Divider")
-            local isBigWidget = (typeName == "Dragonriding" or typeName == "Skill Stream" or typeName == "Target Castbar" or typeName == "Mythic+ Dashboard" or typeName == "Interrupt Sync" or typeName == "VaultEye" or typeName == "Cursor Ring" or typeName == "Retirement Home" or typeName == "Custom Code" or typeName == "Dummy")
+            local isBigWidget = (typeName == "Dragonriding" or typeName == "Skill Stream" or typeName == "Target Castbar" or typeName == "Mythic+ Dashboard" or typeName == "Interrupt Sync" or typeName == "VaultEye" or typeName == "Cursor Ring" or typeName == "Retirement Home" or typeName == "Custom Code" or typeName == "Dummy" or typeName == "CCPartySync")
             
             local isActive = false
             for _, e in ipairs(bar.elements) do 
@@ -728,7 +714,7 @@ function Config:SelectBar(index)
             btn:SetScript("OnLeave", function(self) UpdateButtonStyle() end)
             
             local canAdd = true
-            local btnIsStrict = (typeName == "Dragonriding" or typeName == "Mythic+ Dashboard" or typeName == "Skill Stream" or typeName == "Target Castbar" or typeName == "Interrupt Sync" or typeName == "VaultEye")
+            local btnIsStrict = (typeName == "Dragonriding" or typeName == "Mythic+ Dashboard" or typeName == "Skill Stream" or typeName == "Target Castbar" or typeName == "Interrupt Sync" or typeName == "VaultEye" or typeName == "CCPartySync")
             local btnIsOverlay = OverlayTypes[typeName]
             local btnIsDivider = (typeName == "Divider")
             
@@ -796,6 +782,14 @@ function Config:SelectBar(index)
                          newEl.fontOutline = "OUTLINE"
                          newEl.announceInterrupts = false
                          newEl.announceChannel = "PARTY"
+                    elseif typeName == "CCPartySync" then
+                         newEl.barWidth = 220
+                         newEl.barHeight = 30
+                         newEl.iconSize = 30
+                         newEl.spacing = 5
+                         newEl.showIcon = true
+                         newEl.colorReady = {0.2, 0.8, 1.0, 1}
+                         newEl.colorOnCD = {1.0, 0.5, 0.0, 1}
                     elseif typeName == "VaultEye" then
                          newEl.widgetWidth = 250
                          newEl.widgetHeight = 150
@@ -1014,6 +1008,11 @@ function Config:SelectBar(index)
              local btnSettings = Skin:CreateButton(item, "Settings", 80, 22)
              btnSettings:SetPoint("RIGHT", dragHandle, "LEFT", -10, 0)
              btnSettings:SetScript("OnClick", function() Config:OpenVaultEyeSettings(index, i, elem) end)
+        elseif elem.type == "CCPartySync" then
+             btnCol:Hide()
+             local btnSettings = Skin:CreateButton(item, "Settings", 80, 22)
+             btnSettings:SetPoint("RIGHT", dragHandle, "LEFT", -10, 0)
+             btnSettings:SetScript("OnClick", function() Config:OpenCCPartySyncSettings(index, i, elem) end)
         else
             slSz = Skin:CreateSlider(item, 8, 50, 1, elem.size, function(v) elem.size = v; WidgetForge:RebuildBarComponents(index) end, 70); slSz:SetPoint("RIGHT", btnCol, "LEFT", -15, 0)
             ddOutline = Skin:CreateDropdown(item, 85, outlineList, elem.outline or "OUTLINE", function(v) elem.outline = v; WidgetForge:RebuildBarComponents(index) end); ddOutline:SetPoint("RIGHT", slSz, "LEFT", -10, 0) 
@@ -1430,6 +1429,23 @@ function Config:OpenVaultEyeSettings(barIndex, elemIndex, elem)
     if panel.builder then if panel.builder.Release then panel.builder:Release() end panel.builder = nil end
     if _G.WidgetForge and _G.WidgetForge.VaultEye and _G.WidgetForge.VaultEye.CreateSettings then
         _G.WidgetForge.VaultEye:CreateSettings(panel)
+    end
+end
+
+function Config:OpenCCPartySyncSettings(barIndex, elemIndex, elem)
+    local panel = Config:GetSlidePanel()
+    Config:ToggleSlidePanel(true)
+    panel.header.title:SetText("CC Party Sync Settings")
+    panel.config = elem
+    panel.barIndex = barIndex
+    local content = panel.content
+    local kids = {content:GetChildren()}
+    for _, k in ipairs(kids) do k:Hide() end
+    local regions = {content:GetRegions()}
+    for _, r in ipairs(regions) do r:Hide() end
+    if panel.builder then if panel.builder.Release then panel.builder:Release() end panel.builder = nil end
+    if _G.WidgetForge and _G.WidgetForge.CCSync and _G.WidgetForge.CCSync.CreateSettings then
+        _G.WidgetForge.CCSync:CreateSettings(panel)
     end
 end
 

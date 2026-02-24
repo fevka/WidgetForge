@@ -18,19 +18,19 @@ InterruptSync.commPrefix = "WF_INT_SYNC"
 -- 1. INTERRUPT DATA (Dynamic CD Detection - Synced with TargetCastbar.lua)
 -- ============================================================================
 local INTERRUPT_DATA = {
-    WARRIOR = { DEFAULT = {ids = {6552}, spellName = "Pummel"} },
-    ROGUE   = { DEFAULT = {ids = {1766}, spellName = "Kick"} },
-    MAGE    = { DEFAULT = {ids = {2139}, spellName = "Counterspell"} },
-    DEATHKNIGHT = { DEFAULT = {ids = {47528}, spellName = "Mind Freeze"} },
-    PALADIN = { DEFAULT = {ids = {96231}, spellName = "Rebuke"} },
-    MONK    = { DEFAULT = {ids = {116705}, spellName = "Spear Hand Strike"} },
-    DEMONHUNTER = { DEFAULT = {ids = {183752}, spellName = "Consume Magic"} },
-    EVOKER  = { DEFAULT = {ids = {351338}, spellName = "Quell"} },
-    WARLOCK = { DEFAULT = {ids = {119914, 132409, 19647}, spellName = "Spell Lock"} },
-    SHAMAN  = { DEFAULT = {ids = {57994}, spellName = "Wind Shear"} },
-    PRIEST  = { DEFAULT = {ids = {0}}, [3] = {ids = {15487}, spellName = "Silence"} },
-    HUNTER  = { DEFAULT = {ids = {147362}, spellName = "Counter Shot"} },
-    DRUID   = { DEFAULT = {ids = {106839}, spellName = "Skull Bash"}, [1] = {ids = {78675}, spellName = "Skull Bash"} },
+    WARRIOR = { DEFAULT = {ids = {6552}, spellName = "Pummel", names = {"Pummel"}} },
+    ROGUE   = { DEFAULT = {ids = {1766}, spellName = "Kick", names = {"Kick"}} },
+    MAGE    = { DEFAULT = {ids = {2139}, spellName = "Counterspell", names = {"Counterspell"}} },
+    DEATHKNIGHT = { DEFAULT = {ids = {47528}, spellName = "Mind Freeze", names = {"Mind Freeze"}} },
+    PALADIN = { DEFAULT = {ids = {96231}, spellName = "Rebuke", names = {"Rebuke"}} },
+    MONK    = { DEFAULT = {ids = {116705}, spellName = "Spear Hand Strike", names = {"Spear Hand Strike"}} },
+    DEMONHUNTER = { DEFAULT = {ids = {183752}, spellName = "Consume Magic", names = {"Consume Magic"}} },
+    EVOKER  = { DEFAULT = {ids = {351338}, spellName = "Quell", names = {"Quell"}} },
+    WARLOCK = { DEFAULT = {ids = {119914, 132409, 19647}, spellName = "Spell Lock", names = {"Spell Lock", "Command Demon"}} },
+    SHAMAN  = { DEFAULT = {ids = {57994}, spellName = "Wind Shear", names = {"Wind Shear"}} },
+    PRIEST  = { DEFAULT = {ids = {0}}, [3] = {ids = {15487}, spellName = "Silence", names = {"Silence"}} },
+    HUNTER  = { DEFAULT = {ids = {147362}, spellName = "Counter Shot", names = {"Counter Shot", "Muzzle"}}, [3] = {ids = {187707}, spellName = "Muzzle", names = {"Muzzle"}} },
+    DRUID   = { DEFAULT = {ids = {106839}, spellName = "Skull Bash", names = {"Skull Bash"}}, [1] = {ids = {78675}, spellName = "Solar Beam", names = {"Solar Beam"}} },
 }
 
 -- Player's interrupt spell IDs (loaded from player class/spec)
@@ -42,8 +42,48 @@ function InterruptSync:LoadClassInterrupt()
     if not data then self.interruptIDs = {}; return end
     local specIndex = GetSpecialization() or 0
     local specData = data[specIndex] or data.DEFAULT
-    if specData and specData.ids then self.interruptIDs = specData.ids else self.interruptIDs = {} end
-    -- print("[WF_INT_SYNC] Loaded interrupt IDs for " .. (class or "Unknown") .. " spec " .. (specIndex or 0) .. ": " .. table.concat(self.interruptIDs, ", "))
+    self.interruptIDs = {}
+    
+    if specData and specData.ids then
+        -- Pass 1: Try all hardcoded IDs
+        for _, id in ipairs(specData.ids) do
+            if id > 0 then
+                local known = IsPlayerSpell(id)
+                if not known and IsSpellKnown then known = IsSpellKnown(id) end
+                if not known and IsSpellKnownOrOverridesKnown then known = IsSpellKnownOrOverridesKnown(id) end
+                
+                if known then
+                    table.insert(self.interruptIDs, id)
+                end
+            end
+        end
+        
+        -- Pass 2: If we didn't find all expected spells, try name-based lookup for missing ones
+        if #self.interruptIDs < #specData.ids and specData.names then
+            for _, spellName in ipairs(specData.names) do
+                local info = C_Spell.GetSpellInfo(spellName)
+                if info and info.spellID then
+                    local id = info.spellID
+                    
+                    -- Check if we already found this ID in Pass 1
+                    local alreadyFound = false
+                    for _, existingID in ipairs(self.interruptIDs) do
+                        if existingID == id then alreadyFound = true break end
+                    end
+                    
+                    if not alreadyFound then
+                        local known = IsPlayerSpell(id)
+                        if not known and IsSpellKnown then known = IsSpellKnown(id) end
+                        if not known and IsSpellKnownOrOverridesKnown then known = IsSpellKnownOrOverridesKnown(id) end
+                        
+                        if known then
+                            table.insert(self.interruptIDs, id)
+                        end
+                    end
+                end
+            end
+        end
+    end
 end
 
 InterruptSync:LoadClassInterrupt()
@@ -88,44 +128,29 @@ function InterruptSync:IsValidContext()
     return true
 end
 
-function InterruptSync:GetInterruptCooldown(spellID)
-    -- Get cooldown duration for a spell using WoW API
-    -- Returns remaining cooldown or 0 if not on cooldown
-    if not spellID or spellID == 0 then return nil end
-    
-    local startTime, endTime, isTradeSkill = C_Spell.GetSpellCooldown(spellID)
-    
-    if startTime and endTime and endTime > 0 then
-        local now = GetTime()
-        local remaining = endTime - now
-        if remaining > 0 then
-            return math.ceil(remaining)
-        end
-    end
-    
-    return 0 -- Not on cooldown
-end
-
 -- ============================================================================
 -- 2. EVENT HANDLING (WoW 12 COMPLIANT)
 -- ============================================================================
 function InterruptSync:UpdateGroupTracking()
-    -- Register units
-    -- print("[WF_INT_SYNC] UpdateGroupTracking called")
+    -- Always refresh our own spell data first
+    self:LoadClassInterrupt()
+    
     self.eventFrame:UnregisterAllEvents()
     self.eventFrame:RegisterEvent("CHAT_MSG_ADDON")
     self.eventFrame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
     self.eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
     self.eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     self.eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+    self.eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
+    self.eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
+    self.eventFrame:RegisterEvent("TRAIT_CONFIG_LIST_UPDATED")
+    self.eventFrame:RegisterEvent("ACTIVE_COMBAT_CONFIG_CHANGED")
     
     self.cachedIsValidContext = self:IsValidContext()
     
-    -- Listen to party chat for interrupt announcements
     self.eventFrame:RegisterEvent("CHAT_MSG_PARTY")
     self.eventFrame:RegisterEvent("CHAT_MSG_PARTY_LEADER")
     
-    -- Only register player unit - party member tracking disabled due to protected API
     self.eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
 
     -- Persistent Bars: Initialize "Ready" state for all members
@@ -135,8 +160,25 @@ function InterruptSync:UpdateGroupTracking()
 end
 
 function InterruptSync:InitializeGroupBars(container)
-    -- Add Player
-    self:EnsureBarIsReady(container, UnitName("player"), select(2, UnitClass("player")))
+    local activeNames = {}
+    
+    local function ShouldTrack(unit)
+        local role = UnitGroupRolesAssigned(unit)
+        local _, classToken = UnitClass(unit)
+        if role == "HEALER" and classToken ~= "SHAMAN" then
+            return false
+        end
+        return true
+    end
+
+    -- Add Player (only if they have an interrupt spell)
+    if ShouldTrack("player") and #self.interruptIDs > 0 then
+        local name = UnitName("player")
+        if name then
+            self:EnsureBarIsReady(container, name, select(2, UnitClass("player")))
+            activeNames[name] = true
+        end
+    end
     
     -- Add Group
     if IsInGroup() then
@@ -144,11 +186,26 @@ function InterruptSync:InitializeGroupBars(container)
         local num = IsInRaid() and 40 or 4
         for i=1, num do
             local unit = prefix..i
-            if UnitExists(unit) then
-                self:EnsureBarIsReady(container, UnitName(unit), select(2, UnitClass(unit)))
+            if UnitExists(unit) and ShouldTrack(unit) then
+                local name = UnitName(unit)
+                if name then
+                    self:EnsureBarIsReady(container, name, select(2, UnitClass(unit)))
+                    activeNames[name] = true
+                end
             end
         end
     end
+
+    -- Cleanup inactive or invalid members
+    if container.bars then
+        for name, bar in pairs(container.bars) do
+            if not activeNames[name] then
+                bar:Hide()
+                container.bars[name] = nil
+            end
+        end
+    end
+
     self:LayoutBars(container)
 end
 
@@ -163,6 +220,42 @@ function InterruptSync:EnsureBarIsReady(container, name, class)
         local specData = INTERRUPT_DATA[class].DEFAULT or {}
         local spellID = specData.ids and specData.ids[1] or 0
         self:SetBarReady(container, row, spellID)
+    end
+    
+    -- Restore active cooldown from memory to survive zone/loading screens without API taint
+    self.activeCooldowns = self.activeCooldowns or {}
+    local mem = self.activeCooldowns[name]
+    if mem and mem.endTime and mem.endTime > GetTime() then
+        local bar = container.bars[name]
+        -- if it's currently showing ready (no OnUpdate), restore the cooldown visually
+        if bar and not bar:GetScript("OnUpdate") then
+            bar.endTime = mem.endTime
+            bar.duration = mem.duration
+            bar.currentSpellID = mem.spellID
+            
+            local spellInfo = C_Spell.GetSpellInfo(mem.spellID)
+            bar.icon:SetTexture(spellInfo and spellInfo.iconID or 134400)
+            bar.icon:SetDesaturated(true)
+            
+            if spellInfo and spellInfo.name then
+                bar.nameText:SetText((bar.playerName or "Unknown") .. " - " .. spellInfo.name)
+            else
+                bar.nameText:SetText(bar.playerName or "Unknown")
+            end
+            
+            local c = container.elem.colorOnCD or {1.0, 0.2, 0.2, 1}
+            bar.timerBar:SetStatusBarColor(c[1], c[2], c[3], c[4] or 1)
+            
+            bar:Show()
+            bar:SetScript("OnUpdate", function(f)
+                local rem = f.endTime - GetTime()
+                if rem <= 0 then
+                    InterruptSync:SetBarReady(container, f, f.currentSpellID)
+                else
+                    f.timerBar:SetMinMaxValues(0, f.duration); f.timerBar:SetValue(rem); f.timerText:SetText(string.format("%.1f", rem))
+                end
+            end)
+        end
     end
 end
 
@@ -182,8 +275,7 @@ if not InterruptSync.eventFrame then
         elseif event == "CHAT_MSG_PARTY" or event == "CHAT_MSG_PARTY_LEADER" then
             -- print("[WF_INT_SYNC] CHAT_MSG_PARTY triggered")
             InterruptSync:OnPartyChat(...)
-        elseif event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
-            -- print("[WF_INT_SYNC] Context event triggered: " .. event)
+        elseif event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" or event == "PLAYER_TALENT_UPDATE" or event == "TRAIT_CONFIG_UPDATED" or event == "TRAIT_CONFIG_LIST_UPDATED" or event == "ACTIVE_COMBAT_CONFIG_CHANGED" then
             InterruptSync.cachedIsValidContext = InterruptSync:IsValidContext()
             InterruptSync:UpdateGroupTracking()
         end
@@ -623,6 +715,7 @@ function InterruptSync:SetBarReady(container, bar, spellID)
     local elem = container.elem
     local spellInfo = C_Spell.GetSpellInfo(spellID)
     bar.icon:SetTexture(spellInfo and spellInfo.iconID or 134400)
+    bar.icon:SetDesaturated(false)
     
     if spellInfo and spellInfo.name then
         bar.nameText:SetText((bar.playerName or "Unknown") .. " - " .. spellInfo.name)
@@ -681,6 +774,7 @@ function InterruptSync:UpdateBar(container, senderName, spellID, duration)
     local elem = container.elem
     local spellInfo = C_Spell.GetSpellInfo(spellID)
     bar.icon:SetTexture(spellInfo and spellInfo.iconID or 134400)
+    bar.icon:SetDesaturated(true)
     
     if spellInfo and spellInfo.name then
         bar.nameText:SetText((bar.playerName or "Unknown") .. " - " .. spellInfo.name)
@@ -695,6 +789,10 @@ function InterruptSync:UpdateBar(container, senderName, spellID, duration)
     bar.endTime = GetTime() + duration
     bar.duration = duration
     bar.currentSpellID = spellID
+    
+    self.activeCooldowns = self.activeCooldowns or {}
+    self.activeCooldowns[senderName] = { spellID = spellID, endTime = bar.endTime, duration = duration }
+    
     bar:Show()
     
     bar:SetScript("OnUpdate", function(f)
@@ -982,7 +1080,7 @@ function InterruptSync:CreateSettings(parentFrame)
     
     local txtHelp = f.content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     txtHelp:SetWordWrap(true)
-    txtHelp:SetWidth(610)
+    txtHelp:SetWidth(600)
     txtHelp:SetJustifyH("LEFT")
     txtHelp:SetTextColor(1, 0.82, 0) -- Gold/Yellow color
     txtHelp:SetText("Note: For the Party Sync to function correctly and track your group members' interrupts, all players in the party MUST have the WidgetForge addon installed.")

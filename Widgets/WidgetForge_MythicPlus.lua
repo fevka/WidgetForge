@@ -122,7 +122,9 @@ function MPlus:HookKeystoneFrame()
     MPlus.keystoneHooked = true
     
     ChallengesKeystoneFrame:HookScript("OnShow", function()
-        if MPlus.config and MPlus.config.Settings and MPlus.config.Settings.autoKeystone then
+        local isWidgetActive = MPlus.Instances and #MPlus.Instances > 0
+
+        if isWidgetActive and MPlus.config and MPlus.config.Settings and MPlus.config.Settings.autoKeystone then
             C_Timer.After(0.3, function()
                 MPlus:TrySlotKeystone()
             end)
@@ -130,7 +132,34 @@ function MPlus:HookKeystoneFrame()
         
         -- Yeni butonlarımızı buraya ekliyoruz
         CreateMythicPlusUtilityButtons()
+        
+        -- Widget aktif değilse butonları gizle
+        local isWidgetActive = MPlus.Instances and #MPlus.Instances > 0
+        if WFMPlusReadyBtn then WFMPlusReadyBtn:SetShown(isWidgetActive) end
+        if WFMPlusPullBtn then WFMPlusPullBtn:SetShown(isWidgetActive) end
+        
+        if isWidgetActive and MPlus.config and MPlus.config.Settings and MPlus.config.Settings.autoCloseBags then
+            MPlus.suppressBags = true
+            CloseAllBags()
+            C_Timer.After(0.1, function() MPlus.suppressBags = false end)
+        end
     end)
+    
+    if not MPlus.keystoneHiddenHooked then
+        ChallengesKeystoneFrame:HookScript("OnHide", function()
+             MPlus.suppressBags = false
+        end)
+        MPlus.keystoneHiddenHooked = true
+    end
+
+    if not MPlus.openAllBagsHooked then
+        hooksecurefunc("OpenAllBags", function()
+            if MPlus.suppressBags then
+                CloseAllBags()
+            end
+        end)
+        MPlus.openAllBagsHooked = true
+    end
 end
 
 -- --- UI YARDIMCILARI ---
@@ -761,7 +790,8 @@ function MPlus:RegisterEvents()
                 MPlus:UpdateAllInstances()
             end)
         elseif event == "CHALLENGE_MODE_KEYSTONE_RECEPTACLE_OPEN" then
-            if MPlus.config and MPlus.config.Settings and MPlus.config.Settings.autoKeystone then
+            local isWidgetActive = MPlus.Instances and #MPlus.Instances > 0
+            if isWidgetActive and MPlus.config and MPlus.config.Settings and MPlus.config.Settings.autoKeystone then
                 C_Timer.After(0.3, function()
                     MPlus:TrySlotKeystone()
                 end)
@@ -913,24 +943,31 @@ end
 
 -- Uses the official WoW API to slot the keystone
 function MPlus:TrySlotKeystone()
+    local slotted = false
     -- Method 1: C_ChallengeMode.SlotKeystone (modern API)
     if C_ChallengeMode and C_ChallengeMode.SlotKeystone then
         local success = C_ChallengeMode.SlotKeystone()
-        if success then return end
+        if success then 
+            slotted = true
+        end
     end
     
     -- Method 2: Fallback - find keystone in bags and use it
-    for bag = 0, 4 do
-        local numSlots = C_Container.GetContainerNumSlots(bag)
-        for slot = 1, numSlots do
-            local info = C_Container.GetContainerItemInfo(bag, slot)
-            if info and info.hyperlink then
-                local link = info.hyperlink:lower()
-                if link:find("keystone") then
-                    C_Container.UseContainerItem(bag, slot)
-                    return
+    if not slotted then
+        for bag = 0, 4 do
+            local numSlots = C_Container.GetContainerNumSlots(bag)
+            for slot = 1, numSlots do
+                local info = C_Container.GetContainerItemInfo(bag, slot)
+                if info and info.hyperlink then
+                    local link = info.hyperlink:lower()
+                    if link:find("keystone") then
+                        C_Container.UseContainerItem(bag, slot)
+                        slotted = true
+                        break
+                    end
                 end
             end
+            if slotted then break end
         end
     end
 end
@@ -1082,6 +1119,8 @@ function MPlus:CreateSettings(parentFrame)
         if v then MPlus:HideDefaultTracker() else MPlus:ShowDefaultTracker() end
         UpdateGlobal()
     end)
+    
+    sb:AddCheckbox("autoCloseBags", "Auto Close Bags (Key slotting)", true, globalSets, UpdateGlobal)
     
     sb:Finish()
 end

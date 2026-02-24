@@ -22,3 +22,4 @@ Widgets\WidgetForge_TargetCastbar.lua
 Widgets\WidgetForge_CustomCode.lua
 Widgets\WidgetForge_interruptPartySync.lua
 Widgets\WidgetForge_VaultEye.lua
+Widgets\WidgetForge_CCPartySync.lua

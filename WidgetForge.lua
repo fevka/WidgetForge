@@ -48,7 +48,8 @@ WidgetForge.StatIcons = {
     ["Difficulty"] = "Interface\\Icons\\INV_Misc_Bone_Skull_02",
     ["Target Castbar"] = "Interface\\Icons\\Spell_Holy_AshesToAshes",
     ["Talent Loadout"] = "Interface\\Icons\\Spell_ChargePositive",
-    ["Custom Code"] = "Interface\\Icons\\Trade_Engineering"
+    ["Custom Code"] = "Interface\\Icons\\Trade_Engineering",
+    ["CCPartySync"] = "Interface\\Icons\\Spell_Frost_FrostNova"
 }
 
 -- --- HELPER FUNCTIONS ---
@@ -165,7 +166,7 @@ function WidgetForge:UpdateAvailableBars()
             local isExclusive = false
             if conf.elements then
                 for _, e in ipairs(conf.elements) do
-                    if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" or e.type == "Vault Eye" or e.type == "VaultEye" then 
+                    if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" or e.type == "Vault Eye" or e.type == "VaultEye" or e.type == "CCPartySync" then 
                         isExclusive = true
                         break 
                     end
@@ -331,7 +332,7 @@ function WidgetForge:RebuildBarComponents(index)
     local isSplit = (conf.layout == "VERTICAL" and justify ~= "CENTER")
 
     local OverlayTypes = { ["Cursor Ring"] = true, ["Retirement Home"] = true }
-    local StrictTypes = { ["Mythic+ Dashboard"] = true, ["Dragonriding"] = true, ["Skill Stream"] = true, ["Target Castbar"] = true, ["Interrupt Sync"] = true, ["VaultEye"] = true }
+    local StrictTypes = { ["Mythic+ Dashboard"] = true, ["Dragonriding"] = true, ["Skill Stream"] = true, ["Target Castbar"] = true, ["Interrupt Sync"] = true, ["VaultEye"] = true, ["CCPartySync"] = true }
     
     local exclusiveType = nil
     for _, e in ipairs(conf.elements) do
@@ -374,6 +375,9 @@ function WidgetForge:RebuildBarComponents(index)
                 if addonTable.TargetCastbar then LoadAddonWidget(f, elem, i, addonTable.TargetCastbar, "castFrames") end
             elseif elem.type == "Interrupt Sync" then
                 local ref = addonTable.InterruptSync or _G.WidgetForge.InterruptSync
+                if ref then LoadAddonWidget(f, elem, i, ref, "syncFrames") end
+            elseif elem.type == "CCPartySync" then
+                local ref = addonTable.CCSync or _G.WidgetForge.CCSync
                 if ref then LoadAddonWidget(f, elem, i, ref, "syncFrames") end
             elseif elem.type == "Custom Code" then
                 if addonTable.CustomCode then LoadAddonWidget(f, elem, i, addonTable.CustomCode, "codeFrames") end

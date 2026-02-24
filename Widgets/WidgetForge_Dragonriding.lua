@@ -170,7 +170,8 @@ function Dragonriding:UpdateLayout(f, elem)
     sp:SetBackdrop(speedBd)
     sp:SetBackdropBorderColor(unpack(sBColor))
     
-    if elem.showSpeedText then f.speedText:Show() else f.speedText:Hide() end
+    local showSpeed = (elem.showSpeedText == nil) and true or elem.showSpeedText
+    if showSpeed then f.speedText:Show() else f.speedText:Hide() end
 end
 
 function Dragonriding:UpdateVisuals(f, elem)

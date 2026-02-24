@@ -30,6 +30,14 @@ function CustomCode:Load(parent, elem)
     container.text:SetFont(fontPath, elem.fontSize or 14, elem.fontOutline or "OUTLINE")
     container.text:SetTextColor(unpack(elem.color or {1, 1, 1, 1}))
     container.text:SetJustifyH(elem.justifyH or "CENTER")
+    
+    if elem.enableShadow == false then
+        container.text:SetShadowColor(0, 0, 0, 0)
+        container.text:SetShadowOffset(0, 0)
+    else
+        container.text:SetShadowColor(0, 0, 0, 1)
+        container.text:SetShadowOffset(1, -1)
+    end
 
     local compiledFunc = nil
     local compileError = nil
@@ -112,6 +120,15 @@ function CustomCode:CreateSettings(parentFrame)
                     inst.text:SetFont(fontPath, elem.fontSize or 14, elem.fontOutline or "OUTLINE")
                     inst.text:SetTextColor(unpack(elem.color or {1, 1, 1, 1}))
                     inst.text:SetJustifyH(elem.justifyH or "CENTER")
+                    
+                    if elem.enableShadow == false then
+                        inst.text:SetShadowColor(0, 0, 0, 0)
+                        inst.text:SetShadowOffset(0, 0)
+                    else
+                        inst.text:SetShadowColor(0, 0, 0, 1)
+                        inst.text:SetShadowOffset(1, -1)
+                    end
+                    
                     inst:SetSize(elem.widgetWidth or 100, elem.widgetHeight or 30)
                     if inst.Compile then inst.Compile() end
                 end
@@ -135,6 +152,7 @@ function CustomCode:CreateSettings(parentFrame)
     sb:AddDropdown("font", "Font Style", fontItems, "Friz Quadrata", elem, RefreshLive)
     sb:AddSlider("fontSize", "Font Size", 8, 36, 1, 14, elem, RefreshLive)
     sb:AddDropdown("fontOutline", "Font Outline", { {text="None", value=""}, {text="Outline", value="OUTLINE"}, {text="Thick Outline", value="THICKOUTLINE"} }, "OUTLINE", elem, RefreshLive)
+    sb:AddCheckbox("enableShadow", "Enable Drop Shadow", true, elem, RefreshLive)
     sb:AddColor("color", "Text Color", {1, 1, 1, 1}, elem, RefreshLive)
 
     sb:Finish()
