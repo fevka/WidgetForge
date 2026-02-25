@@ -5,7 +5,6 @@ local Skin = _G.ForgeSkin
 local f = CreateFrame("Frame", nil, UIParent)
 f:SetSize(64, 64)
 f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-f:SetFrameStrata("DIALOG")
 f:Hide()
 
 -- The main textures (Dot/Shape)
@@ -39,7 +38,15 @@ local function UpdateVisibility(config)
         return
     end
     
+    -- Check global bar visibility first, then fallback to own behavior
     local mode = config.behavior or "ALWAYS"
+    if f.parentBar and f.parentBar.index then
+         local pbarConf = WidgetForgeDB.bars[f.parentBar.index]
+         if pbarConf and pbarConf.visibility then
+             mode = pbarConf.visibility
+         end
+    end
+    
     local show = false
     
     if mode == "ALWAYS" then
@@ -47,6 +54,8 @@ local function UpdateVisibility(config)
     elseif mode == "COMBAT" then
          -- UnitAffectingCombat is more reliable for visual states than InCombatLockdown
         show = UnitAffectingCombat("player")
+    elseif mode == "OUT_OF_COMBAT" then
+        show = not UnitAffectingCombat("player")
     elseif mode == "INSTANCE" then
         local inInstance, instanceType = IsInInstance()
         show = (inInstance and (instanceType == "party" or instanceType == "raid" or instanceType == "scenario" or instanceType == "arena"))
@@ -151,6 +160,16 @@ function RetirementHome:UpdateVisuals(config)
     
     -- Visibility
     UpdateVisibility(config)
+    
+    -- Layer
+    local layer = "DIALOG"
+    if f.parentBar and f.parentBar.index then
+         local pbarConf = WidgetForgeDB.bars[f.parentBar.index]
+         if pbarConf and pbarConf.layer then
+             layer = pbarConf.layer
+         end
+    end
+    f:SetFrameStrata(layer)
 end
 
 function RetirementHome:Unload()

@@ -343,6 +343,8 @@ function SB:AddCheckbox(key, label, defaultVal, configTable, callback)
     
     if self.isRight then self.y = self.y - 50 end
     self.isRight = not self.isRight
+    
+    return c
 end
 
 function SB:AddColor(key, label, defaultVal, configTable, callback)

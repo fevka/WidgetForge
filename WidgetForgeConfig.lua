@@ -455,16 +455,18 @@ function Config:SelectBar(index)
     
     y = y - 40
 
+    local yOffsetBoxes = y - 4
+    
     local lblName = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    lblName:SetPoint("TOPLEFT", 10, y - 8); lblName:SetText("Bar Name:"); lblName:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
+    lblName:SetPoint("TOPLEFT", 10, yOffsetBoxes - 6); lblName:SetText("NAME:"); lblName:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
     
     local ebNameFrame = CreateFrame("Frame", nil, content, "BackdropTemplate")
-    ebNameFrame:SetSize(150, 25); ebNameFrame:SetPoint("TOPLEFT", 90, y)
+    ebNameFrame:SetSize(235, 25); ebNameFrame:SetPoint("TOPLEFT", 45, yOffsetBoxes)
     Skin:ApplyBackdrop(ebNameFrame); ebNameFrame:SetBackdropColor(0,0,0,0.5); ebNameFrame:SetBackdropBorderColor(0.2, 0.2, 0.2, 1)
     local ebName = CreateFrame("EditBox", nil, ebNameFrame)
     ebName:SetAllPoints(ebNameFrame); ebName:SetFont(Skin.Constants.FONT_NORMAL, 12, "OUTLINE")
     ebName:SetTextInsets(5, 5, 0, 0); ebName:SetAutoFocus(false); ebName:SetText(bar.name)
-    ebName:SetMaxLetters(30) 
+    ebName:SetMaxLetters(40) 
     ebName:SetScript("OnEnterPressed", function(self) 
         bar.name = self:GetText(); if hLayout.text then hLayout.text:SetText(string.upper("Bar Layout: " .. bar.name)) end
         Config:RefreshBarList(); self:ClearFocus() 
@@ -472,7 +474,7 @@ function Config:SelectBar(index)
     ebName:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
 
     local lblVis = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    lblVis:SetPoint("TOPLEFT", ebNameFrame, "TOPRIGHT", 20, -6); lblVis:SetText("Visibility:"); lblVis:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
+    lblVis:SetPoint("TOPLEFT", ebNameFrame, "TOPRIGHT", 15, -6); lblVis:SetText("VISIBILITY:"); lblVis:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
     
     local visList = {
         {text = "Always Show", value = "ALWAYS"},
@@ -481,11 +483,31 @@ function Config:SelectBar(index)
     }
     local currentVisVal = bar.visibility or "ALWAYS"
     
-    local ddVis = Skin:CreateDropdown(content, 130, visList, currentVisVal, function(v)
+    local ddVis = Skin:CreateDropdown(content, 103, visList, currentVisVal, function(v)
         bar.visibility = v
         if WidgetForge.UpdateBarVisibilityStates then WidgetForge:UpdateBarVisibilityStates() end
     end)
-    ddVis:SetPoint("TOPLEFT", lblVis, "TOPRIGHT", 5, 4)
+    ddVis:SetPoint("TOPLEFT", lblVis, "TOPRIGHT", 5, 6)
+
+    local lblLayer = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    lblLayer:SetPoint("TOPLEFT", ddVis, "TOPRIGHT", 15, -6); lblLayer:SetText("LAYER:"); lblLayer:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
+    
+    local layerList = {
+        {text = "Background", value = "BACKGROUND"},
+        {text = "Low", value = "LOW"},
+        {text = "Medium", value = "MEDIUM"},
+        {text = "High", value = "HIGH"},
+        {text = "Dialog", value = "DIALOG"},
+        {text = "Fullscreen", value = "FULLSCREEN"},
+        {text = "Tooltip", value = "TOOLTIP"}
+    }
+    local currentLayerVal = bar.layer or "DIALOG"
+    
+    local ddLayer = Skin:CreateDropdown(content, 103, layerList, currentLayerVal, function(v)
+        bar.layer = v
+        WidgetForge:UpdateAvailableBars()
+    end)
+    ddLayer:SetPoint("TOPLEFT", lblLayer, "TOPRIGHT", 5, 6)
 
     local settingsContentH = 550
     if isExclusive then settingsContentH = 150 end

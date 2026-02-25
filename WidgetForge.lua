@@ -132,7 +132,7 @@ function WidgetForge:UpdateAvailableBars()
         if isRelevant and isEnabled then
             if not Bars[index] then
                 local f = CreateFrame("Frame", "WidgetForgeBar"..index, UIParent, "BackdropTemplate")
-                f:SetFrameStrata("DIALOG")
+                f:SetFrameStrata(conf.layer or "DIALOG")
                 Skin:ApplyBackdrop(f) 
                 
                 f:SetMovable(true)
@@ -160,6 +160,7 @@ function WidgetForge:UpdateAvailableBars()
             local f = Bars[index]
             f.index = index 
             f:Show()
+            f:SetFrameStrata(conf.layer or "DIALOG")
             f:SetSize(conf.width, conf.height)
             f:ClearAllPoints()
             f:SetPoint(conf.point or "CENTER", UIParent, conf.relativePoint or conf.point or "CENTER", conf.x or 100, conf.y or 0)

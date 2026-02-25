@@ -67,9 +67,9 @@ function MPlus:InitGlobal()
                 showTimer = true,
                 showForces = true,
                 showDeathCounter = true,
-                timerChunk1Color = {0, 1, 0.5, 1},
-                timerChunk2Color = {1, 0.8, 0, 1},
-                timerChunk3Color = {1, 0.3, 0.3, 1}
+                timerChunk1Color = {0.30, 0.69, 0.49, 1},
+                timerChunk2Color = {1.00, 0.55, 0.26, 1},
+                timerChunk3Color = {0.90, 0.22, 0.27, 1}
             }
         }
     end
@@ -188,12 +188,12 @@ local function CreateProgressBar(parent, labelText)
     
     -- Chest markers for Timer Bar (LINES mode)
     bar.marker2 = bar:CreateTexture(nil, "OVERLAY")
-    bar.marker2:SetColorTexture(1, 0.8, 0, 0.8) -- Gold for 2-chest
+    bar.marker2:SetColorTexture(1.00, 0.55, 0.26, 0.8) -- Amber for 2-chest
     bar.marker2:SetSize(2, 18)
     bar.marker2:Hide()
     
     bar.marker3 = bar:CreateTexture(nil, "OVERLAY")
-    bar.marker3:SetColorTexture(0, 1, 0.5, 0.8) -- Green for 3-chest
+    bar.marker3:SetColorTexture(0.30, 0.69, 0.49, 0.8) -- Emerald for 3-chest
     bar.marker3:SetSize(2, 18)
     bar.marker3:Hide()
     
@@ -461,7 +461,7 @@ function MPlus:UpdateVisuals(container)
         
         local timeLeft = state.timeLimit - state.currentTime
         local isOver = timeLeft < 0
-        local color = isOver and "|cffff0000" or "|cffffffff"
+        local color = isOver and "|cffffff00" or "|cffffffff"
         
         if mode == "SPLIT" and state.threeChestLimit > 0 and state.twoChestLimit > 0 then
             container.timerBar.text:SetText("") -- Disable main text in split mode
@@ -482,24 +482,38 @@ function MPlus:UpdateVisuals(container)
             local w2 = math.max(1, (w * (pct2 - pct3)) - gap)
             local w3 = math.max(1, w - w1 - w2 - (gap * 2))
             
-            container.timerBar.chunk1:SetPoint("LEFT", container.timerBar, "LEFT", 0, 0)
-            container.timerBar.chunk1:SetWidth(w1)
-            container.timerBar.chunk2:SetPoint("LEFT", container.timerBar.chunk1, "RIGHT", gap, 0)
-            container.timerBar.chunk2:SetWidth(w2)
-            container.timerBar.chunk3:SetPoint("LEFT", container.timerBar.chunk2, "RIGHT", gap, 0)
-            container.timerBar.chunk3:SetWidth(w3)
+            if not container.timerBar.chunk1.laidOut then
+                container.timerBar.chunk1:SetPoint("LEFT", container.timerBar, "LEFT", 0, 0)
+                container.timerBar.chunk2:SetPoint("LEFT", container.timerBar.chunk1, "RIGHT", gap, 0)
+                container.timerBar.chunk3:SetPoint("LEFT", container.timerBar.chunk2, "RIGHT", gap, 0)
+                container.timerBar.chunk1.laidOut = true
+            end
             
-            container.timerBar.chunk1:SetMinMaxValues(0, state.threeChestLimit)
-            container.timerBar.chunk2:SetMinMaxValues(0, state.twoChestLimit - state.threeChestLimit)
-            container.timerBar.chunk3:SetMinMaxValues(0, state.timeLimit - state.twoChestLimit)
+            if math.abs(container.timerBar.chunk1:GetWidth() - w1) > 0.1 then
+                container.timerBar.chunk1:SetWidth(w1)
+                container.timerBar.chunk2:SetWidth(w2)
+                container.timerBar.chunk3:SetWidth(w3)
+            end
+            
+            local _, curMax1 = container.timerBar.chunk1:GetMinMaxValues()
+            if curMax1 ~= state.threeChestLimit then
+                container.timerBar.chunk1:SetMinMaxValues(0, state.threeChestLimit)
+                container.timerBar.chunk2:SetMinMaxValues(0, state.twoChestLimit - state.threeChestLimit)
+                container.timerBar.chunk3:SetMinMaxValues(0, state.timeLimit - state.twoChestLimit)
+                
+                -- Reset bar values to 0 explicitly when max limit changes to clear WoW's default auto-fill
+                container.timerBar.chunk1:SetValue(0)
+                container.timerBar.chunk2:SetValue(0)
+                container.timerBar.chunk3:SetValue(0)
+            end
             
             local val1 = math.min(state.threeChestLimit, state.currentTime)
             local val2 = math.max(0, math.min(state.twoChestLimit - state.threeChestLimit, state.currentTime - state.threeChestLimit))
             local val3 = math.max(0, state.currentTime - state.twoChestLimit)
             
-            container.timerBar.chunk1:SetValue(val1)
-            container.timerBar.chunk2:SetValue(val2)
-            container.timerBar.chunk3:SetValue(val3)
+            if math.abs(container.timerBar.chunk1:GetValue() - val1) > 0.05 then container.timerBar.chunk1:SetValue(val1) end
+            if math.abs(container.timerBar.chunk2:GetValue() - val2) > 0.05 then container.timerBar.chunk2:SetValue(val2) end
+            if math.abs(container.timerBar.chunk3:GetValue() - val3) > 0.05 then container.timerBar.chunk3:SetValue(val3) end
             
             -- Cumulative countdown: each bar shows time remaining to ITS OWN milestone
             -- Bar1 = time to 3-chest, Bar2 = time to 2-chest (bar1+self), Bar3 = total time left
@@ -510,34 +524,49 @@ function MPlus:UpdateVisuals(container)
             container.timerBar.chunk1.text:SetText(format("%02d:%02d", f1 / 60, f1 % 60))
             container.timerBar.chunk2.text:SetText(format("%02d:%02d", f2 / 60, f2 % 60))
             if f3 < 0 then
-                container.timerBar.chunk3.text:SetText(format("|cffff0000-%02d:%02d|r", abs(f3) / 60, abs(f3) % 60))
+                container.timerBar.chunk3.text:SetText(format("|cffffff00-%02d:%02d|r", abs(f3) / 60, abs(f3) % 60))
             else
                 container.timerBar.chunk3.text:SetText(format("%02d:%02d", f3 / 60, f3 % 60))
             end
             
-            container.timerBar.chunk1:SetStatusBarTexture(barTexture)
-            container.timerBar.chunk2:SetStatusBarTexture(barTexture)
-            container.timerBar.chunk3:SetStatusBarTexture(barTexture)
+            if container.timerBar.chunk1.texHash ~= barTexture then
+                container.timerBar.chunk1:SetStatusBarTexture(barTexture)
+                container.timerBar.chunk2:SetStatusBarTexture(barTexture)
+                container.timerBar.chunk3:SetStatusBarTexture(barTexture)
+                container.timerBar.chunk1.texHash = barTexture
+            end
             
-            container.timerBar.chunk1:SetStatusBarColor(unpack(conf.timerChunk1Color or {0, 1, 0.5, 1}))
-            container.timerBar.chunk2:SetStatusBarColor(unpack(conf.timerChunk2Color or {1, 0.8, 0, 1}))
-            container.timerBar.chunk3:SetStatusBarColor(unpack(conf.timerChunk3Color or {1, 0.3, 0.3, 1}))
+            container.timerBar.chunk1:SetStatusBarColor(unpack(conf.timerChunk1Color or {0.30, 0.69, 0.49, 1}))
+            container.timerBar.chunk2:SetStatusBarColor(unpack(conf.timerChunk2Color or {1.00, 0.55, 0.26, 1}))
+            container.timerBar.chunk3:SetStatusBarColor(unpack(conf.timerChunk3Color or {0.90, 0.22, 0.27, 1}))
             
-            container.timerBar:SetMinMaxValues(0, state.timeLimit)
-            container.timerBar:SetValue(0)
+            local _, curMax0 = container.timerBar:GetMinMaxValues()
+            if curMax0 ~= state.timeLimit then
+                container.timerBar:SetMinMaxValues(0, state.timeLimit)
+                container.timerBar:SetValue(0)
+            end
         else
             container.timerBar.text:SetText(format("%s%02d:%02d|r / %02d:%02d", color, abs(timeLeft) / 60, abs(timeLeft) % 60, state.timeLimit / 60, state.timeLimit % 60))
-            container.timerBar:SetStatusBarTexture(barTexture)
+            if container.timerBar.texHash ~= barTexture then
+                container.timerBar:SetStatusBarTexture(barTexture)
+                container.timerBar.texHash = barTexture
+            end
+            
             if container.timerBar.SetBackdropColor then container.timerBar:SetBackdropColor(0,0,0,0.6) end
             if container.timerBar.SetBackdropBorderColor then container.timerBar:SetBackdropBorderColor(0,0,0,1) end
             
-            container.timerBar:SetMinMaxValues(0, state.timeLimit)
-            container.timerBar:SetValue(state.currentTime)
+            local _, curMax0 = container.timerBar:GetMinMaxValues()
+            if curMax0 ~= state.timeLimit then
+                container.timerBar:SetMinMaxValues(0, state.timeLimit)
+            end
+            if math.abs(container.timerBar:GetValue() - state.currentTime) > 0.05 then
+                container.timerBar:SetValue(state.currentTime)
+            end
             
             if conf.dynamicTimerColor ~= false then
-                if state.currentTime < state.threeChestLimit then container.timerBar:SetStatusBarColor(0, 1, 0.5, 1) 
-                elseif state.currentTime < state.twoChestLimit then container.timerBar:SetStatusBarColor(1, 0.8, 0, 1) 
-                else container.timerBar:SetStatusBarColor(1, 0.3, 0.3, 1) end
+                if state.currentTime < state.threeChestLimit then container.timerBar:SetStatusBarColor(0.30, 0.69, 0.49, 1) 
+                elseif state.currentTime < state.twoChestLimit then container.timerBar:SetStatusBarColor(1.00, 0.55, 0.26, 1) 
+                else container.timerBar:SetStatusBarColor(0.90, 0.22, 0.27, 1) end
             else
                 container.timerBar:SetStatusBarColor(unpack(conf.timerColor or {0, 0.8, 1, 1}))
             end
@@ -610,9 +639,8 @@ function MPlus:UpdateVisuals(container)
             row:SetPoint("TOPLEFT", container.bossList, "TOPLEFT", 0, -(i-1) * spacing)
             row:SetPoint("TOPRIGHT", container.bossList, "TOPRIGHT", 0, -(i-1) * spacing)
             
-            row.name:SetText(boss.name)
-            
             if boss.done then
+                row.name:SetText(boss.name .. " (Defeated)")
                 row.name:SetTextColor(1, 0.2, 0.2, 1) 
                 row.check:Show()
                 row.check:SetVertexColor(0, 0.8, 1, 1) 
@@ -634,6 +662,7 @@ function MPlus:UpdateVisuals(container)
                     row.time:SetText("")
                 end
             else
+                row.name:SetText(boss.name)
                 row.name:SetTextColor(1, 0.82, 0, 1) 
                 row.check:Hide()
                 row.box:SetVertexColor(0, 0.8, 1, 1)
@@ -693,11 +722,18 @@ function MPlus:UpdateVisuals(container)
     
     -- Key level (top-right)
     if container.keyLevel then
-        if state.keystoneLevel and state.keystoneLevel > 0 then
-            container.keyLevel:SetText("+" .. state.keystoneLevel)
-        else
-            container.keyLevel:SetText("")
+        local text = ""
+        if state.mapID and C_ChallengeMode and C_ChallengeMode.GetMapUIInfo then
+            local name = C_ChallengeMode.GetMapUIInfo(state.mapID)
+            if name and name ~= "" then 
+                text = name .. " " 
+            end
         end
+        
+        if state.keystoneLevel and state.keystoneLevel > 0 then
+            text = text .. "+" .. state.keystoneLevel
+        end
+        container.keyLevel:SetText(text)
     end
 end
 
@@ -716,19 +752,23 @@ function MPlus:CheckVisibility(container)
         container:SetAlpha(1)
         
         local state = MPlus.GlobalState
-        state.currentTime = 950 
-        state.timeLimit = 1800 
-        state.threeChestLimit = 1080
-        state.twoChestLimit = 1440
-        state.enemyForces = { cur = 240, max = 300, pct = 80.0 }
-        state.bosses = {
-            {name = "Boss One", done = true, id = 1},
-            {name = "Boss Two", done = true, id = 2},
-            {name = "Final Boss", done = false, id = 3}
-        }
-        state.splits = {[1] = 300, [2] = 650}
-        state.affixIDs = {9, 10, 11, 122}
-        state.keystoneLevel = 12
+        -- Sadece test modunda/zindan dışında isek bu sahte değerleri bas
+        if not state.activeRun then
+            state.currentTime = 950 
+            state.timeLimit = 1800 
+            state.threeChestLimit = 1080
+            state.twoChestLimit = 1440
+            state.enemyForces = { cur = 240, max = 300, pct = 80.0 }
+            state.bosses = {
+                {name = "Boss One", done = true, id = 1},
+                {name = "Boss Two", done = true, id = 2},
+                {name = "Final Boss", done = false, id = 3}
+            }
+            state.splits = {[1] = 300, [2] = 650}
+            state.affixIDs = {9, 10, 11, 122}
+            state.keystoneLevel = 12
+            state.mapID = 375
+        end
         return
     end
 
@@ -845,10 +885,11 @@ end
 function MPlus:UpdateTimerData()
     if not _G.C_ChallengeMode then return end
     local mapID = C_ChallengeMode.GetActiveChallengeMapID()
+    local state = MPlus.GlobalState
+    if mapID then state.mapID = mapID end
     if not mapID then return end
     
     local _, _, timeLimit = C_ChallengeMode.GetMapUIInfo(mapID)
-    local state = MPlus.GlobalState
 
     local isChallengersPeril = false
     if C_ChallengeMode.GetActiveKeystoneInfo then
@@ -1017,7 +1058,16 @@ function MPlus:UpdateObjectivesData()
                 if not state.splits[i] then state.splits[i] = state.currentTime or 0 end
             end
             state.bossStatus[i] = completed
-            table.insert(state.bosses, { name = description or "Unknown", done = completed, id = i })
+            
+            local bName = description or "Unknown"
+            bName = string.gsub(bName, " [Dd]efeated$", "")
+            bName = string.gsub(bName, " [Ss]lain$", "")
+            bName = string.gsub(bName, " [Bb]esiegen$", "")
+            bName = string.gsub(bName, " [Vv]aincu$", "")
+            bName = string.gsub(bName, " [Dd]errotado$", "")
+            bName = string.gsub(bName, " [Mm]ağlup [Ee]dildi$", "")
+            bName = string.gsub(bName, " mağlup edildi$", "")
+            table.insert(state.bosses, { name = bName, done = completed, id = i })
         end
     end
     MPlus:UpdateAllInstances()
@@ -1088,7 +1138,13 @@ function MPlus:CreateSettings(parentFrame)
     sb:AddDropdown("barTexture", "Bar Texture", textureItems, "Interface\\TargetingFrame\\UI-StatusBar", globalSets, UpdateGlobal)
     
     sb:AddHeader("Component Colors")
-    sb:AddCheckbox("dynamicTimerColor", "Dynamic Timer Color", true, globalSets, UpdateGlobal)
+    local chkDynamic = sb:AddCheckbox("dynamicTimerColor", "Dynamic Timer Color", true, globalSets, UpdateGlobal)
+    if chkDynamic then
+        local isSplit = (globalSets.timerChestMode == "SPLIT")
+        chkDynamic:EnableMouse(not isSplit)
+        chkDynamic:SetAlpha(isSplit and 0.5 or 1)
+    end
+    
     sb:AddCheckbox("showEnemyForcesAbsolute", "Show Absolute Forces", true, globalSets, UpdateGlobal)
     sb:AddColor("timerColor", "Timer Bar Color", {0, 0.8, 1, 1}, globalSets, UpdateGlobal)
     sb:AddColor("forcesColor", "Forces Bar Color", {0.8, 0, 0, 1}, globalSets, UpdateGlobal)
@@ -1098,11 +1154,18 @@ function MPlus:CreateSettings(parentFrame)
         {text = "Lines (Markers)", value = "LINES"},
         {text = "Split into 3 Bars", value = "SPLIT"},
         {text = "No Marks", value = "NONE"}
-    }, "LINES", globalSets, UpdateGlobal, true)
+    }, "LINES", globalSets, function(v)
+        UpdateGlobal()
+        if chkDynamic then
+            local isSplit = (v == "SPLIT")
+            chkDynamic:EnableMouse(not isSplit)
+            chkDynamic:SetAlpha(isSplit and 0.5 or 1)
+        end
+    end, true)
     
-    sb:AddColor("timerChunk1Color", "Chunk 1 Color (3-Chest)", {0, 1, 0.5, 1}, globalSets, UpdateGlobal)
-    sb:AddColor("timerChunk2Color", "Chunk 2 Color (2-Chest)", {1, 0.8, 0, 1}, globalSets, UpdateGlobal)
-    sb:AddColor("timerChunk3Color", "Chunk 3 Color (Base)", {1, 0.3, 0.3, 1}, globalSets, UpdateGlobal)
+    sb:AddColor("timerChunk1Color", "Chunk 1 Color (3-Chest)", {0.30, 0.69, 0.49, 1}, globalSets, UpdateGlobal)
+    sb:AddColor("timerChunk2Color", "Chunk 2 Color (2-Chest)", {1.00, 0.55, 0.26, 1}, globalSets, UpdateGlobal)
+    sb:AddColor("timerChunk3Color", "Chunk 3 Color (Base)", {0.90, 0.22, 0.27, 1}, globalSets, UpdateGlobal)
     
     sb:AddCheckbox("showSplits", "Show Split Times", true, globalSets, UpdateGlobal)
     sb:AddDropdown("splitComparisonMode", "Compare Splits With:", {

@@ -28,7 +28,16 @@ function WidgetForge:CreateCursorRing(bar, config)
     local ring = CreateFrame("Frame", nil, UIParent)
     local ringSize = config.ringSize or 64
     ring:SetSize(ringSize, ringSize)
-    ring:SetFrameStrata("TOOLTIP")
+    
+    local layer = "TOOLTIP"
+    if bar and bar.index then
+         local pbarConf = WidgetForgeDB.bars[bar.index]
+         if pbarConf and pbarConf.layer then
+             layer = pbarConf.layer
+         end
+    end
+    ring:SetFrameStrata(layer)
+    
     ring:SetFrameLevel(2000)
     ring:EnableMouse(false)
     
