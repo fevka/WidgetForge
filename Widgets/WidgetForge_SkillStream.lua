@@ -330,7 +330,7 @@ function SkillStream:CreateSettings(parentFrame)
     sb:AddSlider("speed", "Animation Speed (Smoothness)", 1, 20, 1, 8, elem, RefreshLive)
 
     sb:AddHeader("Border & Styling")
-    sb:AddCheckbox("showBorder", "Show Custom Border", true, elem, RefreshLive)
+    sb:AddSwitch("showBorder", "Show Custom Border", true, elem, RefreshLive)
     sb:AddSlider("borderSize", "Border Size (Thickness)", 1, 5, 1, 1, elem, RefreshLive)
     sb:AddColor("borderColor", "Border Color", {0, 0, 0, 1}, elem, RefreshLive)
     sb:AddSlider("iconZoom", "Icon Zoom (Crop Default Blizzard Border)", 0, 0.20, 0.01, 0.08, elem, RefreshLive)
@@ -339,7 +339,7 @@ function SkillStream:CreateSettings(parentFrame)
     sb:AddSlider("timeout", "Fade Out Inactive Icons (Seconds, 0 = Off)", 0, 60, 1, 10, elem, RefreshLive)
 
     sb:AddHeader("Interactivity & Filters")
-    sb:AddCheckbox("interactive", "Interactive Icons (Show Tooltips)", false, elem, function(v) 
+    sb:AddSwitch("interactive", "Interactive Icons (Show Tooltips)", false, elem, function(v) 
         elem.interactive = v
         for _, inst in ipairs(SkillStream.Instances) do
             if inst.elem == elem then

@@ -152,7 +152,7 @@ function CustomCode:CreateSettings(parentFrame)
     sb:AddDropdown("font", "Font Style", fontItems, "Friz Quadrata", elem, RefreshLive)
     sb:AddSlider("fontSize", "Font Size", 8, 36, 1, 14, elem, RefreshLive)
     sb:AddDropdown("fontOutline", "Font Outline", { {text="None", value=""}, {text="Outline", value="OUTLINE"}, {text="Thick Outline", value="THICKOUTLINE"} }, "OUTLINE", elem, RefreshLive)
-    sb:AddCheckbox("enableShadow", "Enable Drop Shadow", true, elem, RefreshLive)
+    sb:AddSwitch("enableShadow", "Enable Drop Shadow", true, elem, RefreshLive)
     sb:AddColor("color", "Text Color", {1, 1, 1, 1}, elem, RefreshLive)
 
     sb:Finish()

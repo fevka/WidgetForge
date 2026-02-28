@@ -85,7 +85,32 @@ function Config:OpenConfigWindow()
     f:SetFrameStrata("HIGH")
     Skin:ApplyBackdrop(f)
     tinsert(UISpecialFrames, "EsrefConfigFrame")
-    
+
+    -- Yeniden boyutlandırma desteği
+    f:SetResizable(true)
+    f:SetResizeBounds(870, 600)
+
+    -- Sağ alt köşe: resize handle (media/resize.tga)
+    local resizeBtn = CreateFrame("Button", nil, f)
+    resizeBtn:SetSize(13, 13)
+    resizeBtn:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 0, 0)
+    resizeBtn:SetFrameLevel(f:GetFrameLevel() + 10)
+
+    local triTex = resizeBtn:CreateTexture(nil, "OVERLAY")
+    triTex:SetAllPoints(resizeBtn)
+    triTex:SetTexture("Interface\\AddOns\\WidgetForge\\media\\resize.tga")
+    triTex:SetAlpha(0.7)
+
+    resizeBtn:SetScript("OnEnter", function() triTex:SetAlpha(1) end)
+    resizeBtn:SetScript("OnLeave", function() triTex:SetAlpha(0.7) end)
+
+    resizeBtn:SetScript("OnMouseDown", function(self, btn)
+        if btn == "LeftButton" then f:StartSizing("BOTTOMRIGHT") end
+    end)
+    resizeBtn:SetScript("OnMouseUp", function()
+        f:StopMovingOrSizing()
+    end)
+
     Skin:CreateTitleBar(f, "WidgetForge | Advanced Status Bars", function() f:Hide() end)
     
     f:SetScript("OnShow", function() WidgetForge:SetBarsLocked(false) end)
@@ -401,33 +426,12 @@ function Config:SelectBar(index)
     end
     hLayout:SetPoint("TOPLEFT", 10, y)
     
-    local btnEnable = Skin:CreateButton(content, "ENABLED", 80, 25)
-    btnEnable:SetPoint("TOPRIGHT", hLayout, "TOPRIGHT", -2, 2) 
-    
-    local function UpdateEnableButton()
-        if bar.enabled then
-            btnEnable:SetBackdropColor(0.5, 0.8, 0.5, 1)
-            btnEnable:SetBackdropBorderColor(0, 1, 0, 1)
-            btnEnable.text:SetText("ENABLED")
-            btnEnable.text:SetTextColor(1, 1, 1, 1)
-            btnEnable:SetScript("OnEnter", function() btnEnable:SetBackdropColor(0.65, 1.0, 0.65, 1) end)
-            btnEnable:SetScript("OnLeave", function() btnEnable:SetBackdropColor(0.5, 0.8, 0.5, 1) end)
-        else
-            btnEnable:SetBackdropColor(0.7, 0, 0, 1)
-            btnEnable:SetBackdropBorderColor(1, 0, 0, 1)
-            btnEnable.text:SetText("DISABLED")
-            btnEnable.text:SetTextColor(1, 1, 1, 1)
-            btnEnable:SetScript("OnEnter", function() btnEnable:SetBackdropColor(0.9, 0, 0, 1) end)
-            btnEnable:SetScript("OnLeave", function() btnEnable:SetBackdropColor(0.7, 0, 0, 1) end)
-        end
-    end
-    UpdateEnableButton() 
-    
-    btnEnable:SetScript("OnClick", function()
-        bar.enabled = not bar.enabled 
-        UpdateEnableButton()
+    local btnEnable = Skin:CreateSwitch(content, "", bar.enabled, function(val)
+        bar.enabled = val
         WidgetForge:UpdateAvailableBars() 
-    end)
+    end, "ON", "OFF")
+    btnEnable:SetWidth(54)
+    btnEnable:SetPoint("TOPRIGHT", hLayout, "TOPRIGHT", -2, 2) 
     
     local scopeList = {
         {text = "Global (Account)", value = "GLOBAL"},
@@ -535,10 +539,10 @@ function Config:SelectBar(index)
 
     if not isExclusive then
         sb:AddHeader("Bar Layout & Styling")
-        sb:AddCheckbox("showTitle", "Show Title Bar", true, bar, function(v) WidgetForge:RebuildBarComponents(index) end)
-        sb:AddCheckbox("layout", "Vertical Layout", false, bar, function(v) 
+        sb:AddSwitch("showTitle", "Show Title Bar", false, bar, function(v) WidgetForge:RebuildBarComponents(index) end)
+        sb:AddSwitch("layout", "Vertical Layout", false, bar, function(v) 
              bar.layout = v and "VERTICAL" or "HORIZONTAL"
-             Config:SelectBar(index); WidgetForge:RebuildBarComponents(index)
+            WidgetForge:UpdateAvailableBars()
         end)
         sb:AddDropdown("justify", "Alignment", { "LEFT", "CENTER", "RIGHT" }, "CENTER", bar, function(v) WidgetForge:RebuildBarComponents(index) end)
         sb:AddSlider("padding", "Spacing", -10, 50, 1, 5, bar, function(v) WidgetForge:UpdateAvailableBars() end)
@@ -564,15 +568,15 @@ function Config:SelectBar(index)
         sb:AddSlider("width", "Width", 50, 600, 5, 250, bar, function(v) WidgetForge:UpdateAvailableBars() end)
         sb:AddSlider("height", "Height", 10, 200, 2, 30, bar, function(v) WidgetForge:UpdateAvailableBars() end)
         sb:AddColor("bgColor", "Background Color", {0, 0, 0, 0.5}, bar, function(v) WidgetForge:UpdateAvailableBars() end)
-        sb:AddCheckbox("clickThrough", "Click Through (Non-Interactive)", false, bar, function(v) 
+        sb:AddSwitch("clickThrough", "Click Through (Non-Interactive)", false, bar, function(v) 
             WidgetForge:SetBarsLocked(false) 
-            C_Timer.After(0.05, function() Config:SelectBar(index) end)
+       WidgetForge:SetBarsLocked(WidgetForge.BarsLocked)
         end)
 
         sb:AddHeader("Border Settings")
+        sb:AddSwitch("showBorder", "Show Border", true, bar, function(v) WidgetForge:UpdateAvailableBars() end)
         sb:AddSlider("borderSize", "Border Size", 1, 10, 1, 1, bar, function(v) WidgetForge:UpdateAvailableBars() end)
         sb:AddColor("borderColor", "Border Color", {0.2, 0.2, 0.2, 1}, bar, function(v) WidgetForge:UpdateAvailableBars() end)
-        sb:AddCheckbox("showBorder", "Show Border", true, bar, function(v) WidgetForge:UpdateAvailableBars() end)
     end
 
     sb:Finish()
@@ -603,8 +607,8 @@ function Config:SelectBar(index)
         { name = "Progression & Goods", elements = { "XP", "Gold", "Bag Space", "Item Level", "Durability" } },
         { name = "Navigation", elements = { "Zone", "Coords" } },
         { name = "Social", elements = { "Guild", "Friends" } },
-        { name = "Dungeon & Raid", elements = { "Mythic+ Dashboard", "Target Castbar", "Interrupt Sync", "VaultEye", "Combat Timer", "Difficulty", "CCPartySync" } },
-        { name = "Utils", elements = { "Dragonriding", "Cursor Ring", "Retirement Home", "Skill Stream", "Dummy", "Talent Loadout", "Custom Code" } }
+        { name = "Dungeon & Raid", elements = { "Mythic+ Dashboard", "Target Castbar", "Interrupt Sync", "CCPartySync",  "Combat Timer", "Difficulty" } },
+        { name = "Utils", elements = { "Dragonriding", "Cursor Ring", "Retirement Home", "Skill Stream", "VaultEye", "Talent Loadout", "Custom Code" } }
     }
     
     Config.AccordionStates = Config.AccordionStates or {} 
@@ -704,7 +708,7 @@ function Config:SelectBar(index)
                 if e.type == typeName then isActive = true; break end 
             end
             
-            local btn = Skin:CreateButton(acc.content, typeName, 110, 25) 
+            local btn = Skin:CreateButton(acc.content, typeName, 115, 25) 
             btn:SetPoint("TOPLEFT", btnX, btnY)
             
             local function UpdateButtonStyle()
@@ -848,7 +852,7 @@ function Config:SelectBar(index)
                 Config:SelectBar(index) 
             end)
             
-            btnX = btnX + 115 
+            btnX = btnX + 121
             if i % 5 == 0 then
                 btnX = 5
                 btnY = btnY - 30

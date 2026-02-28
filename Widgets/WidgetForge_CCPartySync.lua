@@ -1114,7 +1114,7 @@ function CCSync:CreateSettings(parentFrame)
     sb:AddColor("textColor", "Text Color", {1, 1, 1, 1}, elem, RefreshLive)
 
     sb:AddHeader("Icon Settings")
-    sb:AddCheckbox("showIcon", "Show Spell Icon", true, elem, RefreshLive)
+    sb:AddSwitch("showIcon", "Show Spell Icon", true, elem, RefreshLive)
     sb:AddSlider("iconSpacing", "Spacing from Bar", 0, 50, 1, 5, elem, RefreshLive)
     sb:AddSlider("iconSize", "Icon Size", 10, 100, 1, 30, elem, RefreshLive)
     sb:AddSlider("iconZoom", "Icon Zoom (Crop Border)", 0, 0.20, 0.01, 0.08, elem, RefreshLive)
@@ -1168,12 +1168,12 @@ function CCSync:CreateSettings(parentFrame)
     end
 
     sb:AddHeader("Party Frame Integration")
-    sb:AddCheckbox("attachToParty", "Attach Icons to Party Frames\n(Disables standalone bar layout)", false, elem, RefreshLive)
+    sb:AddSwitch("attachToParty", "Attach Icons to Party Frames\n(Disables standalone bar layout)", false, elem, RefreshLive)
     sb:AddSlider("partyOffsetX", "X Offset", -100, 100, 1, 5, elem, RefreshLive)
     sb:AddSlider("partyOffsetY", "Y Offset", -100, 100, 1, 0, elem, RefreshLive)
 
     sb:AddHeader("Party Sync")
-    sb:AddCheckbox("partySync", "Listen to party CC abilities", true, elem, RefreshLive)
+    sb:AddSwitch("partySync", "Listen to party CC abilities", true, elem, RefreshLive)
     
     local txtHelp = f.content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     txtHelp:SetWordWrap(true)

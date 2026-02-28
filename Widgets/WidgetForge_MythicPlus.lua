@@ -82,6 +82,44 @@ function MPlus:InitGlobal()
     MPlus.initialized = true
 end
 
+-- --- ZOMBIE WIDGET TEMİZLEYİCİ ---
+function MPlus:IsWidgetActive()
+    if not MPlus.Instances or #MPlus.Instances == 0 then return false end
+    
+    local hasActive = false
+    -- Sondan başa doğru tarıyoruz ki silme işlemi döngüyü bozmasın
+    for i = #MPlus.Instances, 1, -1 do
+        local inst = MPlus.Instances[i]
+        local isOrphan = true
+        
+        -- Widget aktif veritabanında (DB) hala geçerli bir barın içinde mi kontrol et
+        if _G.WidgetForgeDB and _G.WidgetForgeDB.bars and _G.WidgetForge and _G.WidgetForge.IsBarRelevant then
+            for _, bar in ipairs(_G.WidgetForgeDB.bars) do
+                if bar.enabled and _G.WidgetForge:IsBarRelevant(bar) then
+                    if bar.elements then
+                        for _, e in ipairs(bar.elements) do
+                            if e == inst.elem then
+                                isOrphan = false
+                                hasActive = true
+                                break
+                            end
+                        end
+                    end
+                end
+                if not isOrphan then break end
+            end
+        end
+        
+        -- Eğer widget silinmiş veya devre dışı bırakılmış bir bara aitse (yetim kalmışsa) kalıcı olarak yok et
+        if isOrphan then
+            inst:Hide()
+            inst:SetParent(nil)
+            table.remove(MPlus.Instances, i)
+        end
+    end
+    
+    return hasActive
+end
 
 local function CreateMythicPlusUtilityButtons()
     if ChallengesKeystoneFrame.WidgetForgeButtonsCreated then return end
@@ -122,23 +160,30 @@ function MPlus:HookKeystoneFrame()
     MPlus.keystoneHooked = true
     
     ChallengesKeystoneFrame:HookScript("OnShow", function()
-        local isWidgetActive = MPlus.Instances and #MPlus.Instances > 0
+        local isWidgetActive = MPlus:IsWidgetActive()
+        if not isWidgetActive then
+            -- Widget aktif değilse butonları gizle ve hiçbir şey yapma
+            if WFMPlusReadyBtn then WFMPlusReadyBtn:Hide() end
+            if WFMPlusPullBtn then WFMPlusPullBtn:Hide() end
+            return
+        end
 
-        if isWidgetActive and MPlus.config and MPlus.config.Settings and MPlus.config.Settings.autoKeystone then
+        if MPlus.config and MPlus.config.Settings and MPlus.config.Settings.autoKeystone then
             C_Timer.After(0.3, function()
-                MPlus:TrySlotKeystone()
+                -- Timer callback'inde tekrar kontrol et - widget kaldırılmış olabilir
+                local stillActive = MPlus:IsWidgetActive()
+                if stillActive and MPlus.config and MPlus.config.Settings and MPlus.config.Settings.autoKeystone then
+                    MPlus:TrySlotKeystone()
+                end
             end)
         end
         
         -- Yeni butonlarımızı buraya ekliyoruz
         CreateMythicPlusUtilityButtons()
+        if WFMPlusReadyBtn then WFMPlusReadyBtn:Show() end
+        if WFMPlusPullBtn then WFMPlusPullBtn:Show() end
         
-        -- Widget aktif değilse butonları gizle
-        local isWidgetActive = MPlus.Instances and #MPlus.Instances > 0
-        if WFMPlusReadyBtn then WFMPlusReadyBtn:SetShown(isWidgetActive) end
-        if WFMPlusPullBtn then WFMPlusPullBtn:SetShown(isWidgetActive) end
-        
-        if isWidgetActive and MPlus.config and MPlus.config.Settings and MPlus.config.Settings.autoCloseBags then
+        if MPlus.config and MPlus.config.Settings and MPlus.config.Settings.autoCloseBags then
             MPlus.suppressBags = true
             CloseAllBags()
             C_Timer.After(0.1, function() MPlus.suppressBags = false end)
@@ -154,7 +199,8 @@ function MPlus:HookKeystoneFrame()
 
     if not MPlus.openAllBagsHooked then
         hooksecurefunc("OpenAllBags", function()
-            if MPlus.suppressBags then
+            local isActive = MPlus:IsWidgetActive()
+            if isActive and MPlus.suppressBags then
                 CloseAllBags()
             end
         end)
@@ -830,10 +876,14 @@ function MPlus:RegisterEvents()
                 MPlus:UpdateAllInstances()
             end)
         elseif event == "CHALLENGE_MODE_KEYSTONE_RECEPTACLE_OPEN" then
-            local isWidgetActive = MPlus.Instances and #MPlus.Instances > 0
+            local isWidgetActive = MPlus:IsWidgetActive()
             if isWidgetActive and MPlus.config and MPlus.config.Settings and MPlus.config.Settings.autoKeystone then
                 C_Timer.After(0.3, function()
-                    MPlus:TrySlotKeystone()
+                    -- Timer callback'inde tekrar kontrol et
+                    local stillActive = MPlus:IsWidgetActive()
+                    if stillActive and MPlus.config and MPlus.config.Settings and MPlus.config.Settings.autoKeystone then
+                        MPlus:TrySlotKeystone()
+                    end
                 end)
             end
         end
@@ -1123,13 +1173,13 @@ function MPlus:CreateSettings(parentFrame)
     end
 
     sb:AddHeader("Layout & Visibility (Flexible UI)")
-    sb:AddCheckbox("autoSize", "Auto-Adjust Height (Recommended)", true, globalSets, UpdateVisual)
-    sb:AddCheckbox("hoverExpand", "Hover to Expand (Minimalist Mode)", false, globalSets, UpdateGlobal)
-    sb:AddCheckbox("showTimer", "Show Timer Bar", true, globalSets, UpdateGlobal)
-    sb:AddCheckbox("showForces", "Show Enemy Forces Bar", true, globalSets, UpdateGlobal)
-    sb:AddCheckbox("showBosses", "Show Boss List", true, globalSets, UpdateGlobal)
-    sb:AddCheckbox("showAffixes", "Show Affixes", true, globalSets, UpdateGlobal)
-    sb:AddCheckbox("showDeathCounter", "Show Death Counter", true, globalSets, UpdateGlobal)
+    sb:AddSwitch("autoSize", "Auto-Adjust Height (Recommended)", true, globalSets, UpdateVisual)
+    sb:AddSwitch("hoverExpand", "Hover to Expand (Minimalist Mode)", false, globalSets, UpdateGlobal)
+    sb:AddSwitch("showTimer", "Show Timer Bar", true, globalSets, UpdateGlobal)
+    sb:AddSwitch("showForces", "Show Enemy Forces Bar", true, globalSets, UpdateGlobal)
+    sb:AddSwitch("showBosses", "Show Boss List", true, globalSets, UpdateGlobal)
+    sb:AddSwitch("showAffixes", "Show Affixes", true, globalSets, UpdateGlobal)
+    sb:AddSwitch("showDeathCounter", "Show Death Counter", true, globalSets, UpdateGlobal)
 
     sb:AddHeader("Visual Configuration")
     sb:AddSlider("widgetWidth", "Dashboard Width", 200, 600, 1, 300, elem, UpdateVisual)
@@ -1138,14 +1188,14 @@ function MPlus:CreateSettings(parentFrame)
     sb:AddDropdown("barTexture", "Bar Texture", textureItems, "Interface\\TargetingFrame\\UI-StatusBar", globalSets, UpdateGlobal)
     
     sb:AddHeader("Component Colors")
-    local chkDynamic = sb:AddCheckbox("dynamicTimerColor", "Dynamic Timer Color", true, globalSets, UpdateGlobal)
+    local chkDynamic = sb:AddSwitch("dynamicTimerColor", "Dynamic Timer Color", true, globalSets, UpdateGlobal)
     if chkDynamic then
         local isSplit = (globalSets.timerChestMode == "SPLIT")
         chkDynamic:EnableMouse(not isSplit)
         chkDynamic:SetAlpha(isSplit and 0.5 or 1)
     end
     
-    sb:AddCheckbox("showEnemyForcesAbsolute", "Show Absolute Forces", true, globalSets, UpdateGlobal)
+    sb:AddSwitch("showEnemyForcesAbsolute", "Show Absolute Forces", true, globalSets, UpdateGlobal)
     sb:AddColor("timerColor", "Timer Bar Color", {0, 0.8, 1, 1}, globalSets, UpdateGlobal)
     sb:AddColor("forcesColor", "Forces Bar Color", {0.8, 0, 0, 1}, globalSets, UpdateGlobal)
     
@@ -1167,7 +1217,7 @@ function MPlus:CreateSettings(parentFrame)
     sb:AddColor("timerChunk2Color", "Chunk 2 Color (2-Chest)", {1.00, 0.55, 0.26, 1}, globalSets, UpdateGlobal)
     sb:AddColor("timerChunk3Color", "Chunk 3 Color (Base)", {0.90, 0.22, 0.27, 1}, globalSets, UpdateGlobal)
     
-    sb:AddCheckbox("showSplits", "Show Split Times", true, globalSets, UpdateGlobal)
+    sb:AddSwitch("showSplits", "Show Split Times", true, globalSets, UpdateGlobal)
     sb:AddDropdown("splitComparisonMode", "Compare Splits With:", {
         {text = "Best of Zone (Any Level)", value = "ZONE"},
         {text = "Best of Level", value = "LEVEL"},
@@ -1175,15 +1225,15 @@ function MPlus:CreateSettings(parentFrame)
     }, "LEVEL", globalSets, UpdateGlobal, true)
     
     sb:AddHeader("Automation & Quality of Life")
-    sb:AddCheckbox("autoKeystone", "Auto-Insert Keystone", true, globalSets, UpdateGlobal)
+    sb:AddSwitch("autoKeystone", "Auto-Insert Keystone", true, globalSets, UpdateGlobal)
     
-    sb:AddCheckbox("hideBlizzardTracker", "Hide Blizzard Tracker", true, globalSets, function(v)
+    sb:AddSwitch("hideBlizzardTracker", "Hide Blizzard Tracker", true, globalSets, function(v)
         globalSets.hideBlizzardTracker = v
         if v then MPlus:HideDefaultTracker() else MPlus:ShowDefaultTracker() end
         UpdateGlobal()
     end)
     
-    sb:AddCheckbox("autoCloseBags", "Auto Close Bags (Key slotting)", true, globalSets, UpdateGlobal)
+    sb:AddSwitch("autoCloseBags", "Auto Close Bags (Key slotting)", true, globalSets, UpdateGlobal)
     
     sb:Finish()
 end

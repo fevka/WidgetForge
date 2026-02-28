@@ -166,6 +166,7 @@ SB.__index = SB
 local Pool = {
     sliders = {},
     checkboxes = {},
+    switches = {},
     dropdowns = {},
     colors = {},
     buttons = {},
@@ -209,6 +210,8 @@ function SB:Release()
             table.insert(Pool.sliders, c)
         elseif c.type == "Checkbox" then 
             table.insert(Pool.checkboxes, c)
+        elseif c.type == "Switch" then 
+            table.insert(Pool.switches, c)
         elseif c.type == "Dropdown" then 
             table.insert(Pool.dropdowns, c)
         elseif c.type == "Color" then 
@@ -330,6 +333,39 @@ function SB:AddCheckbox(key, label, defaultVal, configTable, callback)
     
     c.type = "Checkbox"
     c.label:SetText(label)
+    
+    c.callback = nil
+    c:SetChecked(val)
+    c.callback = function(v)
+        configTable[key] = v
+        if callback then callback(v) end
+    end
+    
+    c:SetPoint("TOPLEFT", x, self.y - 12)
+    table.insert(self.controls, c)
+    
+    if self.isRight then self.y = self.y - 50 end
+    self.isRight = not self.isRight
+    
+    return c
+end
+
+function SB:AddSwitch(key, label, defaultVal, configTable, callback, onTextStr, offTextStr)
+    local x = self.isRight and self.col2 or self.col1
+    
+    local val = configTable[key]
+    if val == nil then val = defaultVal end
+    
+    local c = GetControl(Pool.switches, function(p)
+        return ForgeSkin:CreateSwitch(p, "", false, nil, "ON", "OFF")
+    end, self.canvas)
+    
+    c.type = "Switch"
+    if c.label then c.label:SetText(label) end
+    
+    -- Gerekirse metinleri on-the-fly guncellemek icin
+    if c.track and c.track.onText and onTextStr then c.track.onText:SetText(onTextStr) end
+    if c.track and c.track.offText and offTextStr then c.track.offText:SetText(offTextStr) end
     
     c.callback = nil
     c:SetChecked(val)

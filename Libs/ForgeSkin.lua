@@ -109,6 +109,127 @@ end
 -------------------------------------------------------------------------
 -- WIDGET FACTORY
 -------------------------------------------------------------------------
+function Skin:CreateSwitch(parent, labelText, checked, callback, onTextStr, offTextStr)
+    -- DIKKAT: Parent container artık bir 'Button' değil 'Frame'. 
+    -- Bu sayede geniş alan rastgele tıklamaları algılamaz.
+    local frame = CreateFrame("Frame", nil, parent)
+    frame:SetSize(200, 24)
+
+    -- 1. Arka Plan (Track) - İstenilen HEX #3C4245 Rengi
+    local track = CreateFrame("Frame", nil, frame, "BackdropTemplate")
+    track:SetSize(54, 20)
+    track:SetPoint("LEFT", 0, 0)
+    
+    track:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", 
+        tile = false, edgeSize = 4, 
+        insets = { left = 1, right = 1, top = 1, bottom = 1 }
+    })
+    
+    -- #3C4245 = RGB(60, 66, 69)
+    track:SetBackdropColor(36/255, 40/255, 43/255, 1)
+    track:SetBackdropBorderColor(0.1, 0.1, 0.1, 1)
+
+    -- 2. İç Yazılar (ON / OFF)
+    track.onText = track:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    track.onText:SetFont(Skin.Constants.FONT_NORMAL, 10, "") 
+    track.onText:SetPoint("CENTER", track, "LEFT", 16, 0) 
+    track.onText:SetText(onTextStr or "ON")
+    track.onText:SetTextColor(1, 1, 1, 1) 
+    
+    track.offText = track:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    track.offText:SetFont(Skin.Constants.FONT_NORMAL, 10, "") 
+    track.offText:SetPoint("CENTER", track, "RIGHT", -16, 0) 
+    track.offText:SetText(offTextStr or "OFF")
+    track.offText:SetTextColor(1, 1, 1, 1) 
+
+    -- 3. Kayan Parça (Thumb)
+    local thumb = CreateFrame("Frame", nil, track, "BackdropTemplate")
+    thumb:SetSize(22, 16)
+    thumb:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = false, edgeSize = 4,
+        insets = { left = 1, right = 1, top = 1, bottom = 1 }
+    })
+    thumb:SetFrameLevel(track:GetFrameLevel() + 2)
+
+    -- 4. Dış Etiket (Ayarın Adı)
+    frame.label = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    frame.label:SetPoint("LEFT", track, "RIGHT", 10, 0)
+    frame.label:SetText(labelText)
+    frame.label:SetFont(Skin.Constants.FONT_NORMAL, 12, "OUTLINE")
+    frame.label:SetTextColor(unpack(Skin.Colors.text))
+
+    -- Hareket ve Durum Ayarları
+    frame.checked = checked or false
+    local animSpeed = 18
+    local minX = 2
+    local maxX = 30 
+    local targetX = frame.checked and maxX or minX
+    local currentX = targetX
+    local isAnimating = false
+
+    -- Görsel Güncelleme ve Animasyon Kontrolü
+    local function UpdateVisuals(isInitialLoad)
+        if frame.checked then
+            thumb:SetBackdropColor(0.1, 0.8, 0.6, 1)
+            thumb:SetBackdropBorderColor(0.05, 0.4, 0.3, 1)
+            track.onText:Show()
+            track.offText:Hide()
+            targetX = maxX
+        else
+            thumb:SetBackdropColor(0.8, 0.2, 0.2, 1)
+            thumb:SetBackdropBorderColor(0.4, 0.1, 0.1, 1)
+            track.onText:Hide()
+            track.offText:Show()
+            targetX = minX
+        end
+        
+        if not isInitialLoad then
+            isAnimating = true
+        else
+            currentX = targetX 
+        end
+    end
+
+    -- Kayma Animasyonu
+    frame:SetScript("OnUpdate", function(self, elapsed)
+        if not isAnimating then return end
+        currentX = currentX + (targetX - currentX) * (animSpeed * elapsed)
+        if math.abs(currentX - targetX) < 0.5 then
+            currentX = targetX
+            isAnimating = false
+        end
+        thumb:ClearAllPoints() 
+        thumb:SetPoint("LEFT", track, "LEFT", currentX, 0)
+    end)
+
+    track:EnableMouse(true)
+    track:SetScript("OnMouseDown", function()
+        frame:SetChecked(not frame.checked)
+    end)
+
+    -- İlk Yükleme: Animasyonsuz anında yerine oturtur
+    UpdateVisuals(true) 
+    thumb:ClearAllPoints()
+    thumb:SetPoint("LEFT", track, "LEFT", currentX, 0)
+
+    -- Değer ataması
+    function frame:SetChecked(val)
+        self.checked = val
+        UpdateVisuals(false) 
+        if self.callback then 
+            self.callback(self.checked) 
+        elseif callback then 
+            callback(self.checked) 
+        end
+    end
+
+    return frame
+end
+
 function Skin:CreateButton(parent, text, width, height)
     local btn = CreateFrame("Button", nil, parent, "BackdropTemplate")
     btn:SetSize(width or 120, height or 30)
@@ -835,8 +956,8 @@ function Skin:GetColorPickerFrame()
     ebHex:SetScript("OnEnterPressed", OnHexChange)
     btnOk:SetScript("OnClick", function() f:Hide() end)
     btnCancel:SetScript("OnClick", function() if f.cancelFunc then f.cancelFunc() end f:Hide() end)
-    btnCopy:SetScript("OnClick", function() local r, g, b = Skin:HSVToRGB(f.h, f.s, f.v); Skin.Clipboard = {r, g, b, f.a}; print("|cff00ccffCopied color.|r") end)
-    btnPaste:SetScript("OnClick", function() if not Skin.Clipboard then print("No color in clipboard.") return end local r, g, b, a = unpack(Skin.Clipboard); f.h, f.s, f.v = Skin:RGBToHSV(r, g, b); f.a = a; UpdateColor(true, true) end)
+    btnCopy:SetScript("OnClick", function() local r, g, b = Skin:HSVToRGB(f.h, f.s, f.v); Skin.Clipboard = {r, g, b, f.a}; print("|cff00ccffColor copied to clipboard.|r") end)
+    btnPaste:SetScript("OnClick", function() if not Skin.Clipboard then print("Clipboard is empty.") return end local r, g, b, a = unpack(Skin.Clipboard); f.h, f.s, f.v = Skin:RGBToHSV(r, g, b); f.a = a; UpdateColor(true, true) end)
     f.UpdateColor = UpdateColor
     Skin.ColorPickerFrame = f
     return f
@@ -956,16 +1077,27 @@ function Skin:CreateAccordion(parent, title, contentHeight, onToggle, width)
     frame.currentHeight = 30
     frame.animSpeed = 15 -- Speed factor for interpolation
     
-    frame:SetScript("OnUpdate", function(self, elapsed)
+  frame:SetScript("OnUpdate", function(self, elapsed)
+        -- DÜZELTME: Animasyon bittiyse (hedef boyuta ulaşıldıysa) boşuna CPU yormamak için döngüden çık.
+        if self.currentHeight == self.targetHeight then return end
+
         if math.abs(self.currentHeight - self.targetHeight) > 0.5 then
+            -- Yumuşak geçiş (kayarak açılma/kapanma)
             self.currentHeight = self.currentHeight + (self.targetHeight - self.currentHeight) * (self.animSpeed * elapsed)
             self:SetHeight(self.currentHeight)
-            if self.onAnimUpdate then self.onAnimUpdate() end -- Optional callback for live layout updates
-        elseif self.currentHeight ~= self.targetHeight then
+            
+            if self.onAnimUpdate then self.onAnimUpdate() end -- Canlı düzen güncellemeleri için
+        else
+            -- Animasyon sonlandığında (0.5 pixelden daha az fark kaldığında) boyutu hedefe kilitle.
             self.currentHeight = self.targetHeight
             self:SetHeight(self.currentHeight)
+            
             if self.onAnimUpdate then self.onAnimUpdate() end
-            if not self.expanded then content:Hide() end -- Fully hide only when animation finishes
+            
+            -- Eğer menü kapanıyorsa (expanded == false) içeriği tamamen gizle.
+            if not self.expanded then 
+                content:Hide() 
+            end
         end
     end)
 

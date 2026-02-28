@@ -324,8 +324,8 @@ function Dragonriding:CreateSettings(parentFrame)
 
     -- 2. Layout & Background
     sb:AddHeader("Layout & Background")
-    sb:AddCheckbox("swapPositions", "Swap Positions (Top/Bottom)", false, f.config, Refresh)
-    sb:AddCheckbox("showSpeedText", "Show Speed Text", true, f.config, Refresh)
+    sb:AddSwitch("swapPositions", "Swap Positions (Top/Bottom)", false, f.config, Refresh)
+    sb:AddSwitch("showSpeedText", "Show Speed Text", true, f.config, Refresh)
     
     -- Row: Swap(L), SpeedText(R)
     -- Next: BG Padding X(L), BG Padding Y(R)

@@ -810,7 +810,7 @@ function VaultEye:UpdateDisplay(container, cfg)
             row.value = row.bar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
             local vFont, _, vFlags = row.value:GetFont()
             row.value:SetFont(vFont, 10, "OUTLINE") -- Normal font
-            row.value:SetPoint("RIGHT", -25, 0)
+            row.value:SetPoint("RIGHT", -15, 0)
             row.value:SetJustifyH("RIGHT")
             row.value:SetShadowOffset(1, -1)
             
@@ -1116,11 +1116,11 @@ function VaultEye:CreateSettings(panel)
     end
 
     sb:AddHeader("VaultEye - Sections")
-    sb:AddCheckbox("trackMythicPlus", "Track Dungeons", true, config, Rebuild)
-    sb:AddCheckbox("trackDelves", "Track Delves & World", true, config, Rebuild)
-    sb:AddCheckbox("trackRaid", "Track Raid Bosses", true, config, Rebuild)
-    sb:AddCheckbox("trackCurrencies", "Track Upgrade Materials", true, config, Rebuild)
-    sb:AddCheckbox("showRunHistory", "Show Individual Run Levels", true, config, Rebuild)
+    sb:AddSwitch("trackMythicPlus", "Track Dungeons", true, config, Rebuild)
+    sb:AddSwitch("trackDelves", "Track Delves & World", true, config, Rebuild)
+    sb:AddSwitch("trackRaid", "Track Raid Bosses", true, config, Rebuild)
+    sb:AddSwitch("trackCurrencies", "Track Upgrade Materials", true, config, Rebuild)
+    sb:AddSwitch("showRunHistory", "Show Individual Run Levels", true, config, Rebuild)
     
     sb:AddHeader("Bar Styling")
     local textures = {"Smooth", "Minimalist", "Perl", "Flat"}
