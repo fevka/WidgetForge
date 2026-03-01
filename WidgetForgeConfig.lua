@@ -34,7 +34,7 @@ Config.ElementTypes = {
     "Avoidance", "Leech", "Speed", "Run Speed", "Dodge", "Parry", "Armor", "Max HP",
     "Gold", "Zone", "Coords", "Item Level", "Combat Timer", "XP",
     "Dragonriding", "Skill Stream", "Dummy", "Guild", "Friends", "Difficulty", "Target Castbar", "Talent Loadout", "Custom Code", 
-    "Interrupt Sync", "VaultEye", "CCPartySync"
+    "Interrupt Sync", "VaultEye", "CCPartySync", "PrepChecker"
 }
 
 Config.Presets = {
@@ -408,7 +408,7 @@ function Config:SelectBar(index)
     local isExclusive = false
     local exclusiveType = nil
     for _, e in ipairs(bar.elements) do
-        if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" or e.type == "VaultEye" or e.type == "CCPartySync" then 
+        if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" or e.type == "VaultEye" or e.type == "CCPartySync" or e.type == "PrepChecker" then 
             isExclusive = true
             exclusiveType = e.type
             break 
@@ -540,7 +540,8 @@ function Config:SelectBar(index)
     if not isExclusive then
         sb:AddHeader("Bar Layout & Styling")
         sb:AddSwitch("showTitle", "Show Title Bar", false, bar, function(v) WidgetForge:RebuildBarComponents(index) end)
-        sb:AddSwitch("layout", "Vertical Layout", false, bar, function(v) 
+        bar.isVertical = (bar.layout == "VERTICAL")
+        sb:AddSwitch("isVertical", "Vertical Layout", false, bar, function(v) 
              bar.layout = v and "VERTICAL" or "HORIZONTAL"
             WidgetForge:UpdateAvailableBars()
         end)
@@ -592,7 +593,7 @@ function Config:SelectBar(index)
     if bar.elements and #bar.elements > 0 then
         barMode = "STANDARD"
         for _, e in ipairs(bar.elements) do
-            if e.type == "Dragonriding" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" or e.type == "VaultEye" or e.type == "CCPartySync" then 
+            if e.type == "Dragonriding" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" or e.type == "VaultEye" or e.type == "CCPartySync" or e.type == "PrepChecker" then 
                 barMode = "STRICT"
                 break 
             elseif OverlayTypes[e.type] then
@@ -607,7 +608,7 @@ function Config:SelectBar(index)
         { name = "Progression & Goods", elements = { "XP", "Gold", "Bag Space", "Item Level", "Durability" } },
         { name = "Navigation", elements = { "Zone", "Coords" } },
         { name = "Social", elements = { "Guild", "Friends" } },
-        { name = "Dungeon & Raid", elements = { "Mythic+ Dashboard", "Target Castbar", "Interrupt Sync", "CCPartySync",  "Combat Timer", "Difficulty" } },
+        { name = "Dungeon & Raid", elements = { "Mythic+ Dashboard", "Target Castbar", "Interrupt Sync", "CCPartySync", "PrepChecker", "Combat Timer", "Difficulty" } },
         { name = "Utils", elements = { "Dragonriding", "Cursor Ring", "Retirement Home", "Skill Stream", "VaultEye", "Talent Loadout", "Custom Code" } }
     }
     
@@ -701,7 +702,7 @@ function Config:SelectBar(index)
             local isSkillStreamBtn = (typeName == "Skill Stream")
             local isTargetCastBtn = (typeName == "Target Castbar")
             local isDivider = (typeName == "Divider")
-            local isBigWidget = (typeName == "Dragonriding" or typeName == "Skill Stream" or typeName == "Target Castbar" or typeName == "Mythic+ Dashboard" or typeName == "Interrupt Sync" or typeName == "VaultEye" or typeName == "Cursor Ring" or typeName == "Retirement Home" or typeName == "Custom Code" or typeName == "Dummy" or typeName == "CCPartySync")
+            local isBigWidget = (typeName == "Dragonriding" or typeName == "Skill Stream" or typeName == "Target Castbar" or typeName == "Mythic+ Dashboard" or typeName == "Interrupt Sync" or typeName == "VaultEye" or typeName == "Cursor Ring" or typeName == "Retirement Home" or typeName == "Custom Code" or typeName == "Dummy" or typeName == "CCPartySync" or typeName == "PrepChecker")
             
             local isActive = false
             for _, e in ipairs(bar.elements) do 
@@ -757,7 +758,7 @@ function Config:SelectBar(index)
             btn:SetScript("OnLeave", function(self) UpdateButtonStyle() end)
             
             local canAdd = true
-            local btnIsStrict = (typeName == "Dragonriding" or typeName == "Mythic+ Dashboard" or typeName == "Skill Stream" or typeName == "Target Castbar" or typeName == "Interrupt Sync" or typeName == "VaultEye" or typeName == "CCPartySync")
+            local btnIsStrict = (typeName == "Dragonriding" or typeName == "Mythic+ Dashboard" or typeName == "Skill Stream" or typeName == "Target Castbar" or typeName == "Interrupt Sync" or typeName == "VaultEye" or typeName == "CCPartySync" or typeName == "PrepChecker")
             local btnIsOverlay = OverlayTypes[typeName]
             local btnIsDivider = (typeName == "Divider")
             
@@ -839,9 +840,29 @@ function Config:SelectBar(index)
                          newEl.trackDelves = true
                          newEl.trackRaid = true
                          newEl.trackCurrencies = true
-                         newEl.hoverExpand = true
-                    elseif isDivider then
-                         newEl.size = 20; newEl.thickness = 2; newEl.dividerMode = "LINE"; newEl.dividerStyle = "VERTICAL"; newEl.offset = 0
+                          newEl.hoverExpand = true
+                     elseif typeName == "PrepChecker" then
+                          newEl.iconSize = 32
+                          newEl.spacing = 4
+                          newEl.direction = "LEFT_TO_RIGHT"
+                          newEl.showFlask = true
+                          newEl.showFood = true
+                          newEl.showRune = true
+                          newEl.showPotion = true
+                          newEl.showHealthstone = true
+                          newEl.showTrinket1 = true
+                          newEl.showTrinket2 = true
+                          newEl.showBorder = true
+                          newEl.borderSize = 1
+                          newEl.showCount = true
+                          newEl.showLabel = false
+                          newEl.iconZoom = 0.07
+                          newEl.potionWarnBelow = 1
+                          newEl.colorOk = {0.0, 1.0, 0.2, 1}
+                          newEl.colorWarn = {1.0, 0.15, 0.15, 1}
+                          newEl.colorNeutral = {0.4, 0.4, 0.8, 1}
+                     elseif isDivider then
+                          newEl.size = 20; newEl.thickness = 2; newEl.dividerMode = "LINE"; newEl.dividerStyle = "VERTICAL"; newEl.offset = 0
                     end
                     
                     table.insert(bar.elements, newEl)
@@ -1055,6 +1076,11 @@ function Config:SelectBar(index)
              local btnSettings = Skin:CreateButton(item, "Settings", 80, 22)
              btnSettings:SetPoint("RIGHT", dragHandle, "LEFT", -10, 0)
              btnSettings:SetScript("OnClick", function() Config:OpenCCPartySyncSettings(index, i, elem) end)
+        elseif elem.type == "PrepChecker" then
+             btnCol:Hide()
+             local btnSettings = Skin:CreateButton(item, "Settings", 80, 22)
+             btnSettings:SetPoint("RIGHT", dragHandle, "LEFT", -10, 0)
+             btnSettings:SetScript("OnClick", function() Config:OpenPrepCheckerSettings(index, i, elem) end)
         else
             slSz = Skin:CreateSlider(item, 8, 50, 1, elem.size, function(v) elem.size = v; WidgetForge:RebuildBarComponents(index) end, 70); slSz:SetPoint("RIGHT", btnCol, "LEFT", -15, 0)
             ddOutline = Skin:CreateDropdown(item, 85, outlineList, elem.outline or "OUTLINE", function(v) elem.outline = v; WidgetForge:RebuildBarComponents(index) end); ddOutline:SetPoint("RIGHT", slSz, "LEFT", -10, 0) 
@@ -1488,6 +1514,23 @@ function Config:OpenCCPartySyncSettings(barIndex, elemIndex, elem)
     if panel.builder then if panel.builder.Release then panel.builder:Release() end panel.builder = nil end
     if _G.WidgetForge and _G.WidgetForge.CCSync and _G.WidgetForge.CCSync.CreateSettings then
         _G.WidgetForge.CCSync:CreateSettings(panel)
+    end
+end
+
+function Config:OpenPrepCheckerSettings(barIndex, elemIndex, elem)
+    local panel = Config:GetSlidePanel()
+    Config:ToggleSlidePanel(true)
+    panel.header.title:SetText("Prep Checker Settings")
+    panel.config = elem
+    panel.barIndex = barIndex
+    local content = panel.content
+    local kids = {content:GetChildren()}
+    for _, k in ipairs(kids) do k:Hide() end
+    local regions = {content:GetRegions()}
+    for _, r in ipairs(regions) do r:Hide() end
+    if panel.builder then if panel.builder.Release then panel.builder:Release() end panel.builder = nil end
+    if _G.WidgetForge and _G.WidgetForge.PrepChecker and _G.WidgetForge.PrepChecker.CreateSettings then
+        _G.WidgetForge.PrepChecker:CreateSettings(panel)
     end
 end
 

@@ -217,9 +217,16 @@ function Skin:CreateSwitch(parent, labelText, checked, callback, onTextStr, offT
     thumb:SetPoint("LEFT", track, "LEFT", currentX, 0)
 
     -- Değer ataması
-    function frame:SetChecked(val)
+    function frame:SetChecked(val, isInitialLoad)
         self.checked = val
-        UpdateVisuals(false) 
+        UpdateVisuals(isInitialLoad) 
+        
+        -- Eğer menü ilk kez açılıyorsa (isInitialLoad), animasyonu atla ve anında yerine oturt.
+        if isInitialLoad then
+            thumb:ClearAllPoints()
+            thumb:SetPoint("LEFT", track, "LEFT", currentX, 0)
+        end
+
         if self.callback then 
             self.callback(self.checked) 
         elseif callback then 

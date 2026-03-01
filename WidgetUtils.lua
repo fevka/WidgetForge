@@ -368,7 +368,7 @@ function SB:AddSwitch(key, label, defaultVal, configTable, callback, onTextStr, 
     if c.track and c.track.offText and offTextStr then c.track.offText:SetText(offTextStr) end
     
     c.callback = nil
-    c:SetChecked(val)
+    c:SetChecked(val, true)
     c.callback = function(v)
         configTable[key] = v
         if callback then callback(v) end

@@ -49,7 +49,8 @@ WidgetForge.StatIcons = {
     ["Target Castbar"] = "Interface\\Icons\\Spell_Holy_AshesToAshes",
     ["Talent Loadout"] = "Interface\\Icons\\Spell_ChargePositive",
     ["Custom Code"] = "Interface\\Icons\\Trade_Engineering",
-    ["CCPartySync"] = "Interface\\Icons\\Spell_Frost_FrostNova"
+    ["CCPartySync"] = "Interface\\Icons\\Spell_Frost_FrostNova",
+    ["PrepChecker"] = "Interface\\Icons\\Achievement_Dungeon_GloryoftheRaider"
 }
 
 -- --- HELPER FUNCTIONS ---
@@ -168,7 +169,7 @@ function WidgetForge:UpdateAvailableBars()
             local isExclusive = false
             if conf.elements then
                 for _, e in ipairs(conf.elements) do
-                    if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" or e.type == "Vault Eye" or e.type == "VaultEye" or e.type == "CCPartySync" then 
+                    if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" or e.type == "Vault Eye" or e.type == "VaultEye" or e.type == "CCPartySync" or e.type == "PrepChecker" then 
                         isExclusive = true
                         break 
                     end
@@ -369,7 +370,7 @@ function WidgetForge:RebuildBarComponents(index)
     local isSplit = (conf.layout == "VERTICAL" and justify ~= "CENTER")
 
     local OverlayTypes = { ["Cursor Ring"] = true, ["Retirement Home"] = true }
-    local StrictTypes = { ["Mythic+ Dashboard"] = true, ["Dragonriding"] = true, ["Skill Stream"] = true, ["Target Castbar"] = true, ["Interrupt Sync"] = true, ["VaultEye"] = true, ["CCPartySync"] = true }
+    local StrictTypes = { ["Mythic+ Dashboard"] = true, ["Dragonriding"] = true, ["Skill Stream"] = true, ["Target Castbar"] = true, ["Interrupt Sync"] = true, ["VaultEye"] = true, ["CCPartySync"] = true, ["PrepChecker"] = true }
     
     local exclusiveType = nil
     for _, e in ipairs(conf.elements) do
@@ -416,6 +417,9 @@ function WidgetForge:RebuildBarComponents(index)
             elseif elem.type == "CCPartySync" then
                 local ref = addonTable.CCSync or _G.WidgetForge.CCSync
                 if ref then LoadAddonWidget(f, elem, i, ref, "syncFrames") end
+            elseif elem.type == "PrepChecker" then
+                local ref = addonTable.PrepChecker or _G.WidgetForge.PrepChecker
+                if ref then LoadAddonWidget(f, elem, i, ref, nil) end
             elseif elem.type == "Custom Code" then
                 if addonTable.CustomCode then LoadAddonWidget(f, elem, i, addonTable.CustomCode, "codeFrames") end
             else
@@ -539,7 +543,7 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
     
     local fetchedValues = {}
     for i, elem in ipairs(conf.elements) do
-        if not (elem.type == "Divider" or elem.type == "Custom Code" or elem.type == "Dragonriding" or elem.type == "Target Castbar" or elem.type == "Skill Stream" or elem.type == "Cursor Ring" or elem.type == "Retirement Home" or elem.type == "Mythic+ Dashboard" or elem.type == "Interrupt Sync" or elem.type == "VaultEye") then
+        if not (elem.type == "Divider" or elem.type == "Custom Code" or elem.type == "Dragonriding" or elem.type == "Target Castbar" or elem.type == "Skill Stream" or elem.type == "Cursor Ring" or elem.type == "Retirement Home" or elem.type == "Mythic+ Dashboard" or elem.type == "Interrupt Sync" or elem.type == "VaultEye" or elem.type == "PrepChecker") then
             local valStr, lblStr = "---", ""
             if ForgeStats and ForgeStats.GetStat then
                 valStr, lblStr = ForgeStats:GetStat(elem.type) 
@@ -664,6 +668,17 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
                 elemWidth = size; elemHeight = streamLength
             else
                 elemWidth = streamLength; elemHeight = size
+            end
+        elseif elem.type == "PrepChecker" then
+            local ref = addonTable.PrepChecker or _G.WidgetForge.PrepChecker
+            if ref and ref.GetDimensions then
+                elemWidth, elemHeight = ref:GetDimensions(elem)
+            else
+                local size = elem.iconSize or 32
+                local spacing = elem.spacing or 4
+                local count = 7 -- default slot count
+                elemWidth = (count * size) + ((count - 1) * spacing)
+                elemHeight = size
             end
         elseif elem.type == "Cursor Ring" or elem.type == "Retirement Home" or elem.type == "Mythic+ Dashboard" or elem.type == "VaultEye" then
             -- Handled
@@ -792,7 +807,7 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
                 end
                 currentY = currentY - elemHeight
                 if i < #conf.elements then currentY = currentY - conf.padding end
-            elseif elem.type == "Dragonriding" or elem.type == "Skill Stream" or elem.type == "Target Castbar" or elem.type == "Custom Code" or elem.type == "Interrupt Sync" then
+            elseif elem.type == "Dragonriding" or elem.type == "Skill Stream" or elem.type == "Target Castbar" or elem.type == "Custom Code" or elem.type == "Interrupt Sync" or elem.type == "PrepChecker" then
                 if elem.type == "Custom Code" then
                     local cf = f.codeFrames and f.codeFrames[i]
                     if cf then cf:ClearAllPoints(); cf:SetPoint("CENTER", f, "CENTER", 0, placementY) end
@@ -950,6 +965,17 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
                  local streamW = size
                  if dir == "RIGHT_TO_LEFT" or dir == "LEFT_TO_RIGHT" then streamW = (limit * size) + ((limit - 1) * spacing) end
                  currentX = currentX + streamW + conf.padding
+            elseif elem.type == "PrepChecker" then
+                 local ref = addonTable.PrepChecker or _G.WidgetForge.PrepChecker
+                 local pcW, pcH
+                 if ref and ref.GetDimensions then
+                     pcW, pcH = ref:GetDimensions(elem)
+                 else
+                     local sz = elem.iconSize or 32
+                     local sp = elem.spacing or 4
+                     pcW = (7 * sz) + (6 * sp)
+                 end
+                 currentX = currentX + (pcW or 260) + conf.padding
             else
                 local tVal = f.textsVal[i]
                 if tVal then
