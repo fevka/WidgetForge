@@ -64,4 +64,12 @@ For advanced users who want absolute freedom.
 4. **Customizing the Look:** Navigate to the appearance settings to tweak fonts, background colors, borders, and transparency. Use the sliders to adjust spacing (down to -10 for ultra-compact looks) and watch the UI update in real-time.
 
 ---
-*Author: Fevka | Version: 1.1.1*
+*Author: Fevka | Version: 1.1.1*+
+
+
+This project uses the Righteous font.
+
+Copyright (c) The Righteous Project Authors
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+This license is included below.

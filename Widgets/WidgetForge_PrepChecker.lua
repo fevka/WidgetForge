@@ -3,20 +3,7 @@
 --  [WoW 12 Compliant - Midnight API]
 --  Dungeon & Raid consumable readiness panel
 --  Flask, Food, Rune, Potion, Healthstone, Trinkets
---
---  ID GÃœNCELLEMESÄ°: Midnight 12.0.1 (Åžubat 2026)
---  Kaynak: Wowhead Live 12.0.1, method.gg, icy-veins.com
---
---  DOÄžRULAMA NOTU:
---    [âœ“] = Wowhead 12.0.1 Live'dan doÄŸrulandÄ±
---    [~] = Wowhead Beta/PTR'den alÄ±ndÄ±, live'da aynÄ± olmalÄ±
---    [?] = Oyun iÃ§i doÄŸrulama Ã¶nerilir
---
---  EÄŸer herhangi bir ID Ã§alÄ±ÅŸmazsa, oyun iÃ§inde ÅŸu macro ile
---  aktif buff spell ID'lerini kontrol edebilirsin:
---  /run for i=1,40 do local d=C_UnitAuras.GetBuffDataByIndex("player",i) if d then print(d.spellId, d.name) end end
 -- =========================================================================
-
 local addonName, addonTable = ...
 
 if not _G.WidgetForge then _G.WidgetForge = {} end
@@ -28,114 +15,62 @@ addonTable.PrepChecker = PrepChecker
 PrepChecker.Instances = {}
 
 -- =========================================================================
---  TRACKED BUFF & ITEM IDs  â€” YALNIZCA MIDNIGHT (12.0.1)
+--  Tracked Buff and Item IDs (Midnight)
 -- =========================================================================
 
 PrepChecker.FlaskBuffIDs = {
-    -- -----------------------------------------------------------------------
-    -- MIDNIGHT Flasklar â€” Buff Spell ID'leri (aura olarak Ã¼stÃ¼nÃ¼ze uygulanan)
-    -- -----------------------------------------------------------------------
-    1235057, -- [âœ“] Flask of Thalassian Resistance   (+Versatility)
-    1235108, -- [âœ“] Flask of the Magisters            (+Mastery)
-    1235110, -- [âœ“] Flask of the Blood Knights        (+Haste)
-    1235111, -- [âœ“] Flask of the Shattered Sun        (+Critical Strike)
-    1239355, -- [âœ“] Vicious Thalassian Flask of Honor (PvP, +%15 Honor)
-
-    -- -----------------------------------------------------------------------
-    -- MIDNIGHT Phiallar â€” Meslek stat'larÄ± (Craft yaparken kullanÄ±lÄ±r)
-    -- -----------------------------------------------------------------------
-    1236763, -- [âœ“] Haranir Phial of Perception  (+Perception & Deftness)
-    1239755, -- [âœ“] Haranir Phial of Ingenuity   (+Ingenuity & Crafting Speed)
+    -- Flask/Phial buff spell IDs.
+    1235057, -- Flask of Thalassian Resistance
+    1235108, -- Flask of the Magisters
+    1235110, -- Flask of the Blood Knights
+    1235111, -- Flask of the Shattered Sun
+    1239355, -- Vicious Thalassian Flask of Honor
+    1236763, -- Haranir Phial of Perception
+    1239755, -- Haranir Phial of Ingenuity
 }
 
 PrepChecker.FoodBuffIDs = {
-    -- -----------------------------------------------------------------------
-    -- MIDNIGHT Yemek Buff'larÄ±
-    --
-    -- Midnight'ta her yemeÄŸin kendine Ã¶zgÃ¼ "Well Fed" spell ID'si vardÄ±r.
-    -- HenÃ¼z Wowhead'de tek bir tablo olarak listelenemedi.
-    -- AÅŸaÄŸÄ±daki ID'lere ek olarak, kod zaten "Well Fed" adÄ±na
-    -- gÃ¶re fallback yapÄ±yor â€” bu sayede bilinmeyen ID'ler de yakalanÄ±r.
-    --
-    -- Bilinen yemekler ve item ID'leri (buff spell ID'leri â‰  item ID'leri):
-    --   Silvermoon Parade (feast)      â€” item 255845
-    --   Harandar Celebration (feast)   â€” item ID teyit bekleniyor
-    --   Blooming Feast (feast)         â€” item ID teyit bekleniyor
-    --   Royal Roast (main stat)        â€” item 242275
-    --   Impossibly Royal Roast         â€” item ID teyit bekleniyor
-    --   Champion's Bento (sec stat)    â€” item ID teyit bekleniyor
-    --   Quel'dorei Medley (sec stat)   â€” item ID teyit bekleniyor
-    --   Flora Frenzy (sec stat)        â€” item ID teyit bekleniyor
-    --   Sun-Seared Lumifin (budget)    â€” item ID teyit bekleniyor
-    --   Arcano Cutlets (budget)        â€” item ID teyit bekleniyor
-    --
-    -- Hearty versiyonlar (Ã¶lÃ¼mde kaybolmaz):
-    --   Hearty Royal Roast, Hearty Silvermoon Parade vb.
-    --
-    -- Oyun iÃ§i macro ile kendi Well Fed spell ID'lerini bul:
-    -- /run for i=1,40 do local d=C_UnitAuras.GetBuffDataByIndex("player",i) if d then print(d.spellId, d.name) end end
-    -- Yemek yedikten sonra Ã§alÄ±ÅŸtÄ±r, "Well Fed" yazan satÄ±rÄ±n spellId'sini buraya ekle.
-    -- -----------------------------------------------------------------------
-    -- Åžimdilik boÅŸ; "Well Fed" isim fallback'i tÃ¼m yemekleri yakalar.
-    -- Kendi bulduklarÄ±nÄ± customFoodIDs alanÄ±ndan ya da buraya ekle.
+    -- Food buff IDs can be added here; unknown foods still resolve via "Well Fed" name fallback.
 }
 
 PrepChecker.RuneBuffIDs = {
-    -- -----------------------------------------------------------------------
-    -- MIDNIGHT Augment Rune'larÄ± â€” Buff Spell ID'leri
-    -- -----------------------------------------------------------------------
-    1264426, -- [âœ“] Void-Touched Augment Rune   (item 259085 â€” ana Midnight consumable rune)
-             --     +25 Primary Stat, 1 saat, Ã¶lÃ¼mde sÄ±fÄ±rlanÄ±r
-             --     Patron Order'lardan, AH'ten gelir.
-
-    1234969, -- [âœ“] Ethereal Augment Rune        (item 243191 â€” TWW S3 kalÄ±cÄ± rune)
-             --     K'aresh Trust Renown 18 + 100.000g gerektirir.
-             --     Midnight'a taÅŸÄ±nÄ±r, hÃ¢lÃ¢ aktif.
-             --     Buff adÄ±: "Ethereal Augmentation"
-
-    -- [?] Soulgorged Augment Rune (item ? â€” Manaforge Vandals Renown 9 drop)
-    --     Void-Touched ile aynÄ± stat, ama Ã¶lÃ¼mde KAYBOLMAZ.
-    --     Spell ID henÃ¼z teyit edilemedi; aÅŸaÄŸÄ±ya ekle:
-    -- XXXX, -- Soulgorged Augment Rune buff spell ID (teyit gerekiyor)
+    -- Augment rune buff spell IDs.
+    1264426, -- Void-Touched Augment Rune
+    1234969, -- Ethereal Augmentation
 }
 
 PrepChecker.PotionItemIDs = {
-    -- -----------------------------------------------------------------------
-    -- MIDNIGHT Combat & Utility PotionlarÄ± â€” Item ID'leri (envanterde sayÄ±lÄ±r)
-    --
-    -- Her potionun Silver ve Gold olmak Ã¼zere 2 kalite seviyesi vardÄ±r.
-    -- Ä°ki kaliteyi de sayabilmek iÃ§in her ikisi de listelenmiÅŸtir.
-    -- -----------------------------------------------------------------------
-
-    -- --- COMBAT (DPS) POTIONLARI ---
-    241289, -- [âœ“] Potion of Recklessness (Silver) â€” En yÃ¼ksek secondary stat +1585, en dÃ¼ÅŸÃ¼k â€‘213, 30 sn
-    241290, -- [~] Potion of Recklessness (Gold)
-    241292, -- [âœ“] Draught of Rampant Abandon (Silver) â€” +Primary stat; negatif: void zone spawnar
-    241293, -- [~] Draught of Rampant Abandon (Gold)
-    241296, -- [âœ“] Potion of Zealotry (Silver)    â€” Single target DPS potionÄ±
-    241297, -- [~] Potion of Zealotry (Gold)
-
-    -- --- HEALER / PRIMARY STAT POTIONLARI ---
-    241309, -- [âœ“] Light's Potential (Silver)     â€” Primary stat burst (healer + DPS)
-    241310, -- [~] Light's Potential (Gold)
-
-    -- --- MANA POTIONLARI ---
-    241300, -- [âœ“] Lightfused Mana Potion (Silver) â€” AnlÄ±k mana (cooldown yok, kanala gerek yok)
-    241301, -- [~] Lightfused Mana Potion (Gold)
-    -- Potion of Devoured Dreams â€” item ID teyit bekleniyor, tahminen 241302/241303
-    -- 241302, -- [?] Potion of Devoured Dreams (Silver) â€” Raid healer mana potionÄ± (channeled, daha fazla mana)
-    -- 241303, -- [?] Potion of Devoured Dreams (Gold)
-
-    -- --- SAÄžLIK POTIONLARI ---
-    241304, -- [~] Silvermoon Health Potion (Silver)
-    241305, -- [âœ“] Silvermoon Health Potion (Gold)  â€” Ana healing potion, Healthstone ile CD paylaÅŸmaz
-
-    -- --- UTILITY POTIONLARI ---
-    -- Void-Shrouded Tincture â€” M+ trash skip iÃ§in gÃ¶rÃ¼nmezlik potionÄ±
-    -- item ID teyit bekleniyor; eklemek istersen aÅŸaÄŸÄ±ya ekle.
+    -- Potion item IDs counted from inventory.
+    241289, -- Potion of Recklessness (Silver)
+    241290, -- Potion of Recklessness (Gold)
+    241292, -- Draught of Rampant Abandon (Silver)
+    241293, -- Draught of Rampant Abandon (Gold)
+    241296, -- Potion of Zealotry (Silver)
+    241297, -- Potion of Zealotry (Gold)
+    241309, -- Light's Potential (Silver)
+    241310, -- Light's Potential (Gold)
+    241300, -- Lightfused Mana Potion (Silver)
+    241301, -- Lightfused Mana Potion (Gold)
+    241304, -- Silvermoon Health Potion (Silver)
+    241305, -- Silvermoon Health Potion (Gold)
 }
 
 PrepChecker.HealthstoneItemID = 5512
+PrepChecker.FlaskItemIDs = PrepChecker.FlaskItemIDs or {}
+PrepChecker.FoodItemIDs = PrepChecker.FoodItemIDs or {}
+
+local function GetAugmentRuneIcon()
+    local runeItemIDs = { 259085, 243191 } -- Midnight/TWW augment rune items
+    if C_Item and C_Item.GetItemIconByID then
+        for _, itemID in ipairs(runeItemIDs) do
+            local ok, icon = pcall(C_Item.GetItemIconByID, itemID)
+            if ok and icon then return icon end
+        end
+    end
+    return "Interface\\Icons\\INV_Misc_Rune_01"
+end
+
+PrepChecker.AugmentRuneIcon = GetAugmentRuneIcon()
 
 -- =========================================================================
 --  HELPERS: Custom ID parsing
@@ -224,6 +159,32 @@ local function FindBuffByIDs(spellIDs)
     return false
 end
 
+local function SafeGetItemIcon(itemID)
+    if not itemID then return nil end
+    if C_Item and C_Item.GetItemIconByID then
+        local ok, icon = pcall(C_Item.GetItemIconByID, itemID)
+        if ok and icon then return icon end
+    end
+    if GetItemIcon then
+        local ok, icon = pcall(GetItemIcon, itemID)
+        if ok and icon then return icon end
+    end
+    return nil
+end
+
+local function SafeGetItemName(itemID)
+    if not itemID then return nil end
+    if C_Item and C_Item.GetItemNameByID then
+        local ok, name = pcall(C_Item.GetItemNameByID, itemID)
+        if ok and name then return name end
+    end
+    if GetItemInfo then
+        local ok, name = pcall(GetItemInfo, itemID)
+        if ok and name then return name end
+    end
+    return "Item ID: " .. tostring(itemID)
+end
+
 local function FindBuffByNameFragments(fragments)
     if not C_UnitAuras or not C_UnitAuras.GetBuffDataByIndex then return false end
     for i = 1, 40 do
@@ -245,8 +206,8 @@ end
 local function IsFlaskActive(allFlaskIDs)
     local ok, name, sid = FindBuffByIDs(allFlaskIDs)
     if ok then return true, name, sid end
-    -- Midnight phiallar "Phial" adÄ± yerine benzersiz isimler taÅŸÄ±yor.
-    -- "Flask" adÄ± iÃ§eren buff'larÄ± yakala + bilinen Midnight flask adlarÄ±nÄ±.
+    -- Midnight phials may not include the word "Phial" in every locale/name.
+    -- Keep a fragment fallback for known flask/phial naming patterns.
     return FindBuffByNameFragments({
         "Flask",
         "Phial",
@@ -287,6 +248,227 @@ local function GetPotionCount(itemIDs)
     return total
 end
 
+local function BuildItemBreakdown(itemIDs)
+    local rows = {}
+    if not itemIDs then return rows end
+    for _, id in ipairs(itemIDs) do
+        local count = SafeGetItemCount(id)
+        rows[#rows + 1] = {
+            id = id,
+            count = count,
+            icon = SafeGetItemIcon(id) or "Interface\\Icons\\INV_Misc_QuestionMark",
+            name = SafeGetItemName(id),
+        }
+    end
+    return rows
+end
+
+local function GetPrimaryOwnedItem(itemIDs)
+    local rows = BuildItemBreakdown(itemIDs)
+    local primary
+    local total = 0
+    for _, row in ipairs(rows) do
+        local c = row.count or 0
+        if c > 0 then
+            total = total + c
+            if not primary then
+                primary = row
+            end
+        end
+    end
+    return primary, total, rows
+end
+
+local function CancelIconHoverHide(iconFrame)
+    if iconFrame.hoverHideTimer and iconFrame.hoverHideTimer.Cancel then
+        iconFrame.hoverHideTimer:Cancel()
+    end
+    iconFrame.hoverHideTimer = nil
+    if UIFrameFadeRemoveFrame and iconFrame.hoverPanel then
+        UIFrameFadeRemoveFrame(iconFrame.hoverPanel)
+        iconFrame.hoverPanel:SetAlpha(1)
+    end
+end
+
+local function ScheduleIconHoverHide(iconFrame, delay)
+    if iconFrame.hoverHideTimer then return end
+    CancelIconHoverHide(iconFrame)
+    local hideDelay = delay or 0.5
+    local function doHide()
+        if iconFrame.hoveringIcon or iconFrame.hoveringPanel then return end
+        if not iconFrame.hoverPanel then return end
+        if UIFrameFadeOut then
+            UIFrameFadeOut(iconFrame.hoverPanel, 0.2, iconFrame.hoverPanel:GetAlpha() or 1, 0)
+            if C_Timer and C_Timer.After then
+                C_Timer.After(0.14, function()
+                    if not iconFrame.hoveringIcon and not iconFrame.hoveringPanel and iconFrame.hoverPanel then
+                        iconFrame.hoverPanel:Hide()
+                        iconFrame.hoverPanel:SetAlpha(1)
+                    end
+                end)
+            else
+                iconFrame.hoverPanel:Hide()
+                iconFrame.hoverPanel:SetAlpha(1)
+            end
+        else
+            iconFrame.hoverPanel:Hide()
+        end
+    end
+    if C_Timer and C_Timer.NewTimer then
+        iconFrame.hoverHideTimer = C_Timer.NewTimer(hideDelay, doHide)
+    elseif C_Timer and C_Timer.After then
+        C_Timer.After(hideDelay, doHide)
+    else
+        doHide()
+    end
+end
+
+local function EnsureHoverCell(iconFrame, index)
+    local cell = iconFrame.hoverIcons[index]
+    if cell then return cell end
+
+    cell = CreateFrame("Frame", nil, iconFrame.hoverPanel, "BackdropTemplate")
+    cell:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
+        insets = { left = 0, right = 0, top = 0, bottom = 0 }
+    })
+    cell:SetBackdropColor(0, 0, 0, 0)
+    cell:SetBackdropBorderColor(0.2, 0.2, 0.2, 1)
+
+    cell.tex = cell:CreateTexture(nil, "ARTWORK")
+    cell.tex:SetPoint("TOPLEFT", cell, "TOPLEFT", 1, -1)
+    cell.tex:SetPoint("BOTTOMRIGHT", cell, "BOTTOMRIGHT", -1, 1)
+    cell.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+
+    cell.count = cell:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    cell.count:SetPoint("BOTTOMRIGHT", cell, "BOTTOMRIGHT", -1, 1)
+    cell.count:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+
+    cell:EnableMouse(true)
+    cell:SetScript("OnEnter", function(c)
+        iconFrame.hoveringPanel = true
+        CancelIconHoverHide(iconFrame)
+        GameTooltip:SetOwner(c, "ANCHOR_TOP")
+        GameTooltip:ClearLines()
+        GameTooltip:AddLine(c.itemName or ("Item ID: " .. tostring(c.itemID or "")), 1, 1, 1)
+        GameTooltip:AddLine("Count: " .. tostring(c.itemCount or 0), 0.75, 0.9, 1)
+        GameTooltip:Show()
+    end)
+    cell:SetScript("OnLeave", function(c)
+        if GameTooltip:IsOwned(c) then GameTooltip:Hide() end
+        iconFrame.hoveringPanel = false
+        ScheduleIconHoverHide(iconFrame, 0.5)
+    end)
+
+    iconFrame.hoverIcons[index] = cell
+    return cell
+end
+
+local function UpdateIconHoverPanel(iconFrame, slotDef)
+    if not slotDef or not slotDef.itemIDs or #slotDef.itemIDs == 0 then
+        iconFrame.hoverPanel:Hide()
+        iconFrame.hoverSignature = nil
+        return false
+    end
+
+    local allItems = BuildItemBreakdown(slotDef.itemIDs)
+    local items = {}
+    local skipPrimaryID = iconFrame.primaryItemID
+    for _, row in ipairs(allItems) do
+        if (row.count or 0) > 0 and row.id ~= skipPrimaryID then
+            items[#items + 1] = row
+        end
+    end
+    if #items == 0 then
+        iconFrame.hoverPanel:Hide()
+        iconFrame.hoverSignature = nil
+        return false
+    end
+
+    local elem = iconFrame:GetParent() and iconFrame:GetParent().elem or {}
+    local direction = elem.direction or "LEFT_TO_RIGHT"
+    local isVerticalFlow = (direction == "TOP_TO_BOTTOM" or direction == "BOTTOM_TO_TOP")
+    local bSize = (elem.showBorder ~= false) and (elem.borderSize or 1) or 0
+    local okColor = elem.colorOk or {0.0, 1.0, 0.2, 1}
+    local countFontSize = elem.countFontSize or 9
+    local iconSize = math.max(14, math.floor((iconFrame:GetWidth() or 32) - 2))
+    local overlap = math.floor(iconSize * 0.32)
+    local step = math.max(6, iconSize - overlap)
+    local pad = 4
+    local panelW, panelH
+
+    if isVerticalFlow then
+        panelW = iconSize + (pad * 2)
+        panelH = iconSize + ((#items - 1) * step) + (pad * 2)
+        iconFrame.hoverPanel:ClearAllPoints()
+        iconFrame.hoverPanel:SetPoint("LEFT", iconFrame, "RIGHT", 6, 0)
+    else
+        panelW = iconSize + ((#items - 1) * step) + (pad * 2)
+        panelH = iconSize + (pad * 2)
+        iconFrame.hoverPanel:ClearAllPoints()
+        iconFrame.hoverPanel:SetPoint("BOTTOMLEFT", iconFrame, "TOPLEFT", 0, 6)
+    end
+
+    local sigParts = { tostring(direction), tostring(iconSize), tostring(#items) }
+    for _, row in ipairs(items) do
+        sigParts[#sigParts + 1] = tostring(row.id) .. ":" .. tostring(row.count or 0)
+    end
+    local signature = table.concat(sigParts, "|")
+    if iconFrame.hoverPanel:IsShown() and iconFrame.hoverSignature == signature then return true end
+
+    iconFrame.hoverSignature = signature
+    iconFrame.hoverPanel:SetSize(panelW, panelH)
+
+    for i, row in ipairs(items) do
+        local cell = EnsureHoverCell(iconFrame, i)
+        cell:SetBackdrop({
+            bgFile = "Interface\\Buttons\\WHITE8x8",
+            edgeFile = "Interface\\Buttons\\WHITE8x8",
+            edgeSize = (bSize > 0) and bSize or 1,
+            insets = { left = 0, right = 0, top = 0, bottom = 0 }
+        })
+        cell:SetBackdropBorderColor(okColor[1], okColor[2], okColor[3], okColor[4] or 1)
+        cell:SetSize(iconSize, iconSize)
+        cell:ClearAllPoints()
+        if isVerticalFlow then
+            cell:SetPoint("TOP", iconFrame.hoverPanel, "TOP", 0, -(pad + ((i - 1) * step)))
+        else
+            cell:SetPoint("LEFT", iconFrame.hoverPanel, "LEFT", pad + ((i - 1) * step), 0)
+        end
+        cell.tex:SetTexture(row.icon)
+        if cell.tex.SetDesaturated then cell.tex:SetDesaturated(false) end
+        cell.count:SetText(tostring(row.count or 0))
+        cell.count:SetTextColor(1, 1, 1, 1)
+        cell.count:SetFont("Fonts\\FRIZQT__.TTF", countFontSize, "OUTLINE")
+        cell.itemID = row.id
+        cell.itemName = row.name
+        cell.itemCount = row.count or 0
+        cell:Show()
+        cell:SetAlpha(0)
+        if UIFrameFadeIn then
+            local d = (i - 1) * 0.03
+            C_Timer.After(d, function()
+                if cell and cell:IsShown() then
+                    if UIFrameFadeRemoveFrame then UIFrameFadeRemoveFrame(cell) end
+                    UIFrameFadeIn(cell, 0.14, cell:GetAlpha() or 0, 1)
+                end
+            end)
+        else
+            cell:SetAlpha(1)
+        end
+    end
+
+    for i = #items + 1, #iconFrame.hoverIcons do
+        iconFrame.hoverIcons[i]:Hide()
+    end
+
+    iconFrame.hoverPanel:SetAlpha(1)
+    iconFrame.hoverPanel:Show()
+    return true
+end
+
 -- =========================================================================
 --  SLOT LIST BUILDER
 -- =========================================================================
@@ -301,7 +483,9 @@ local function BuildSlotList(elem)
     local customItemIDs   = ParseIDString(elem.customItemIDs)
 
     local allFlaskIDs  = MergeIDs(PrepChecker.FlaskBuffIDs, customFlaskIDs)
+    local allFlaskItemIDs = MergeIDs(PrepChecker.FlaskItemIDs, customFlaskIDs)
     local allFoodIDs   = MergeIDs(PrepChecker.FoodBuffIDs, customFoodIDs)
+    local allFoodItemIDs = MergeIDs(PrepChecker.FoodItemIDs, customFoodIDs)
     local allRuneIDs   = MergeIDs(PrepChecker.RuneBuffIDs, customRuneIDs)
     local allPotionIDs = MergeIDs(PrepChecker.PotionItemIDs, customPotionIDs)
 
@@ -311,6 +495,8 @@ local function BuildSlotList(elem)
             icon = "Interface\\Icons\\INV_Potion_93",
             type = "BUFF",
             checkFn = function() return IsFlaskActive(allFlaskIDs) end,
+            countFn = function() return GetPotionCount(allFlaskItemIDs) end,
+            itemIDs = allFlaskItemIDs,
             tooltip = "Flask / Phial buff status",
         })
     end
@@ -321,6 +507,8 @@ local function BuildSlotList(elem)
             icon = "Interface\\Icons\\INV_Misc_Food_16",
             type = "BUFF",
             checkFn = function() return IsFoodActive(allFoodIDs) end,
+            countFn = function() return GetPotionCount(allFoodItemIDs) end,
+            itemIDs = allFoodItemIDs,
             tooltip = "Well Fed buff status",
         })
     end
@@ -328,7 +516,7 @@ local function BuildSlotList(elem)
     if elem.showRune ~= false then
         table.insert(slots, {
             id = "rune", label = "Rune",
-            icon = "Interface\\Icons\\INV_Stone_04",
+            icon = PrepChecker.AugmentRuneIcon or "Interface\\Icons\\INV_Misc_Rune_01",
             type = "BUFF",
             checkFn = function() return IsRuneActive(allRuneIDs) end,
             tooltip = "Augment Rune buff status",
@@ -341,6 +529,7 @@ local function BuildSlotList(elem)
             icon = "Interface\\Icons\\INV_Potion_92",
             type = "COUNT",
             countFn = function() return GetPotionCount(allPotionIDs) end,
+            itemIDs = allPotionIDs,
             minWarn = elem.potionWarnBelow or 1,
             tooltip = "Combat potions in inventory",
         })
@@ -358,6 +547,7 @@ local function BuildSlotList(elem)
                 end
                 return count
             end,
+            itemIDs = MergeIDs({PrepChecker.HealthstoneItemID}, customItemIDs),
             minWarn = 1,
             tooltip = "Healthstone + custom items in inventory",
         })
@@ -405,17 +595,6 @@ local function CreateIconSlotFrame(container)
     f.overlay:SetColorTexture(0, 0, 0, 0.18)
     f.overlay:Hide()
 
-    -- Keep warning badge above icon/overlay using valid draw layer + high sublevel.
-    f.warnTex = f:CreateTexture(nil, "OVERLAY")
-    if f.warnTex.SetDrawLayer then
-        f.warnTex:SetDrawLayer("OVERLAY", 7)
-    end
-    f.warnTex:SetSize(16, 16)
-    f.warnTex:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 2, -2)
-    f.warnTex:SetTexture("Interface\\AddOns\\WidgetForge\\media\\close.tga")
-    f.warnTex:SetVertexColor(1, 0.1, 0.1, 1)
-    f.warnTex:Hide()
-
     f.countBadge = CreateFrame("Frame", nil, f, "BackdropTemplate")
     f.countBadge:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 1)
     f.countBadge:SetSize(13, 13)
@@ -444,41 +623,69 @@ local function CreateIconSlotFrame(container)
     f.label:SetJustifyH("CENTER")
     f.label:Hide()
 
+    f.hoverPanel = CreateFrame("Frame", nil, f, "BackdropTemplate")
+    f.hoverPanel:SetFrameStrata("TOOLTIP")
+    f.hoverPanel:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 0, 6)
+    f.hoverPanel:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
+        insets = { left = 0, right = 0, top = 0, bottom = 0 }
+    })
+    f.hoverPanel:SetBackdropColor(0, 0, 0, 0)
+    f.hoverPanel:SetBackdropBorderColor(0, 0, 0, 0)
+    f.hoverPanel:EnableMouse(true)
+    f.hoverPanel:Hide()
+    f.hoverIcons = {}
+    f.hoveringIcon = false
+    f.hoveringPanel = false
+    f.hoverHideTimer = nil
+    f.hoverSignature = nil
+
+    local function CancelHoverHide(self) CancelIconHoverHide(self) end
+    local function ScheduleHoverHide(self) ScheduleIconHoverHide(self, 0.5) end
+    local function UpdateHoverPanel(self, def) UpdateIconHoverPanel(self, def) end
+
     f:EnableMouse(true)
     f:SetScript("OnEnter", function(self)
+        if self.isPreview then
+            if self.hoverPanel then self.hoverPanel:Hide() end
+            if GameTooltip:IsOwned(self) then GameTooltip:Hide() end
+            return
+        end
+        self.hoveringIcon = true
+        CancelHoverHide(self)
         if not self.slotDef then return end
-        local def = self.slotDef
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:ClearLines()
-        GameTooltip:AddLine(def.label or def.id, 1, 1, 1)
-
-        if def.type == "BUFF" then
-            local active, name = def.checkFn()
-            if active then
-                GameTooltip:AddLine("|cff00ff00Active: " .. (name or "Unknown") .. "|r")
-            else
-                GameTooltip:AddLine("|cffff4444Buff not active!|r")
-            end
-        elseif def.type == "COUNT" then
-            local count = def.countFn()
-            local col = count >= (def.minWarn or 1) and "|cff00ff00" or "|cffff4444"
-            GameTooltip:AddLine(col .. "Count: " .. count .. "|r")
-        elseif def.type == "TRINKET" then
-            local _, _, itemLink = GetTrinketInfo(def.trinketSlot)
-            if itemLink then
-                GameTooltip:SetHyperlink(itemLink)
-            else
-                GameTooltip:AddLine("|cffff4444No trinket equipped!|r")
-            end
+        if GameTooltip:IsOwned(self) then GameTooltip:Hide() end
+        local opened = UpdateHoverPanel(self, self.slotDef)
+        if opened then
+            if GameTooltip:IsOwned(self) then GameTooltip:Hide() end
+            return
         end
-
-        if def.tooltip then
-            GameTooltip:AddLine("|cff888888" .. def.tooltip .. "|r")
+        if self.primaryItemID then
+            local elem = self:GetParent() and self:GetParent().elem or {}
+            local direction = elem.direction or "LEFT_TO_RIGHT"
+            local isVerticalFlow = (direction == "TOP_TO_BOTTOM" or direction == "BOTTOM_TO_TOP")
+            GameTooltip:SetOwner(self, isVerticalFlow and "ANCHOR_TOP" or "ANCHOR_BOTTOM")
+            GameTooltip:ClearLines()
+            GameTooltip:AddLine(self.primaryItemName or ("Item ID: " .. tostring(self.primaryItemID)), 1, 1, 1)
+            GameTooltip:AddLine("Count: " .. tostring(self.primaryItemCount or 0), 0.75, 0.9, 1)
+            GameTooltip:Show()
         end
-        GameTooltip:Show()
     end)
     f:SetScript("OnLeave", function(self)
+        self.hoveringIcon = false
         if GameTooltip:IsOwned(self) then GameTooltip:Hide() end
+        ScheduleHoverHide(self)
+    end)
+    f.hoverPanel:SetScript("OnEnter", function()
+        f.hoveringPanel = true
+        CancelHoverHide(f)
+    end)
+    f.hoverPanel:SetScript("OnLeave", function()
+        if GameTooltip:IsOwned(f.hoverPanel) then GameTooltip:Hide() end
+        f.hoveringPanel = false
+        ScheduleHoverHide(f)
     end)
 
     return f
@@ -532,15 +739,13 @@ local function ApplyIconStyle(f, elem)
 
     f.tex:SetTexCoord(zoom, 1 - zoom, zoom, 1 - zoom)
 
-    local warnSize = math.max(10, math.floor(size * 0.4))
-    f.warnTex:SetSize(warnSize, warnSize)
-
     local badgeSize = math.max(11, math.floor(size * 0.34))
     local badgeInset = math.max(1, bSize)
     f.countBadge:ClearAllPoints()
     f.countBadge:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -badgeInset, badgeInset)
     f.countBadge:SetSize(badgeSize, badgeSize)
-    f.countText:SetFont("Fonts\\FRIZQT__.TTF", math.max(7, math.floor(size * 0.22)), "OUTLINE")
+    local countFontSize = elem.countFontSize or math.max(7, math.floor(size * 0.22))
+    f.countText:SetFont("Fonts\\FRIZQT__.TTF", countFontSize, "OUTLINE")
 
     if elem.showLabel then
         f.label:SetPoint("BOTTOM", f, "BOTTOM", 0, -(bSize + 2))
@@ -568,6 +773,10 @@ local function UpdateSlotFrame(iconFrame, slotDef, elem)
     if not slotDef then iconFrame:Hide(); return end
 
     iconFrame.slotDef = slotDef
+    iconFrame.isPreview = false
+    iconFrame.primaryItemID = nil
+    iconFrame.primaryItemName = nil
+    iconFrame.primaryItemCount = nil
     iconFrame:Show()
 
     local showCount = (elem.showCount ~= false)
@@ -581,7 +790,6 @@ local function UpdateSlotFrame(iconFrame, slotDef, elem)
         end
         iconFrame.tex:SetVertexColor(1, 1, 1, 1)
         iconFrame.overlay:Hide()
-        iconFrame.warnTex:Hide()
         if elem.showBorder ~= false then
             iconFrame:SetBackdropBorderColor(unpack(colorOk))
         end
@@ -594,32 +802,76 @@ local function UpdateSlotFrame(iconFrame, slotDef, elem)
         iconFrame.tex:SetVertexColor(0.82, 0.82, 0.82, 1)
         iconFrame.overlay:SetColorTexture(0, 0, 0, 0.18)
         iconFrame.overlay:Show()
-        iconFrame.warnTex:Hide()
         if elem.showBorder ~= false then
             iconFrame:SetBackdropBorderColor(unpack(colorWarn))
         end
     end
 
     if slotDef.type == "BUFF" then
-        iconFrame.tex:SetTexture(slotDef.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+        local primary, totalOwned = nil, 0
+        if slotDef.itemIDs and #slotDef.itemIDs > 0 then
+            primary, totalOwned = GetPrimaryOwnedItem(slotDef.itemIDs)
+        end
+        if primary and primary.icon then
+            iconFrame.tex:SetTexture(primary.icon)
+            iconFrame.primaryItemID = primary.id
+            iconFrame.primaryItemName = primary.name
+            iconFrame.primaryItemCount = primary.count
+        else
+            iconFrame.tex:SetTexture(slotDef.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+        end
         local active, _, _, stacks = slotDef.checkFn()
-        if showCount and slotDef.id == "flask" then
-            local cnt = 0
-            if active then
-                cnt = tonumber(stacks) or 1
-                if cnt < 1 then cnt = 1 end
-            end
-            local col = active and "|cff66ff66" or "|cffff8080"
+        local isConsumableBuff = (slotDef.id == "flask" or slotDef.id == "food")
+        local cnt = (primary and primary.count) or 0
+        if showCount and isConsumableBuff then
+            local col = cnt > 0 and "|cff66ff66" or "|cffff8080"
             SetCountBadge(iconFrame, col .. cnt .. "|r")
         else
             SetCountBadge(iconFrame, "")
+        end
+
+        if isConsumableBuff and totalOwned > 0 then
+            -- Inventory availability is enough to mark slot as ready.
+            if iconFrame.tex and iconFrame.tex.SetDesaturated then
+                iconFrame.tex:SetDesaturated(false)
+            end
+            iconFrame.tex:SetVertexColor(1, 1, 1, 1)
+            iconFrame.overlay:Hide()
+            if elem.showBorder ~= false then
+                iconFrame:SetBackdropBorderColor(unpack(colorOk))
+            end
+            iconFrame.label:SetText(slotDef.label or "")
+            iconFrame:SetAlpha(1)
+            return
+        else
+            if showCount and slotDef.id == "flask" then
+                local stackCnt = 0
+                if active then
+                    stackCnt = tonumber(stacks) or 1
+                    if stackCnt < 1 then stackCnt = 1 end
+                end
+                local col = active and "|cff66ff66" or "|cffff8080"
+                SetCountBadge(iconFrame, col .. stackCnt .. "|r")
+            end
         end
         if active then SetOK() else SetWarn() end
         iconFrame.label:SetText(slotDef.label or "")
 
     elseif slotDef.type == "COUNT" then
-        iconFrame.tex:SetTexture(slotDef.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
-        local count   = slotDef.countFn()
+        local primary, totalOwned = nil, nil
+        if slotDef.itemIDs and #slotDef.itemIDs > 0 then
+            primary, totalOwned = GetPrimaryOwnedItem(slotDef.itemIDs)
+        end
+        if primary and primary.icon then
+            iconFrame.tex:SetTexture(primary.icon)
+            iconFrame.primaryItemID = primary.id
+            iconFrame.primaryItemName = primary.name
+            iconFrame.primaryItemCount = primary.count
+        else
+            iconFrame.tex:SetTexture(slotDef.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+        end
+        local count = (primary and primary.count) or (slotDef.countFn and slotDef.countFn() or 0)
+        local statusCount = (totalOwned ~= nil) and totalOwned or count
         local minWarn = slotDef.minWarn or 1
         if showCount then
             local col = count >= minWarn and "|cff66ff66" or "|cffff8080"
@@ -627,7 +879,7 @@ local function UpdateSlotFrame(iconFrame, slotDef, elem)
         else
             SetCountBadge(iconFrame, "")
         end
-        if count >= minWarn then SetOK() else SetWarn() end
+        if statusCount >= minWarn then SetOK() else SetWarn() end
         iconFrame.label:SetText(slotDef.label or "")
 
     elseif slotDef.type == "TRINKET" then
@@ -638,7 +890,6 @@ local function UpdateSlotFrame(iconFrame, slotDef, elem)
         end
         SetCountBadge(iconFrame, "")
         iconFrame.overlay:Hide()
-        iconFrame.warnTex:Hide()
         iconFrame.tex:SetTexture(tex)
         if iconFrame.tex and iconFrame.tex.SetDesaturated then
             iconFrame.tex:SetDesaturated(false)
@@ -688,8 +939,8 @@ end
 
 local PREVIEW_BY_ID = {
     flask       = { icon = "Interface\\Icons\\INV_Potion_93",                   ok = true,  count = 1 },
-    food        = { icon = "Interface\\Icons\\INV_Misc_Food_16",               ok = true  },
-    rune        = { icon = "Interface\\Icons\\INV_Stone_04",                    ok = false },
+    food        = { icon = "Interface\\Icons\\INV_Misc_Food_16",               ok = true,  count = 3 },
+    rune        = { icon = PrepChecker.AugmentRuneIcon or "Interface\\Icons\\INV_Misc_Rune_01", ok = false },
     potion      = { icon = "Interface\\Icons\\INV_Potion_92",                 ok = true,  count = 2 },
     healthstone = { icon = "Interface\\Icons\\INV_Stone_04",                  ok = false, count = 0 },
     trinket1    = { icon = "Interface\\Icons\\INV_Jewelry_Trinket_02",         ok = true  },
@@ -706,6 +957,7 @@ local function RenderPreview(container, slots, elem)
         if i <= #slots then
             local slotDef = slots[i]
             iconFrame.slotDef = slotDef
+            iconFrame.isPreview = true
 
             local p = PREVIEW_BY_ID[slotDef.id] or {}
             local icon = p.icon or slotDef.icon or "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -718,7 +970,6 @@ local function RenderPreview(container, slots, elem)
                 end
                 iconFrame.tex:SetVertexColor(1, 1, 1, 1)
                 iconFrame.overlay:Hide()
-                iconFrame.warnTex:Hide()
                 if elem.showBorder ~= false then
                     iconFrame:SetBackdropBorderColor(unpack(colorOk))
                 end
@@ -729,16 +980,15 @@ local function RenderPreview(container, slots, elem)
                 iconFrame.tex:SetVertexColor(0.82, 0.82, 0.82, 1)
                 iconFrame.overlay:SetColorTexture(0, 0, 0, 0.18)
                 iconFrame.overlay:Show()
-                iconFrame.warnTex:Hide()
                 if elem.showBorder ~= false then
                     iconFrame:SetBackdropBorderColor(unpack(colorWarn))
                 end
             end
 
-            if elem.showCount ~= false and (slotDef.type == "COUNT" or slotDef.id == "flask") then
+            if elem.showCount ~= false and (slotDef.type == "COUNT" or slotDef.id == "flask" or slotDef.id == "food") then
                 local cnt = p.count
                 if cnt == nil then cnt = ok and 1 or 0 end
-                local minWarn = (slotDef.id == "flask") and 1 or (slotDef.minWarn or 1)
+                local minWarn = ((slotDef.id == "flask" or slotDef.id == "food") and 1) or (slotDef.minWarn or 1)
                 local col = (cnt >= minWarn) and "|cff66ff66" or "|cffff8080"
                 SetCountBadge(iconFrame, col .. cnt .. "|r")
             else
@@ -858,26 +1108,26 @@ end
 -- =========================================================================
 
 -- ---------------------------------------------------------------------------
---  Custom ID Manager â€” yardÄ±mcÄ± fonksiyonlar
+--  Custom ID Manager helpers
 --
---  elem'de ID'ler ÅŸu ÅŸekilde saklanÄ±r (her slot iÃ§in ayrÄ± string):
+--  IDs are stored per slot as comma-separated strings:
 --    elem.customFlaskIDs  = "1235057,999999"
 --    elem.customFoodIDs   = "..."
 --    elem.customRuneIDs   = "..."
 --    elem.customPotionIDs = "..."
 --    elem.customItemIDs   = "..."
 --
---  ParseIDString zaten bu formatÄ± okuyor, biz sadece UI'Ä± gÃ¼zelleÅŸtiriyoruz.
+--  ParseIDString already supports this format.
 -- ---------------------------------------------------------------------------
 
--- Slot tanÄ±mlarÄ±: dropdown metni, saklama anahtarÄ±, kÄ±sa renk etiketi
+-- Slot definitions: dropdown label, storage key, and color tag.
 local CUSTOM_ID_SLOTS = {
     { label = "Flask / Phial  (Spell ID)",  key = "customFlaskIDs",  tag = "FLASK",  color = "|cff88ddff" },
     { label = "Food  (Spell ID)",            key = "customFoodIDs",   tag = "FOOD",   color = "|cffaaffaa" },
     { label = "Potion  (Item ID)",           key = "customPotionIDs", tag = "POT",    color = "|cffff9966" },
 }
 
--- VirgÃ¼llÃ¼ string'den ID listesi
+-- Convert a comma-separated string into an ID list.
 local function SplitIDs(str)
     local t = {}
     if not str or str == "" then return t end
@@ -887,25 +1137,25 @@ local function SplitIDs(str)
     return t
 end
 
--- ID listesini virgÃ¼llÃ¼ string'e dÃ¶nÃ¼ÅŸtÃ¼r
+-- Convert an ID list into a comma-separated string.
 local function JoinIDs(t)
     return table.concat(t, ",")
 end
 
--- Belirli bir slot'a ID ekle
+-- Add an ID to a specific slot list.
 local function AddIDToSlot(elem, key, idStr)
     local id = tonumber(idStr)
     if not id then return false end
     local list = SplitIDs(elem[key])
     for _, v in ipairs(list) do
-        if tonumber(v) == id then return false end -- zaten var
+        if tonumber(v) == id then return false end -- already exists
     end
     list[#list + 1] = tostring(id)
     elem[key] = JoinIDs(list)
     return true
 end
 
--- Belirli bir slot'tan ID sil
+-- Remove an ID from a specific slot list.
 local function RemoveIDFromSlot(elem, key, idStr)
     local id = tonumber(idStr)
     if not id then return end
@@ -918,12 +1168,12 @@ local function RemoveIDFromSlot(elem, key, idStr)
 end
 
 -- ---------------------------------------------------------------------------
---  Havuz (pool) oluÅŸturucu
---  TÃ¼m slot'lardaki kayÄ±tlÄ± ID'leri tek bir scrollable listede gÃ¶sterir.
---  Her satÄ±r: [RENK TAG]  ID  [X butonu]
+--  Custom ID pool widget
+--  Shows registered IDs in a scrollable list.
+--  Row format: [TAG] ID [X]
 -- ---------------------------------------------------------------------------
 local POOL_ROW_H   = 22
-local POOL_MAX_VIS = 8   -- kaÃ§ satÄ±r gÃ¶sterilsin (scroll)
+local POOL_MAX_VIS = 8   -- visible row count before scrolling
 
 local function ApplyForgeSkinBackdrop(frame, bgColor, borderColor)
     local skin = _G.ForgeSkin
@@ -967,7 +1217,7 @@ local function HookForgeSkinButton(btn)
 end
 
 local function BuildPoolWidget(parent, elem, refreshFn, onlyKey, viewRows, innerWidth)
-    -- DÄ±ÅŸ Ã§erÃ§eve
+    -- Outer container frame.
     local container = CreateFrame("Frame", nil, parent, "BackdropTemplate")
     ApplyForgeSkinBackdrop(container, {0.05, 0.05, 0.05, 0.85})
 
@@ -975,27 +1225,30 @@ local function BuildPoolWidget(parent, elem, refreshFn, onlyKey, viewRows, inner
     local sf, scrollChild
     local maxVis = viewRows or POOL_MAX_VIS
     local contentW = innerWidth or 330
+    local leftInset = 4
+    local rightInsetForge = 0   -- moved 3px to the right from -4
+    local rightInsetFallback = -19 -- moved 3px to the right from -24
 
     if _G.ForgeSkin and _G.ForgeSkin.CreateScrollFrame then
         sf, scrollChild = _G.ForgeSkin:CreateScrollFrame(container, contentW, maxVis * POOL_ROW_H)
-        sf:SetPoint("TOPLEFT",     container, "TOPLEFT",  4,  -4)
-        sf:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", -4, 4)
+        sf:SetPoint("TOPLEFT",     container, "TOPLEFT",  leftInset,  -4)
+        sf:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", rightInsetForge, 4)
     else
         sf = CreateFrame("ScrollFrame", nil, container, "UIPanelScrollFrameTemplate")
-        sf:SetPoint("TOPLEFT",     container, "TOPLEFT",  4,  -4)
-        sf:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", -24, 4)
+        sf:SetPoint("TOPLEFT",     container, "TOPLEFT",  leftInset,  -4)
+        sf:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", rightInsetFallback, 4)
         scrollChild = CreateFrame("Frame", nil, sf)
         scrollChild:SetWidth(sf:GetWidth() or 330)
         scrollChild:SetHeight(1)
         sf:SetScrollChild(scrollChild)
     end
 
-    -- TÃ¼m satÄ±r frame'lerini saklayan tablo
+    -- Keep row widgets for rebuilds.
     container.rows = {}
 
-    -- Yeniden Ã§iz
+    -- Rebuild list rows.
     function container:Rebuild()
-        -- Eski satÄ±rlarÄ± gizle
+        -- Hide old rows.
         for _, row in ipairs(self.rows) do row:Hide() end
         self.rows = {}
 
@@ -1005,13 +1258,13 @@ local function BuildPoolWidget(parent, elem, refreshFn, onlyKey, viewRows, inner
             if (not onlyKey) or slotDef.key == onlyKey then
             local ids = SplitIDs(elem[slotDef.key])
             for _, idStr in ipairs(ids) do
-                -- SatÄ±r frame
+                -- Row frame.
                 local row = CreateFrame("Frame", nil, scrollChild, "BackdropTemplate")
                 row:SetHeight(POOL_ROW_H)
                 row:SetPoint("TOPLEFT",  scrollChild, "TOPLEFT",  0, -y)
                 row:SetPoint("TOPRIGHT", scrollChild, "TOPRIGHT", 0, -y)
 
-                -- Ã‡ift satÄ±r rengi
+                -- Alternating row color.
                 if (#self.rows % 2 == 0) then
                     ApplyForgeSkinBackdrop(row, {0.10, 0.10, 0.10, 0.7})
                 else
@@ -1039,7 +1292,7 @@ local function BuildPoolWidget(parent, elem, refreshFn, onlyKey, viewRows, inner
                 delTxt:SetText("x")
                 delTxt:SetTextColor(1, 0.35, 0.35, 1)
 
-                -- Closure iÃ§in local kopyalar
+                -- Local copies for click closure.
                 local captureKey = slotDef.key
                 local captureID  = idStr
                 delBtn:SetScript("OnClick", function()
@@ -1055,7 +1308,7 @@ local function BuildPoolWidget(parent, elem, refreshFn, onlyKey, viewRows, inner
             end
         end
 
-        -- HiÃ§ kayÄ±t yoksa "boÅŸ" mesajÄ±
+        -- Empty state.
         if #self.rows == 0 then
             local empty = scrollChild:CreateFontString(nil, "OVERLAY")
             local skin = _G.ForgeSkin
@@ -1069,7 +1322,7 @@ local function BuildPoolWidget(parent, elem, refreshFn, onlyKey, viewRows, inner
             y = POOL_ROW_H
         end
 
-        -- ScrollChild yÃ¼ksekliÄŸini gÃ¼ncelle
+        -- Update scroll child height.
         local visH = math.min(#self.rows, maxVis) * POOL_ROW_H
         scrollChild:SetHeight(math.max(y, 1))
         container:SetHeight(visH + 8)
@@ -1079,7 +1332,7 @@ local function BuildPoolWidget(parent, elem, refreshFn, onlyKey, viewRows, inner
 end
 
 -- ---------------------------------------------------------------------------
---  CreateSettings â€” ana fonksiyon
+--  CreateSettings main entry
 -- ---------------------------------------------------------------------------
 function PrepChecker:CreateSettings(parentFrame)
     local f        = parentFrame
@@ -1111,7 +1364,7 @@ function PrepChecker:CreateSettings(parentFrame)
         end
     end
 
-    -- â”€â”€ GÃ¶rÃ¼nÃ¼r Slotlar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    -- Visible slots
     sb:AddHeader("Visible Slots")
     sb:AddSwitch("showFlask",       "Flask / Phial Buff",        true,  elem, RefreshLive)
     sb:AddSwitch("showFood",        "Well Fed Food Buff",        true,  elem, RefreshLive)
@@ -1121,7 +1374,7 @@ function PrepChecker:CreateSettings(parentFrame)
     sb:AddSwitch("showTrinket1",    "Trinket Slot 1 (Slot 13)",  true,  elem, RefreshLive)
     sb:AddSwitch("showTrinket2",    "Trinket Slot 2 (Slot 14)",  true,  elem, RefreshLive)
 
-    -- â”€â”€ Ä°kon GÃ¶rÃ¼nÃ¼mÃ¼ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    -- Icon appearance
     sb:AddHeader("Icon Appearance")
     local dirList = {
         {text = "Left to Right", value = "LEFT_TO_RIGHT"},
@@ -1136,7 +1389,7 @@ function PrepChecker:CreateSettings(parentFrame)
     sb:AddSwitch("showCount", "Show Count (Pot / HS / Flask)", true,  elem, RefreshLive)
     sb:AddSwitch("showLabel", "Show Label Under Icons", false, elem, RefreshLive)
 
-    -- â”€â”€ KenarlÄ±k & Renkler â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    -- Border and status colors
     sb:AddHeader("Border & Status Colors")
     sb:AddSwitch("showBorder",  "Show Status Border",        true,  elem, RefreshLive)
     sb:AddSlider("borderSize",  "Border Thickness", 1, 5, 1, 1,    elem, RefreshLive)
@@ -1144,14 +1397,15 @@ function PrepChecker:CreateSettings(parentFrame)
     sb:AddColor("colorWarn",    "Warn Color (missing)",          {1.0, 0.15, 0.15, 1}, elem, RefreshLive)
     sb:AddColor("colorNeutral", "Neutral Color (trinkets)",      {0.4, 0.4, 0.8, 1},  elem, RefreshLive)
 
-    -- â”€â”€ EÅŸikler â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    -- Thresholds
     sb:AddHeader("Thresholds")
-    sb:AddSlider("potionWarnBelow", "Potion Warning Below (count)", 1, 10, 1, 1, elem, RefreshLive, true)
+    sb:AddSlider("potionWarnBelow", "Potion Warning Below", 1, 10, 1, 1, elem, RefreshLive)
+    sb:AddSlider("countFontSize", "Count Font Size", 7, 20, 1, 9, elem, RefreshLive)
 
     sb:Finish()
 
     -- ======================================================================
-    --  Custom ID YÃ¶neticisi  (settings builder bittikten sonra ekleniyor)
+    --  Custom ID Manager section (appended after SettingsBuilder content)
     -- ======================================================================
     if not f.content then return end
 
@@ -1168,7 +1422,7 @@ function PrepChecker:CreateSettings(parentFrame)
     local sectionY = 0
     local skin = _G.ForgeSkin
 
-    -- â”€â”€ BÃ¶lÃ¼m BaÅŸlÄ±ÄŸÄ± â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    -- Section title
     local sectHdr = f.content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     sectHdr:SetPoint("TOPLEFT", stdArea, "TOPLEFT", 0, sectionY)
     sectHdr:SetFontObject(GameFontNormalLarge)
@@ -1185,7 +1439,7 @@ function PrepChecker:CreateSettings(parentFrame)
     divLine:SetColorTexture(0.3, 0.3, 0.3, 0.6)
     sectionY = sectionY - 10
 
-    -- â”€â”€ Dropdown  (slot tÃ¼rÃ¼ seÃ§ici) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    -- Slot selector dropdown
     local fontPath = (skin and skin.Constants and skin.Constants.FONT_NORMAL) or "Fonts\\FRIZQT__.TTF"
 
     local panel = CreateFrame("Frame", nil, f.content)
@@ -1353,25 +1607,28 @@ function PrepChecker:CreateSettings(parentFrame)
     end
 
     local poolH = (poolRows * POOL_ROW_H) + 8
-    sectionY = poolsTopY - poolH - 10
-
-    local helpTxt = f.content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    helpTxt:SetPoint("TOPLEFT", stdArea, "TOPLEFT", 0, sectionY)
-    helpTxt:SetTextColor(0.5, 0.5, 0.5, 1)
-    helpTxt:SetJustifyH("LEFT")
-    helpTxt:SetWidth(listAvailW)
-    helpTxt:SetText(
-        "To find Spell IDs:\n" ..
-        "/run for i=1,40 do local d=C_UnitAuras.GetBuffDataByIndex(\"player\",i) if d then print(d.spellId, d.name) end end\n" ..
-        "Run the macro after you gain the buff."
-    )
-    sectionY = sectionY - 42
+    sectionY = poolsTopY - poolH
 
     -- Merge builder depth + custom section depth for final canvas height.
     curY = (sb.y or -10) + sectionY
 
-    -- Ä°Ã§erik yÃ¼ksekliÄŸini ayarla
-    if f.content.SetHeight then
-        f.content:SetHeight(math.abs(curY) + 40)
+    -- Use actual rendered geometry to avoid leftover bottom whitespace.
+    local function ApplyFinalContentHeight()
+        if not f or not f.content or not f.content.SetHeight or not stdArea then return end
+        local contentTop = f.content:GetTop()
+        local areaBottom = stdArea:GetBottom()
+        if contentTop and areaBottom then
+            local h = math.max(1, math.floor((contentTop - areaBottom) + 8))
+            f.content:SetHeight(h)
+        else
+            f.content:SetHeight(math.abs(curY) + 4)
+        end
+    end
+
+    ApplyFinalContentHeight()
+    if C_Timer and C_Timer.After then
+        C_Timer.After(0, ApplyFinalContentHeight)
     end
 end
+
+

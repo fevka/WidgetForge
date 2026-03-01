@@ -342,12 +342,8 @@ function InterruptSync:OnSpellcast(unit, castGUID, spellID)
     -- Always sync via addon channel (works in combat)
     self:SendSync(spellID, duration)
     
-    -- Only announce in chat outside of combat
-    if not InCombatLockdown() then
-        self:AnnounceInterrupt(spellID, duration)
-    else
-        if self.DebugMode then print("[WF_INT_SYNC DEBUG] Skipping chat announce - in combat, but synced via addon") end
-    end
+    -- Always call announce path; it handles combat-safe local render internally.
+    self:AnnounceInterrupt(spellID, duration)
 end
 
 function InterruptSync:OnPartyChat(text, playerName, ...)
@@ -448,6 +444,7 @@ function InterruptSync:AnnounceInterrupt(spellID, duration)
     -- Find the element config (use the first instance's elem as a safe bet for global-ish settings)
     local elem = self.Instances[1] and self.Instances[1].elem
     if not elem or not elem.announceInterrupts then return end
+    if not IsInGroup() then return end
     
     if not duration or duration <= 0 then duration = 15 end
     
@@ -456,21 +453,59 @@ function InterruptSync:AnnounceInterrupt(spellID, duration)
     local spellName = spellInfo and spellInfo.name or "Interrupt"
     local msg = string.format("Interrupted with %s! (CD: %ds)", spellName, duration)
     
-    -- Safety check for channel validity
-    if channel == "PARTY" and not IsInGroup() then return end
-    if (channel == "INSTANCE_CHAT" or channel == "INSTANCE") and not IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then 
-        if IsInGroup() then channel = "PARTY" else return end
+    -- Resolve target channel for sending (out of combat). Local render can still work without a valid channel.
+    local canSend = true
+    if channel == "PARTY" and not IsInGroup() then
+        canSend = false
+    end
+    if (channel == "INSTANCE_CHAT" or channel == "INSTANCE") and not IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then
+        if IsInGroup() then
+            channel = "PARTY"
+        else
+            canSend = false
+        end
     end
     if InCombatLockdown() then
         -- VIRTUAL CHAT (Render locally to bypass Blizzard restrictions)
-        local channelName = (channel == "INSTANCE_CHAT") and "Instance" or "Party"
-        local color = (channel == "INSTANCE_CHAT") and "|cffFF7F00" or "|cffAAAAFF" 
+        local channelName = (channel == "INSTANCE_CHAT" or channel == "INSTANCE") and "Instance" or "Party"
+        if not canSend then channelName = "Local" end
+        local color = (channel == "INSTANCE_CHAT" or channel == "INSTANCE") and "|cffFF7F00" or "|cffAAAAFF"
         local chatPrefix = color .. "[" .. channelName .. "] |r|cff69CCF0" .. UnitName("player") .. ": |r"
-        DEFAULT_CHAT_FRAME:AddMessage(chatPrefix .. msg)
+        if DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.AddMessage then
+            DEFAULT_CHAT_FRAME:AddMessage(chatPrefix .. msg)
+        else
+            print(msg)
+        end
         if self.DebugMode then print("[WF_INT_SYNC DEBUG] Virtual Announcing: " .. msg .. " to " .. channel) end
     else
+        if not canSend then
+            -- Outside combat we only send real chat messages to valid channels.
+            if self.DebugMode then print("[WF_INT_SYNC DEBUG] Skipping SendChatMessage - invalid channel context") end
+            return
+        end
         if self.DebugMode then print("[WF_INT_SYNC DEBUG] Announcing: " .. msg .. " to " .. channel) end
         SendChatMessage(msg, channel)
+    end
+end
+
+function InterruptSync:RenderSyncedInterrupt(sender, spellID, duration)
+    local elem = self.Instances[1] and self.Instances[1].elem
+    if not elem or not elem.announceInterrupts then return end
+    if not IsInGroup() then return end
+
+    local channel = elem.announceChannel or "PARTY"
+    local channelName = (channel == "INSTANCE_CHAT" or channel == "INSTANCE") and "Instance" or "Party"
+    local color = (channel == "INSTANCE_CHAT" or channel == "INSTANCE") and "|cffFF7F00" or "|cffAAAAFF"
+
+    local spellInfo = C_Spell.GetSpellInfo(spellID)
+    local spellName = spellInfo and spellInfo.name or "Interrupt"
+    local msg = string.format("Interrupted with %s! (CD: %ds)", spellName, duration or 15)
+    local chatPrefix = color .. "[" .. channelName .. "] |r|cff69CCF0" .. (sender or "Unknown") .. ": |r"
+
+    if DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.AddMessage then
+        DEFAULT_CHAT_FRAME:AddMessage(chatPrefix .. msg)
+    else
+        print(msg)
     end
 end
 
@@ -527,6 +562,7 @@ function InterruptSync:OnCommReceived(prefix, text, channel, sender)
             for _, container in ipairs(self.Instances) do
                 self:UpdateBar(container, sender, spellID, adjDur)
             end
+            self:RenderSyncedInterrupt(sender, spellID, duration)
         end
     end
 end
