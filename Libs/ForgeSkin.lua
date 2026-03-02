@@ -21,7 +21,7 @@ Skin.Colors = {
 }
 
 Skin.Constants = {
-    FONT_NORMAL = "Fonts\\FRIZQT__.TTF",
+    FONT_NORMAL = "Interface\\AddOns\\WidgetForge\\media\\Font\\Righteous.TTF",
     FONT_SIZE_NORMAL = 12,
     FONT_SIZE_SMALL = 10,
     BACKDROP_EDGE_SIZE = 1,
@@ -44,6 +44,7 @@ Skin.Media = {
         ["Arial Narrow"] = "Fonts\\ARIALN.TTF",
         ["Morpheus"] = "Fonts\\MORPHEUS.TTF",
         ["Skurri"] = "Fonts\\skurri.ttf",
+        ["Righteous"] = "Interface\\AddOns\\WidgetForge\\media\\Font\\Righteous.TTF",
     },
     Outlines = {
         {text = "None", value = ""},
@@ -53,6 +54,15 @@ Skin.Media = {
         {text = "Mono+Outline", value = "MONOCHROME,OUTLINE"},
     }
 }
+
+-- Merge optional user-defined fonts from WidgetConstants.lua
+if type(WIDGETFORGE_CUSTOM_FONTS) == "table" then
+    for name, path in pairs(WIDGETFORGE_CUSTOM_FONTS) do
+        if type(name) == "string" and name ~= "" and type(path) == "string" and path ~= "" then
+            Skin.Media.Fonts[name] = path
+        end
+    end
+end
 
 -------------------------------------------------------------------------
 -- COLOR UTILITIES
@@ -159,7 +169,7 @@ function Skin:CreateSwitch(parent, labelText, checked, callback, onTextStr, offT
     frame.label = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     frame.label:SetPoint("LEFT", track, "RIGHT", 10, 0)
     frame.label:SetText(labelText)
-    frame.label:SetFont(Skin.Constants.FONT_NORMAL, 12, "OUTLINE")
+    frame.label:SetFont(Skin.Constants.FONT_NORMAL, 12, "")
     frame.label:SetTextColor(unpack(Skin.Colors.text))
 
     -- Hareket ve Durum Ayarları
@@ -247,7 +257,7 @@ function Skin:CreateButton(parent, text, width, height)
     btn.text = btn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     btn.text:SetPoint("CENTER")
     btn.text:SetText(text)
-    btn.text:SetFont(Skin.Constants.FONT_NORMAL, Skin.Constants.FONT_SIZE_NORMAL, "OUTLINE")
+    btn.text:SetFont(Skin.Constants.FONT_NORMAL, Skin.Constants.FONT_SIZE_NORMAL, "")
     btn.text:SetTextColor(unpack(Skin.Colors.text))
     
     btn:SetScript("OnEnter", function(self)
@@ -281,7 +291,7 @@ function Skin:CreateCheckbox(parent, text, checked, callback)
     cb.label = cb:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     cb.label:SetPoint("LEFT", cb.box, "RIGHT", 8, 0)
     cb.label:SetText(text)
-    cb.label:SetFont(Skin.Constants.FONT_NORMAL, 11, "OUTLINE")
+    cb.label:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
     cb.label:SetTextColor(unpack(Skin.Colors.text))
     
     cb.checked = checked; cb.callback = callback
@@ -318,7 +328,7 @@ function Skin:CreateSlider(parent, min, max, step, value, callback, width)
     slider.min = min or 0; slider.max = max or 100; slider.step = step or 1; slider.value = value or slider.min; slider.callback = callback
     local edit = CreateFrame("EditBox", nil, slider, "BackdropTemplate")
     edit:SetSize(40, 20); edit:SetPoint("LEFT", slider.track, "RIGHT", 5, 0)
-    edit:SetFont(Skin.Constants.FONT_NORMAL, 10, "OUTLINE"); edit:SetAutoFocus(false); edit:SetJustifyH("CENTER")
+    edit:SetFont(Skin.Constants.FONT_NORMAL, 10, ""); edit:SetAutoFocus(false); edit:SetJustifyH("CENTER")
     self:ApplyBackdrop(edit); edit:SetBackdropColor(0, 0, 0, 0.5)
     slider.editBox = edit -- Expose to parent
     
@@ -564,9 +574,9 @@ function Skin:CreateDropdown(parent, width, items, selectedValue, callback)
             
             -- Font check
             if type(item)=="table" and item.font then
-                btn.textObj:SetFont(item.font, 12, "OUTLINE")
+                btn.textObj:SetFont(item.font, 12, "")
             else
-                btn.textObj:SetFont("Fonts\\FRIZQT__.TTF", 10, "")
+                btn.textObj:SetFont(Skin.Constants.FONT_NORMAL, 10, "")
             end
             
             SetText(btn.textObj, label, finalWidth - 10)
@@ -1443,7 +1453,7 @@ function Skin:CreateInputDialog(title, placeholder, onAccept, onCancel)
     
     local input = CreateFrame("EditBox", nil, inputFrame)
     input:SetAllPoints()
-    input:SetFont(Skin.Constants.FONT_NORMAL, 12, "OUTLINE")
+    input:SetFont(Skin.Constants.FONT_NORMAL, 12, "")
     input:SetTextInsets(8, 8, 0, 0)
     input:SetAutoFocus(true)
     input:SetText(placeholder or "")
@@ -1510,7 +1520,7 @@ function Skin:CreateConfirmDialog(title, message, onConfirm, onCancel)
     msgText:SetPoint("TOP", 0, -55)
     msgText:SetWidth(360)
     msgText:SetText(message)
-    msgText:SetFont(Skin.Constants.FONT_NORMAL, 13, "OUTLINE")
+    msgText:SetFont(Skin.Constants.FONT_NORMAL, 13, "")
     msgText:SetTextColor(1, 1, 1, 1)
     msgText:SetJustifyH("CENTER")
     msgText:SetWordWrap(true)
@@ -1757,7 +1767,9 @@ if LSM then
         LSM:Register("font", name, path)
     end
     for _, name in ipairs(LSM:List("font")) do
-        Skin.Media.Fonts[name] = LSM:Fetch("font", name)
+        if not Skin.Media.Fonts[name] then
+            Skin.Media.Fonts[name] = LSM:Fetch("font", name)
+        end
     end
 end
 

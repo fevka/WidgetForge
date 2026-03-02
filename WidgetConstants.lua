@@ -23,18 +23,28 @@ WIDGETFORGE_CONSTANTS = {
     SCROLL_WHEEL_SPEED = 20,
     
     -- Version
-    VERSION = "1.0.0",
+    VERSION = "1.1.1",
     
     -- Debug
     DEBUG_MODE = false -- Enable Debug Temporarily
 }
+
+-- Optional custom fonts.
+-- Add your fonts here and place the files under:
+-- Interface\AddOns\WidgetForge\media\Font\
+-- Example:
+-- WIDGETFORGE_CUSTOM_FONTS = {
+--     ["My Font 1"] = "Interface\\AddOns\\WidgetForge\\media\\Font\\MyFont1.ttf",
+--     ["My Font 2"] = "Interface\\AddOns\\WidgetForge\\media\\Font\\MyFont2.ttf",
+-- }
+WIDGETFORGE_CUSTOM_FONTS = WIDGETFORGE_CUSTOM_FONTS or {}
 
 -- Comprehensive Spec Data (ID -> Main Stat)
 WIDGETFORGE_SPECS = {
     -- Death Knight (Str)
     [250] = "Strength", [251] = "Strength", [252] = "Strength",
     -- Demon Hunter (Agi)
-    [577] = "Agility", [581] = "Agility",
+    [577] = "Agility", [581] = "Agility", [1480] = "Agility",
     -- Druid (Bal/Resto=Int, Feral/Guard=Agi)
     [102] = "Intellect", [103] = "Agility", [104] = "Agility", [105] = "Intellect",
     -- Evoker (Int)

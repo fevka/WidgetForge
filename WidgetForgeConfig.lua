@@ -19,9 +19,9 @@ Config.DefaultSettings = {
             borderColor = {0.2, 0.2, 0.2, 1},
             padding = 10,
             elements = {
-                [1] = { type = "FPS", label = "FPS", color = {1,1,1,1}, font="Friz Quadrata", size=14, outline="OUTLINE" },
-                [2] = { type = "MS", label = "MS", color = {1,1,1,1}, font="Friz Quadrata", size=14, outline="OUTLINE" },
-                [3] = { type = "Clock", label = "Time", color = {1,0.8,0,1}, font="Friz Quadrata", size=14, outline="OUTLINE" }
+                [1] = { type = "FPS", label = "FPS", color = {1,1,1,1}, font="Righteous", size=14, outline="OUTLINE" },
+                [2] = { type = "MS", label = "MS", color = {1,1,1,1}, font="Righteous", size=14, outline="OUTLINE" },
+                [3] = { type = "Clock", label = "Time", color = {1,0.8,0,1}, font="Righteous", size=14, outline="OUTLINE" }
             }
         }
     }
@@ -33,8 +33,8 @@ Config.ElementTypes = {
     "Crit", "Haste", "Mastery", "Versatility", 
     "Avoidance", "Leech", "Speed", "Run Speed", "Dodge", "Parry", "Armor", "Max HP",
     "Gold", "Zone", "Coords", "Item Level", "Combat Timer", "XP",
-    "Dragonriding", "Skill Stream", "Dummy", "Guild", "Friends", "Difficulty", "Target Castbar", "Talent Loadout", "Custom Code", 
-    "Interrupt Sync", "VaultEye", "CCPartySync", "PrepChecker"
+    "Dragonriding", "Skill Stream", "Guild", "Friends", "Difficulty", "Target Castbar", "Talent Loadout", "Custom Code", 
+    "Interrupt Sync", "VaultEye", "CCPartySync", "PrepChecker", "Move Widget"
 }
 
 Config.Presets = {
@@ -217,9 +217,22 @@ function Config:OpenConfigWindow()
     lblPreset:SetPoint("BOTTOMLEFT", ddPreset, "TOPLEFT", 0, 5)
     f.ddPreset = ddPreset 
     
-    local btnSavePreset = Skin:CreateButton(f, "+", 25, 25)
-    btnSavePreset.text:SetFont("Fonts\\FRIZQT__.TTF", 22, "THICK")
+    local btnSavePreset = CreateFrame("Button", nil, f)
+    btnSavePreset:SetSize(25, 25)
     btnSavePreset:SetPoint("LEFT", ddPreset, "RIGHT", 5, 0)
+    local plusIcon = btnSavePreset:CreateTexture(nil, "OVERLAY")
+    plusIcon:SetSize(18, 18)
+    plusIcon:SetPoint("CENTER")
+    plusIcon:SetTexture("Interface\\AddOns\\WidgetForge\\media\\plus.tga")
+    plusIcon:SetVertexColor(1, 1, 1, 1)
+    btnSavePreset:SetScript("OnEnter", function()
+        plusIcon:SetVertexColor(0, 0.8, 1, 1)
+    end)
+    btnSavePreset:SetScript("OnLeave", function()
+        plusIcon:SetVertexColor(1, 1, 1, 1)
+    end)
+    btnSavePreset:SetScript("OnMouseDown", function() plusIcon:SetPoint("CENTER", 1, -1) end)
+    btnSavePreset:SetScript("OnMouseUp", function() plusIcon:SetPoint("CENTER", 0, 0) end)
     btnSavePreset:SetScript("OnClick", function()
         local selIndex = Config.SelectedBarIndex
         if not selIndex or not WidgetForgeDB.bars[selIndex] then print("Select a bar first."); return end
@@ -235,9 +248,22 @@ function Config:OpenConfigWindow()
         end)
     end)
     
-    local btnDelPreset = Skin:CreateButton(f, "-", 25, 25)
-    btnDelPreset.text:SetFont("Fonts\\FRIZQT__.TTF", 22, "THICK")
+    local btnDelPreset = CreateFrame("Button", nil, f)
+    btnDelPreset:SetSize(25, 25)
     btnDelPreset:SetPoint("LEFT", btnSavePreset, "RIGHT", 2, 0)
+    local minusIcon = btnDelPreset:CreateTexture(nil, "OVERLAY")
+    minusIcon:SetSize(18, 18)
+    minusIcon:SetPoint("CENTER")
+    minusIcon:SetTexture("Interface\\AddOns\\WidgetForge\\media\\minus.tga")
+    minusIcon:SetVertexColor(1, 1, 1, 1)
+    btnDelPreset:SetScript("OnEnter", function()
+        minusIcon:SetVertexColor(1, 0.2, 0.2, 1)
+    end)
+    btnDelPreset:SetScript("OnLeave", function()
+        minusIcon:SetVertexColor(1, 1, 1, 1)
+    end)
+    btnDelPreset:SetScript("OnMouseDown", function() minusIcon:SetPoint("CENTER", 1, -1) end)
+    btnDelPreset:SetScript("OnMouseUp", function() minusIcon:SetPoint("CENTER", 0, 0) end)
     btnDelPreset:SetScript("OnClick", function()
         if not WidgetForgeDB.presets or not next(WidgetForgeDB.presets) then print("|cffff0000No custom presets.|r"); return end
         local customList = {}
@@ -408,7 +434,7 @@ function Config:SelectBar(index)
     local isExclusive = false
     local exclusiveType = nil
     for _, e in ipairs(bar.elements) do
-        if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" or e.type == "VaultEye" or e.type == "CCPartySync" or e.type == "PrepChecker" then 
+        if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" or e.type == "VaultEye" or e.type == "CCPartySync" or e.type == "PrepChecker" or e.type == "Move Widget" then 
             isExclusive = true
             exclusiveType = e.type
             break 
@@ -468,7 +494,7 @@ function Config:SelectBar(index)
     ebNameFrame:SetSize(235, 25); ebNameFrame:SetPoint("TOPLEFT", 45, yOffsetBoxes)
     Skin:ApplyBackdrop(ebNameFrame); ebNameFrame:SetBackdropColor(0,0,0,0.5); ebNameFrame:SetBackdropBorderColor(0.2, 0.2, 0.2, 1)
     local ebName = CreateFrame("EditBox", nil, ebNameFrame)
-    ebName:SetAllPoints(ebNameFrame); ebName:SetFont(Skin.Constants.FONT_NORMAL, 12, "OUTLINE")
+    ebName:SetAllPoints(ebNameFrame); ebName:SetFont(Skin.Constants.FONT_NORMAL, 12, "")
     ebName:SetTextInsets(5, 5, 0, 0); ebName:SetAutoFocus(false); ebName:SetText(bar.name)
     ebName:SetMaxLetters(40) 
     ebName:SetScript("OnEnterPressed", function(self) 
@@ -525,7 +551,7 @@ function Config:SelectBar(index)
     settingsAcc:SetExpanded(Config.SettingsAccordionExpanded)
     
     -- Exclisive widget'larda BAR CONFIGURATION kısmını Cursor Ring ve Retirement Home için tamamen gizle
-    if exclusiveType == "Cursor Ring" or exclusiveType == "Retirement Home" then
+    if exclusiveType == "Cursor Ring" or exclusiveType == "Retirement Home" or exclusiveType == "Move Widget" then
         settingsAcc:Hide()
     end
     
@@ -549,7 +575,7 @@ function Config:SelectBar(index)
         sb:AddSlider("padding", "Spacing", -10, 50, 1, 5, bar, function(v) WidgetForge:UpdateAvailableBars() end)
     end
 
-    if exclusiveType ~= "Cursor Ring" and exclusiveType ~= "Retirement Home" then
+    if exclusiveType ~= "Cursor Ring" and exclusiveType ~= "Retirement Home" and exclusiveType ~= "Move Widget" then
         sb:AddHeader("Position")
         sb:AddSlider("x", "X Offset", -math.floor(GetScreenWidth()/2), math.floor(GetScreenWidth()/2), 1, 0, bar, function(v) 
             if Config.isUpdatingScale then return end
@@ -593,7 +619,7 @@ function Config:SelectBar(index)
     if bar.elements and #bar.elements > 0 then
         barMode = "STANDARD"
         for _, e in ipairs(bar.elements) do
-            if e.type == "Dragonriding" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" or e.type == "VaultEye" or e.type == "CCPartySync" or e.type == "PrepChecker" then 
+            if e.type == "Dragonriding" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" or e.type == "VaultEye" or e.type == "CCPartySync" or e.type == "PrepChecker" or e.type == "Move Widget" then 
                 barMode = "STRICT"
                 break 
             elseif OverlayTypes[e.type] then
@@ -609,7 +635,7 @@ function Config:SelectBar(index)
         { name = "Navigation", elements = { "Zone", "Coords" } },
         { name = "Social", elements = { "Guild", "Friends" } },
         { name = "Dungeon & Raid", elements = { "Mythic+ Dashboard", "Target Castbar", "Interrupt Sync", "CCPartySync", "PrepChecker", "Combat Timer", "Difficulty" } },
-        { name = "Utils", elements = { "Dragonriding", "Cursor Ring", "Retirement Home", "Skill Stream", "VaultEye", "Talent Loadout", "Custom Code" } }
+        { name = "Utils", elements = { "Dragonriding", "Cursor Ring", "Retirement Home", "Skill Stream", "VaultEye", "Move Widget", "Talent Loadout", "Custom Code" } }
     }
     
     Config.AccordionStates = Config.AccordionStates or {} 
@@ -702,14 +728,22 @@ function Config:SelectBar(index)
             local isSkillStreamBtn = (typeName == "Skill Stream")
             local isTargetCastBtn = (typeName == "Target Castbar")
             local isDivider = (typeName == "Divider")
-            local isBigWidget = (typeName == "Dragonriding" or typeName == "Skill Stream" or typeName == "Target Castbar" or typeName == "Mythic+ Dashboard" or typeName == "Interrupt Sync" or typeName == "VaultEye" or typeName == "Cursor Ring" or typeName == "Retirement Home" or typeName == "Custom Code" or typeName == "Dummy" or typeName == "CCPartySync" or typeName == "PrepChecker")
+            local isBigWidget = (typeName == "Dragonriding" or typeName == "Skill Stream" or typeName == "Target Castbar" or typeName == "Mythic+ Dashboard" or typeName == "Interrupt Sync" or typeName == "VaultEye" or typeName == "Cursor Ring" or typeName == "Retirement Home" or typeName == "Custom Code" or typeName == "CCPartySync" or typeName == "PrepChecker" or typeName == "Move Widget")
             
             local isActive = false
             for _, e in ipairs(bar.elements) do 
                 if e.type == typeName then isActive = true; break end 
             end
             
-            local btn = Skin:CreateButton(acc.content, typeName, 115, 25) 
+            local buttonLabel = typeName
+            if typeName == "Mythic+ Dashboard" then
+                buttonLabel = "M+ Dashboard"
+            elseif typeName == "PrepChecker" then
+                buttonLabel = "Preep Checker"
+            elseif typeName == "CCPartySync" then
+                buttonLabel = "CC Sync"
+            end
+            local btn = Skin:CreateButton(acc.content, buttonLabel, 115, 25) 
             btn:SetPoint("TOPLEFT", btnX, btnY)
             
             local function UpdateButtonStyle()
@@ -758,7 +792,7 @@ function Config:SelectBar(index)
             btn:SetScript("OnLeave", function(self) UpdateButtonStyle() end)
             
             local canAdd = true
-            local btnIsStrict = (typeName == "Dragonriding" or typeName == "Mythic+ Dashboard" or typeName == "Skill Stream" or typeName == "Target Castbar" or typeName == "Interrupt Sync" or typeName == "VaultEye" or typeName == "CCPartySync" or typeName == "PrepChecker")
+            local btnIsStrict = (typeName == "Dragonriding" or typeName == "Mythic+ Dashboard" or typeName == "Skill Stream" or typeName == "Target Castbar" or typeName == "Interrupt Sync" or typeName == "VaultEye" or typeName == "CCPartySync" or typeName == "PrepChecker" or typeName == "Move Widget")
             local btnIsOverlay = OverlayTypes[typeName]
             local btnIsDivider = (typeName == "Divider")
             
@@ -861,6 +895,8 @@ function Config:SelectBar(index)
                           newEl.colorOk = {0.0, 1.0, 0.2, 1}
                           newEl.colorWarn = {1.0, 0.15, 0.15, 1}
                           newEl.colorNeutral = {0.4, 0.4, 0.8, 1}
+                     elseif typeName == "Move Widget" then
+                          newEl.savePosition = true
                      elseif isDivider then
                           newEl.size = 20; newEl.thickness = 2; newEl.dividerMode = "LINE"; newEl.dividerStyle = "VERTICAL"; newEl.offset = 0
                     end
@@ -884,15 +920,26 @@ function Config:SelectBar(index)
     activeElementsFrame:SetHeight(math.max(1, #bar.elements * 35 + 10))
     Config.UpdateAccordionLayout() 
     
-    local fontList = {}; for k, v in pairs(Skin.Media.Fonts) do table.insert(fontList, {text=k, value=k, font=v}) end
+    local fontList = {}
+    for k, v in pairs(Skin.Media.Fonts) do
+        table.insert(fontList, {text = k, value = k, font = v})
+    end
     local outlineList = { {text="None", value=""}, {text="Outline", value="OUTLINE"}, {text="Thick", value="THICKOUTLINE"}, {text="Mono", value="MONOCHROME"}, {text="Mono+Out", value="MONOCHROME,OUTLINE"} }
 
     Config.ElementRows = {}
     for i, elem in ipairs(bar.elements) do
+        local displayType = elem.type
+        if elem.type == "Mythic+ Dashboard" then
+            displayType = "M+ Dashboard"
+        elseif elem.type == "PrepChecker" then
+            displayType = "Preep Checker"
+        elseif elem.type == "CCPartySync" then
+            displayType = "CC Sync"
+        end
         local item = CreateFrame("Frame", nil, activeElementsFrame, "BackdropTemplate")
         item:SetSize(610, 32); item:SetPoint("TOPLEFT", 10, -((i-1) * 35))
         Skin:ApplyBackdrop(item, 0.3, 0.5)
-        item.txt = item:CreateFontString(nil, "OVERLAY", "GameFontNormal"); item.txt:SetPoint("LEFT", 8, 0); item.txt:SetText(i..". "..elem.type); item.txt:SetFont(Skin.Constants.FONT_NORMAL, 11, "OUTLINE"); item.txt:SetWidth(110); item.txt:SetJustifyH("LEFT")
+        item.txt = item:CreateFontString(nil, "OVERLAY", "GameFontNormal"); item.txt:SetPoint("LEFT", 8, 0); item.txt:SetText(i..". "..displayType); item.txt:SetFont(Skin.Constants.FONT_NORMAL, 11, ""); item.txt:SetWidth(110); item.txt:SetJustifyH("LEFT")
 
         local btnRem = CreateFrame("Button", nil, item)
         btnRem:SetSize(20, 20); btnRem:SetPoint("RIGHT", -10, 0)
@@ -920,10 +967,10 @@ function Config:SelectBar(index)
                 Config.DragGhost:EnableMouse(false)
                 Skin:ApplyBackdrop(Config.DragGhost)
                 Config.DragGhost.text = Config.DragGhost:CreateFontString(nil, "OVERLAY")
-                Config.DragGhost.text:SetFont(Skin.Constants.FONT_NORMAL, 11, "OUTLINE")
+                Config.DragGhost.text:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
                 Config.DragGhost.text:SetPoint("CENTER") 
             end
-            Config.DragGhost.text:SetText(i .. ": " .. elem.type)
+            Config.DragGhost.text:SetText(i .. ": " .. displayType)
             Config.DragGhost:Show() 
         end)
 
@@ -1056,11 +1103,6 @@ function Config:SelectBar(index)
              btnSettings:SetScript("OnClick", function() 
                 if Config.OpenMythicPlusSettings then Config:OpenMythicPlusSettings(index, i, elem) end 
              end)
-        elseif elem.type == "Dummy" then
-             btnCol:Hide()
-             local btnSettings = Skin:CreateButton(item, "Settings", 80, 22)
-             btnSettings:SetPoint("RIGHT", dragHandle, "LEFT", -10, 0)
-             btnSettings:SetScript("OnClick", function() Config:OpenDummySettings(index, i, elem) end)
         elseif elem.type == "Interrupt Sync" then
              btnCol:Hide()
              local btnSettings = Skin:CreateButton(item, "Settings", 80, 22)
@@ -1081,12 +1123,43 @@ function Config:SelectBar(index)
              local btnSettings = Skin:CreateButton(item, "Settings", 80, 22)
              btnSettings:SetPoint("RIGHT", dragHandle, "LEFT", -10, 0)
              btnSettings:SetScript("OnClick", function() Config:OpenPrepCheckerSettings(index, i, elem) end)
+        elseif elem.type == "Move Widget" then
+             btnCol:Hide()
+             local btnReset = Skin:CreateButton(item, "Reset", 80, 22)
+             btnReset:SetPoint("RIGHT", dragHandle, "LEFT", -10, 0)
+             btnReset:SetScript("OnClick", function()
+                 local ref = (_G.WidgetForge and _G.WidgetForge.MoveWidget)
+                 if ref and ref.ResetPositions then
+                     ref:ResetPositions()
+                 end
+             end)
+
+             local chkSave = Skin:CreateCheckbox(item, "Save Position", elem.savePosition ~= false, function(v)
+                  elem.savePosition = v
+              end)
+             chkSave:SetWidth(90)
+             chkSave:SetPoint("RIGHT", btnReset, "LEFT", -8, 0)
+             chkSave.box:SetSize(14, 14)
+             chkSave.label:SetFont(Skin.Constants.FONT_NORMAL, 10, "")
         else
             slSz = Skin:CreateSlider(item, 8, 50, 1, elem.size, function(v) elem.size = v; WidgetForge:RebuildBarComponents(index) end, 70); slSz:SetPoint("RIGHT", btnCol, "LEFT", -15, 0)
             ddOutline = Skin:CreateDropdown(item, 85, outlineList, elem.outline or "OUTLINE", function(v) elem.outline = v; WidgetForge:RebuildBarComponents(index) end); ddOutline:SetPoint("RIGHT", slSz, "LEFT", -10, 0) 
-            ddFont = Skin:CreateDropdown(item, 100, fontList, elem.font or "Standard", function(v) elem.font = v; WidgetForge:RebuildBarComponents(index) end); ddFont:SetPoint("RIGHT", ddOutline, "LEFT", -10, 0)
-            chkIcon = Skin:CreateCheckbox(item, "Icon", elem.showIcon, function(v) elem.showIcon = v; WidgetForge:RebuildBarComponents(index) end); chkIcon:SetWidth(45); chkIcon:SetPoint("RIGHT", ddFont, "LEFT", -5, 0); chkIcon.box:SetSize(14, 14); chkIcon.label:SetFont(Skin.Constants.FONT_NORMAL, 10, "OUTLINE")
-            chkTip = Skin:CreateCheckbox(item, "Tip", elem.showTooltip, function(v) elem.showTooltip = v; WidgetForge:RebuildBarComponents(index) end); chkTip:SetWidth(40); chkTip:SetPoint("RIGHT", chkIcon, "LEFT", -5, 0); chkTip.box:SetSize(14, 14); chkTip.label:SetFont(Skin.Constants.FONT_NORMAL, 10, "OUTLINE") 
+            local currentFontVal = elem.font or "Righteous"
+            if Skin.Media and Skin.Media.Fonts and not Skin.Media.Fonts[currentFontVal] then
+                for fontName, fontPath in pairs(Skin.Media.Fonts) do
+                    if fontPath == currentFontVal then
+                        currentFontVal = fontName
+                        break
+                    end
+                end
+            end
+            ddFont = Skin:CreateDropdown(item, 100, fontList, currentFontVal, function(v)
+                elem.font = v
+                WidgetForge:RebuildBarComponents(index)
+            end)
+            ddFont:SetPoint("RIGHT", ddOutline, "LEFT", -10, 0)
+            chkIcon = Skin:CreateCheckbox(item, "Icon", elem.showIcon, function(v) elem.showIcon = v; WidgetForge:RebuildBarComponents(index) end); chkIcon:SetWidth(45); chkIcon:SetPoint("RIGHT", ddFont, "LEFT", -5, 0); chkIcon.box:SetSize(14, 14); chkIcon.label:SetFont(Skin.Constants.FONT_NORMAL, 10, "")
+            chkTip = Skin:CreateCheckbox(item, "Tip", elem.showTooltip, function(v) elem.showTooltip = v; WidgetForge:RebuildBarComponents(index) end); chkTip:SetWidth(40); chkTip:SetPoint("RIGHT", chkIcon, "LEFT", -5, 0); chkTip.box:SetSize(14, 14); chkTip.label:SetFont(Skin.Constants.FONT_NORMAL, 10, "") 
             
             if bar.clickThrough then
                 chkTip:SetAlpha(0.5)
@@ -1402,68 +1475,6 @@ function Config:OpenMythicPlusSettings(barIndex, elemIndex, elem)
     if _G.WidgetForge and _G.WidgetForge.MythicPlus and _G.WidgetForge.MythicPlus.CreateSettings then
         _G.WidgetForge.MythicPlus:CreateSettings(panel)
     end
-end
-
-function Config:OpenDummySettings(barIndex, elemIndex, elem)
-    Config:ToggleSlidePanel(true)
-    local panel = Config:GetSlidePanel()
-    local content = panel.content
-    local kids = {content:GetChildren()}
-    for _, k in ipairs(kids) do k:Hide() end
-    local regions = {content:GetRegions()}
-    for _, r in ipairs(regions) do r:Hide() end
-    panel.header.title:SetText("Dummy Widget Settings")
-    local Skin = _G.ForgeSkin
-    local y = -20
-    Skin:CreateSectionHeader(content, "Test Controls", 600):SetPoint("TOPLEFT", 10, y)
-    y = y - 40
-    local lbl = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    lbl:SetPoint("TOPLEFT", 20, y+5)
-    lbl:SetText("Display Text:")
-    local ebFrame = CreateFrame("Frame", nil, content, "BackdropTemplate")
-    ebFrame:SetSize(200, 30)
-    ebFrame:SetPoint("LEFT", lbl, "RIGHT", 10, 0)
-    Skin:ApplyBackdrop(ebFrame)
-    local eb = CreateFrame("EditBox", nil, ebFrame)
-    eb:SetAllPoints(ebFrame); eb:SetTextInsets(5,5,0,0); eb:SetFontObject(ChatFontNormal)
-    eb:SetAutoFocus(false)
-    eb:SetText(elem.text or "DUMMY WIDGET")
-    eb:SetScript("OnTextChanged", function(self) 
-        elem.text = self:GetText()
-        WidgetForge:RebuildBarComponents(barIndex)
-    end)
-    y = y - 50
-    local lblC = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    lblC:SetPoint("TOPLEFT", 20, y+5)
-    lblC:SetText("Background Color:")
-    local btnC = CreateFrame("Button", nil, content, "BackdropTemplate")
-    btnC:SetSize(30, 30)
-    btnC:SetPoint("LEFT", lblC, "RIGHT", 10, 0)
-    Skin:ApplyBackdrop(btnC)
-    local col = elem.color or {0.5, 0.5, 0.5, 0.5}
-    btnC:SetBackdropColor(unpack(col))
-    btnC:SetScript("OnClick", function()
-        Skin:ShowColorPicker({
-            r=col[1], g=col[2], b=col[3], opacity=col[4],
-            swatchFunc = function(c) 
-                elem.color = c
-                btnC:SetBackdropColor(unpack(c))
-                WidgetForge:RebuildBarComponents(barIndex)
-            end,
-            cancelFunc = function()
-                 btnC:SetBackdropColor(unpack(col))
-                 elem.color = col
-                 WidgetForge:RebuildBarComponents(barIndex)
-            end
-        })
-    end)
-    y = y - 60
-    local txt = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    txt:SetPoint("TOPLEFT", 20, y)
-    txt:SetWidth(500)
-    txt:SetJustifyH("LEFT")
-    txt:SetText("This panel slides in from the right side, covering the main configuration area without being a separate popup window. This allows for a more integrated settings experience.")
-    if content.SetHeight then content:SetHeight(math.abs(y) + 100) end
 end
 
 function Config:OpenInterruptSyncSettings(barIndex, elemIndex, elem)

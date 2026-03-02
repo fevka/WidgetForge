@@ -6,6 +6,9 @@
 ## SavedVariables: WidgetForgeDB
 
 WidgetConstants.lua
+Libs\LibStub\LibStub.lua
+Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
+Libs\LibSharedMedia-3.0\LibSharedMedia-3.0.lua
 Libs\ForgeSerializer.lua
 WidgetUtils.lua
 Libs\ForgeSkin.lua
@@ -13,11 +16,11 @@ WidgetForgeConfig.lua
 WidgetStats.lua
 WidgetForge.lua
 Widgets\WidgetForge_CursorRing.lua
+Widgets\WidgetForge_MoveWidget.lua
 Widgets\WidgetForge_RetirementHome.lua
 Widgets\WidgetForge_MythicPlus.lua
 Widgets\WidgetForge_Dragonriding.lua
 Widgets\WidgetForge_SkillStream.lua
-Widgets\WidgetForge_Dummy.lua
 Widgets\WidgetForge_TargetCastbar.lua
 Widgets\WidgetForge_CustomCode.lua
 Widgets\WidgetForge_interruptPartySync.lua

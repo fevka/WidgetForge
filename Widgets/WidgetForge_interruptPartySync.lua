@@ -1105,7 +1105,7 @@ function InterruptSync:CreateSettings(parentFrame)
 
     sb:AddHeader("Announcements")
     sb:AddSwitch("announceInterrupts", "Announce my Interrupts", false, elem, RefreshLive)
-    sb:AddSwitch("announceInterruptSuccess", "Announce Successful Interrupts (Detected)", false, elem, RefreshLive)
+    sb:AddSwitch("announceInterruptSuccess", "Announce Successful Interrupts", false, elem, RefreshLive)
     sb:AddDropdown("announceChannel", "Announce Channel", {
         {text = "Party", value = "PARTY"},
         {text = "Instance", value = "INSTANCE_CHAT"}

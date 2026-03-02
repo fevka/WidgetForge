@@ -5,6 +5,7 @@ local Config = ForgeConfig
 WidgetForge = {}
 local Bars = {} 
 function WidgetForge:GetBarFrames() return Bars end
+local UnloadBarCustomWidgets
 
 -- Icons for Stats
 WidgetForge.StatIcons = {
@@ -50,7 +51,8 @@ WidgetForge.StatIcons = {
     ["Talent Loadout"] = "Interface\\Icons\\Spell_ChargePositive",
     ["Custom Code"] = "Interface\\Icons\\Trade_Engineering",
     ["CCPartySync"] = "Interface\\Icons\\Spell_Frost_FrostNova",
-    ["PrepChecker"] = "Interface\\Icons\\Achievement_Dungeon_GloryoftheRaider"
+    ["PrepChecker"] = "Interface\\Icons\\Achievement_Dungeon_GloryoftheRaider",
+    ["Move Widget"] = "Interface\\Icons\\INV_Gizmo_GoblinBoomBox_01"
 }
 
 -- --- HELPER FUNCTIONS ---
@@ -61,6 +63,62 @@ end
 local function NormalizeStr(str)
     if not str then return "" end
     return string.lower(string.gsub(str, "%s+", ""))
+end
+
+local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
+local BUILTIN_FONT_BY_NAME = {
+    ["Friz Quadrata"] = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF",
+    ["Arial Narrow"] = UNIT_NAME_FONT or "Fonts\\ARIALN.TTF",
+    ["Morpheus"] = MORPHEUS_FONT or "Fonts\\MORPHEUS.TTF",
+    ["Skurri"] = SKURRI_FONT or "Fonts\\SKURRI.TTF",
+}
+
+local function ResolveFontPath(fontKey)
+    if not fontKey or fontKey == "" then
+        return (Skin and Skin.Constants and Skin.Constants.FONT_NORMAL) or "Fonts\\FRIZQT__.TTF"
+    end
+
+    if BUILTIN_FONT_BY_NAME[fontKey] then
+        return BUILTIN_FONT_BY_NAME[fontKey]
+    end
+
+    local path = nil
+    if Skin and Skin.Media and Skin.Media.Fonts then
+        path = Skin.Media.Fonts[fontKey]
+    end
+    if not path and LSM then
+        path = LSM:Fetch("font", fontKey, true)
+    end
+    if not path then
+        path = fontKey
+    end
+    return path
+end
+
+local function SafeSetFont(fs, fontKey, size, flags)
+    if not fs then return end
+    local fontPath = ResolveFontPath(fontKey)
+    local ok = fs:SetFont(fontPath, size or 12, flags or "")
+    if ok then return end
+
+    local fallback = "Fonts\\FRIZQT__.TTF"
+    fs:SetFont(fallback, size or 12, flags or "")
+end
+
+UnloadBarCustomWidgets = function(f)
+    if not f then return end
+    if not f.customWidgets then
+        f.customWidgets = {}
+        return
+    end
+    for _, cw in ipairs(f.customWidgets) do
+        if cw then
+            cw:Hide()
+            if cw.Unload then cw:Unload() end
+            cw:SetParent(nil)
+        end
+    end
+    f.customWidgets = {}
 end
 
 -- --- BAR MANAGEMENT ---
@@ -122,7 +180,10 @@ function WidgetForge:SetBarsLocked(locked)
 end
 
 function WidgetForge:UpdateAvailableBars()
-    for _, barFrame in pairs(Bars) do barFrame:Hide() end
+    for _, barFrame in pairs(Bars) do
+        UnloadBarCustomWidgets(barFrame)
+        barFrame:Hide()
+    end
     
     if not WidgetForgeDB or not WidgetForgeDB.bars then return end
 
@@ -169,7 +230,7 @@ function WidgetForge:UpdateAvailableBars()
             local isExclusive = false
             if conf.elements then
                 for _, e in ipairs(conf.elements) do
-                    if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" or e.type == "Vault Eye" or e.type == "VaultEye" or e.type == "CCPartySync" or e.type == "PrepChecker" then 
+                    if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" or e.type == "Vault Eye" or e.type == "VaultEye" or e.type == "CCPartySync" or e.type == "PrepChecker" or e.type == "Move Widget" then 
                         isExclusive = true
                         break 
                     end
@@ -203,7 +264,10 @@ function WidgetForge:UpdateAvailableBars()
             
             WidgetForge:RebuildBarComponents(index)
         else
-            if Bars[index] then Bars[index]:Hide() end
+            if Bars[index] then
+                UnloadBarCustomWidgets(Bars[index])
+                Bars[index]:Hide()
+            end
         end
     end
     WidgetForge:UpdateBarVisibilityStates()
@@ -249,7 +313,7 @@ local function CreateDividerElement(f, elem, i)
         if not f.textsVal[i] then f.textsVal[i] = f:CreateFontString(nil, "OVERLAY") end
         local tVal = f.textsVal[i]
         tVal:Show()
-        tVal:SetFont("Fonts\\FRIZQT__.TTF", elem.size or 14, "OUTLINE") 
+        SafeSetFont(tVal, nil, elem.size or 14, "OUTLINE")
         tVal:SetTextColor(unpack(elem.color or {1, 1, 1, 1}))
         tVal:SetText(elem.dividerText or "|")
     else
@@ -266,6 +330,7 @@ local function LoadAddonWidget(f, elem, i, AddonRef, targetList)
     local ok, err = pcall(function()
         local cw = AddonRef:Load(f, elem)
         if cw then 
+            if not f.customWidgets then f.customWidgets = {} end
             table.insert(f.customWidgets, cw)
             if targetList then
                 if not f[targetList] then f[targetList] = {} end
@@ -281,15 +346,14 @@ local function CreateTextAndIconElement(f, elem, i, isSplit, hbEnabled)
     local tVal = f.textsVal[i]
     tVal:Show()
     
-    local fontPath = (elem.font and Skin.Media.Fonts[elem.font]) or "Fonts\\FRIZQT__.TTF"
-    tVal:SetFont(fontPath, elem.size or 14, elem.outline or "OUTLINE")
+    SafeSetFont(tVal, elem.font, elem.size or 14, elem.outline or "OUTLINE")
     tVal:SetTextColor(unpack(elem.color or {1, 1, 1, 1}))
     
     if isSplit then
         if not f.textsLbl[i] then f.textsLbl[i] = f:CreateFontString(nil, "OVERLAY") end
         local tLbl = f.textsLbl[i]
         tLbl:Show()
-        tLbl:SetFont(fontPath, elem.size or 14, elem.outline or "OUTLINE") 
+        SafeSetFont(tLbl, elem.font, elem.size or 14, elem.outline or "OUTLINE")
         tLbl:SetTextColor(unpack(elem.color or {1, 1, 1, 1}))
     end
 
@@ -339,14 +403,7 @@ function WidgetForge:RebuildBarComponents(index)
     if not f.castFrames then f.castFrames = {} end
     if not f.syncFrames then f.syncFrames = {} end
     
-    if f.customWidgets then
-        for _, cw in ipairs(f.customWidgets) do
-            cw:Hide()
-            if cw.Unload then cw:Unload() end
-            cw:SetParent(nil)
-        end
-    end
-    f.customWidgets = {}
+    UnloadBarCustomWidgets(f)
     
     f.statCache = {} 
     f.maxKnownWidths = {} 
@@ -370,7 +427,7 @@ function WidgetForge:RebuildBarComponents(index)
     local isSplit = (conf.layout == "VERTICAL" and justify ~= "CENTER")
 
     local OverlayTypes = { ["Cursor Ring"] = true, ["Retirement Home"] = true }
-    local StrictTypes = { ["Mythic+ Dashboard"] = true, ["Dragonriding"] = true, ["Skill Stream"] = true, ["Target Castbar"] = true, ["Interrupt Sync"] = true, ["VaultEye"] = true, ["CCPartySync"] = true, ["PrepChecker"] = true }
+    local StrictTypes = { ["Mythic+ Dashboard"] = true, ["Dragonriding"] = true, ["Skill Stream"] = true, ["Target Castbar"] = true, ["Interrupt Sync"] = true, ["VaultEye"] = true, ["CCPartySync"] = true, ["PrepChecker"] = true, ["Move Widget"] = true }
     
     local exclusiveType = nil
     for _, e in ipairs(conf.elements) do
@@ -419,6 +476,9 @@ function WidgetForge:RebuildBarComponents(index)
                 if ref then LoadAddonWidget(f, elem, i, ref, "syncFrames") end
             elseif elem.type == "PrepChecker" then
                 local ref = addonTable.PrepChecker or _G.WidgetForge.PrepChecker
+                if ref then LoadAddonWidget(f, elem, i, ref, nil) end
+            elseif elem.type == "Move Widget" then
+                local ref = addonTable.MoveWidget or _G.WidgetForge.MoveWidget
                 if ref then LoadAddonWidget(f, elem, i, ref, nil) end
             elseif elem.type == "Custom Code" then
                 if addonTable.CustomCode then LoadAddonWidget(f, elem, i, addonTable.CustomCode, "codeFrames") end
@@ -543,7 +603,7 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
     
     local fetchedValues = {}
     for i, elem in ipairs(conf.elements) do
-        if not (elem.type == "Divider" or elem.type == "Custom Code" or elem.type == "Dragonriding" or elem.type == "Target Castbar" or elem.type == "Skill Stream" or elem.type == "Cursor Ring" or elem.type == "Retirement Home" or elem.type == "Mythic+ Dashboard" or elem.type == "Interrupt Sync" or elem.type == "VaultEye" or elem.type == "PrepChecker") then
+        if not (elem.type == "Divider" or elem.type == "Custom Code" or elem.type == "Dragonriding" or elem.type == "Target Castbar" or elem.type == "Skill Stream" or elem.type == "Cursor Ring" or elem.type == "Retirement Home" or elem.type == "Mythic+ Dashboard" or elem.type == "Interrupt Sync" or elem.type == "CCPartySync" or elem.type == "VaultEye" or elem.type == "PrepChecker" or elem.type == "Move Widget") then
             local valStr, lblStr = "---", ""
             if ForgeStats and ForgeStats.GetStat then
                 valStr, lblStr = ForgeStats:GetStat(elem.type) 
@@ -604,6 +664,14 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
                     ref:RefreshBars(sf)
                 end
             end
+        elseif elem.type == "CCPartySync" then
+            local sf = f.syncFrames and f.syncFrames[i]
+            if sf then
+                local ref = addonTable.CCSync or _G.WidgetForge.CCSync
+                if ref and ref.RefreshBars then
+                    ref:RefreshBars(sf)
+                end
+            end
         end
     end
 
@@ -650,6 +718,12 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
             local s = elem.spacing or 5
             elemWidth = elem.barWidth or 220
             elemHeight = (limit * h) + ((limit - 1) * s)
+        elseif elem.type == "CCPartySync" then
+            local limit = 5 -- Test mode or standard limit
+            local h = elem.barHeight or 30
+            local s = elem.spacing or 5
+            elemWidth = elem.barWidth or 220
+            elemHeight = (limit * h) + ((limit - 1) * s)
         elseif elem.type == "Target Castbar" then
             elemWidth = elem.widgetWidth or 200
             elemHeight = elem.widgetHeight or 25
@@ -680,7 +754,7 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
                 elemWidth = (count * size) + ((count - 1) * spacing)
                 elemHeight = size
             end
-        elseif elem.type == "Cursor Ring" or elem.type == "Retirement Home" or elem.type == "Mythic+ Dashboard" or elem.type == "VaultEye" then
+        elseif elem.type == "Cursor Ring" or elem.type == "Retirement Home" or elem.type == "Mythic+ Dashboard" or elem.type == "VaultEye" or elem.type == "Move Widget" then
             -- Handled
         else
             local tVal = f.textsVal[i]
@@ -778,6 +852,11 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
             elseif elem.type == "Dragonriding" then elemHeight = elem.widgetHeight or 45
             elseif elem.type == "Target Castbar" then elemHeight = elem.widgetHeight or 25
             elseif elem.type == "Custom Code" then elemHeight = elem.widgetHeight or 30
+            elseif elem.type == "Interrupt Sync" or elem.type == "CCPartySync" then
+                 local limit = 5 -- Test mode or standard limit
+                 local h = elem.barHeight or 30
+                 local s = elem.spacing or 5
+                 elemHeight = (limit * h) + ((limit - 1) * s)
             elseif elem.type == "Skill Stream" then
                  local limit = elem.iconLimit or 5
                  local size = elem.iconSize or 32
@@ -807,7 +886,7 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
                 end
                 currentY = currentY - elemHeight
                 if i < #conf.elements then currentY = currentY - conf.padding end
-            elseif elem.type == "Dragonriding" or elem.type == "Skill Stream" or elem.type == "Target Castbar" or elem.type == "Custom Code" or elem.type == "Interrupt Sync" or elem.type == "PrepChecker" then
+            elseif elem.type == "Dragonriding" or elem.type == "Skill Stream" or elem.type == "Target Castbar" or elem.type == "Custom Code" or elem.type == "Interrupt Sync" or elem.type == "CCPartySync" or elem.type == "PrepChecker" or elem.type == "Move Widget" then
                 if elem.type == "Custom Code" then
                     local cf = f.codeFrames and f.codeFrames[i]
                     if cf then cf:ClearAllPoints(); cf:SetPoint("CENTER", f, "CENTER", 0, placementY) end
@@ -815,6 +894,9 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
                     local cf = f.castFrames and f.castFrames[i]
                     if cf then cf:ClearAllPoints(); cf:SetPoint("CENTER", f, "CENTER", 0, placementY) end
                 elseif elem.type == "Interrupt Sync" then
+                    local sf = f.syncFrames and f.syncFrames[i]
+                    if sf then sf:ClearAllPoints(); sf:SetPoint("CENTER", f, "CENTER", 0, placementY) end
+                elseif elem.type == "CCPartySync" then
                     local sf = f.syncFrames and f.syncFrames[i]
                     if sf then sf:ClearAllPoints(); sf:SetPoint("CENTER", f, "CENTER", 0, placementY) end
                 end
@@ -947,6 +1029,10 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
                  end
                  currentX = currentX + (elem.widgetWidth or 200) + conf.padding
             elseif elem.type == "Interrupt Sync" then
+                local sf = f.syncFrames and f.syncFrames[i]
+                if sf then sf:ClearAllPoints(); sf:SetPoint("LEFT", f, "CENTER", placementX, currentY) end
+                currentX = currentX + (elem.barWidth or 220) + conf.padding
+            elseif elem.type == "CCPartySync" then
                 local sf = f.syncFrames and f.syncFrames[i]
                 if sf then sf:ClearAllPoints(); sf:SetPoint("LEFT", f, "CENTER", placementX, currentY) end
                 currentX = currentX + (elem.barWidth or 220) + conf.padding
