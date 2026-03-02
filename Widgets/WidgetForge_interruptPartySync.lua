@@ -390,6 +390,9 @@ function InterruptSync:OnPartyChat(text, playerName, ...)
         end
     end
     
+    -- Notice here we aren't fetching the real api CD.
+    -- This is because party members' cooldown reductions are hidden.
+
     if not duration or duration <= 0 then duration = 15 end
     
     if self.DebugMode then print("[WF_INT_SYNC DEBUG] " .. playerName .. " cast " .. spellName .. " (ID: " .. spellID .. ", CD: " .. duration .. "s)") end
