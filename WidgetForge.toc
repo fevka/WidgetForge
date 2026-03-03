@@ -3,6 +3,7 @@
 ## Notes: Advanced customizable stat bars and widgets
 ## Author: Fevka
 ## Version: 1.1.1
+## IconTexture: Interface\AddOns\WidgetForge\media\vault.tga
 ## SavedVariables: WidgetForgeDB
 
 WidgetConstants.lua

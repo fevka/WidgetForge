@@ -485,13 +485,28 @@ function Config:SelectBar(index)
     
     y = y - 40
 
-    local yOffsetBoxes = y - 4
-    
-    local lblName = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    lblName:SetPoint("TOPLEFT", 10, yOffsetBoxes - 6); lblName:SetText("NAME:"); lblName:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
-    
+    local rowStartX = 10   -- align with section separators (left edge)
+    local rowEndX = 620    -- 10 + 610 separator width (right edge)
+    local rowTop = y - 4
+    local colGap = 14
+    local labelGap = 6
+    local nameLabelW = 42
+    local visLabelW = 70
+    local layerLabelW = 42
+    local nameW = 180
+    local visW = 110
+    local boxH = 25
+
+    local nameLabelX = rowStartX
+    local nameBoxX = nameLabelX + nameLabelW + labelGap
+    local visLabelX = nameBoxX + nameW + colGap
+    local visBoxX = visLabelX + visLabelW + labelGap
+    local layerLabelX = visBoxX + visW + colGap
+    local layerBoxX = layerLabelX + layerLabelW + labelGap
+    local layerW = rowEndX - layerBoxX
+
     local ebNameFrame = CreateFrame("Frame", nil, content, "BackdropTemplate")
-    ebNameFrame:SetSize(235, 25); ebNameFrame:SetPoint("TOPLEFT", 45, yOffsetBoxes)
+    ebNameFrame:SetSize(nameW, boxH); ebNameFrame:SetPoint("TOPLEFT", nameBoxX, rowTop)
     Skin:ApplyBackdrop(ebNameFrame); ebNameFrame:SetBackdropColor(0,0,0,0.5); ebNameFrame:SetBackdropBorderColor(0.2, 0.2, 0.2, 1)
     local ebName = CreateFrame("EditBox", nil, ebNameFrame)
     ebName:SetAllPoints(ebNameFrame); ebName:SetFont(Skin.Constants.FONT_NORMAL, 12, "")
@@ -503,8 +518,18 @@ function Config:SelectBar(index)
     end)
     ebName:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
 
+    local lblName = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    lblName:SetWidth(nameLabelW)
+    lblName:SetJustifyH("LEFT")
+    lblName:SetPoint("LEFT", ebNameFrame, "LEFT", -(nameLabelW + labelGap), 0)
+    lblName:SetText("NAME:")
+    lblName:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
+
     local lblVis = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    lblVis:SetPoint("TOPLEFT", ebNameFrame, "TOPRIGHT", 15, -6); lblVis:SetText("VISIBILITY:"); lblVis:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
+    lblVis:SetWidth(visLabelW)
+    lblVis:SetJustifyH("RIGHT")
+    lblVis:SetText("VISIBILITY:")
+    lblVis:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
     
     local visList = {
         {text = "Always Show", value = "ALWAYS"},
@@ -513,14 +538,18 @@ function Config:SelectBar(index)
     }
     local currentVisVal = bar.visibility or "ALWAYS"
     
-    local ddVis = Skin:CreateDropdown(content, 103, visList, currentVisVal, function(v)
+    local ddVis = Skin:CreateDropdown(content, visW, visList, currentVisVal, function(v)
         bar.visibility = v
         if WidgetForge.UpdateBarVisibilityStates then WidgetForge:UpdateBarVisibilityStates() end
     end)
-    ddVis:SetPoint("TOPLEFT", lblVis, "TOPRIGHT", 5, 6)
+    ddVis:SetPoint("TOPLEFT", visBoxX, rowTop)
+    lblVis:SetPoint("RIGHT", ddVis, "LEFT", -labelGap, 0)
 
     local lblLayer = content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    lblLayer:SetPoint("TOPLEFT", ddVis, "TOPRIGHT", 15, -6); lblLayer:SetText("LAYER:"); lblLayer:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
+    lblLayer:SetWidth(layerLabelW)
+    lblLayer:SetJustifyH("RIGHT")
+    lblLayer:SetText("LAYER:")
+    lblLayer:SetFont(Skin.Constants.FONT_NORMAL, 11, "")
     
     local layerList = {
         {text = "Background", value = "BACKGROUND"},
@@ -533,11 +562,12 @@ function Config:SelectBar(index)
     }
     local currentLayerVal = bar.layer or "DIALOG"
     
-    local ddLayer = Skin:CreateDropdown(content, 103, layerList, currentLayerVal, function(v)
+    local ddLayer = Skin:CreateDropdown(content, layerW, layerList, currentLayerVal, function(v)
         bar.layer = v
         WidgetForge:UpdateAvailableBars()
     end)
-    ddLayer:SetPoint("TOPLEFT", lblLayer, "TOPRIGHT", 5, 6)
+    ddLayer:SetPoint("TOPLEFT", layerBoxX, rowTop)
+    lblLayer:SetPoint("RIGHT", ddLayer, "LEFT", -labelGap, 0)
 
     local settingsContentH = 550
     if isExclusive then settingsContentH = 150 end
@@ -597,7 +627,8 @@ function Config:SelectBar(index)
         sb:AddColor("bgColor", "Background Color", {0, 0, 0, 0.5}, bar, function(v) WidgetForge:UpdateAvailableBars() end)
         sb:AddSwitch("clickThrough", "Click Through (Non-Interactive)", false, bar, function(v) 
             WidgetForge:SetBarsLocked(false) 
-       WidgetForge:SetBarsLocked(WidgetForge.BarsLocked)
+            WidgetForge:SetBarsLocked(WidgetForge.BarsLocked)
+            Config:ApplyClickThroughToElementRows(bar)
         end)
 
         sb:AddHeader("Border Settings")
@@ -1160,12 +1191,9 @@ function Config:SelectBar(index)
             ddFont:SetPoint("RIGHT", ddOutline, "LEFT", -10, 0)
             chkIcon = Skin:CreateCheckbox(item, "Icon", elem.showIcon, function(v) elem.showIcon = v; WidgetForge:RebuildBarComponents(index) end); chkIcon:SetWidth(45); chkIcon:SetPoint("RIGHT", ddFont, "LEFT", -5, 0); chkIcon.box:SetSize(14, 14); chkIcon.label:SetFont(Skin.Constants.FONT_NORMAL, 10, "")
             chkTip = Skin:CreateCheckbox(item, "Tip", elem.showTooltip, function(v) elem.showTooltip = v; WidgetForge:RebuildBarComponents(index) end); chkTip:SetWidth(40); chkTip:SetPoint("RIGHT", chkIcon, "LEFT", -5, 0); chkTip.box:SetSize(14, 14); chkTip.label:SetFont(Skin.Constants.FONT_NORMAL, 10, "") 
-            
-            if bar.clickThrough then
-                chkTip:SetAlpha(0.5)
-                chkTip.box:EnableMouse(false)
-                chkTip.label:SetTextColor(0.5, 0.5, 0.5)
-            end
+            item.chkIcon = chkIcon
+            item.chkTip = chkTip
+            Config:SetElementCheckboxDisabledVisual(chkTip, not not bar.clickThrough)
             
             if elem.type == "Clock" then 
                 local fmtList = { {text="24h", value="24h"}, {text="12h", value="12h"} }; 
@@ -1179,7 +1207,40 @@ function Config:SelectBar(index)
         end
         y = y - 36 
     end
-    content:SetHeight(math.abs(y) + 20)
+content:SetHeight(math.abs(y) + 20)
+end
+
+function Config:SetElementCheckboxDisabledVisual(chk, disabled)
+    if not chk then return end
+    if disabled then
+        chk:SetAlpha(0.35)
+        if chk.box then
+            chk.box:EnableMouse(false)
+            chk.box:SetBackdropColor(0.08, 0.08, 0.08, 1)
+            chk.box:SetBackdropBorderColor(0.28, 0.28, 0.28, 1)
+        end
+        if chk.check then chk.check:SetVertexColor(0.45, 0.45, 0.45, 1) end
+        if chk.label then chk.label:SetTextColor(0.55, 0.55, 0.55, 1) end
+    else
+        chk:SetAlpha(1)
+        if chk.box then
+            chk.box:EnableMouse(true)
+            chk.box:SetBackdropColor(0.15, 0.15, 0.15, 1)
+            chk.box:SetBackdropBorderColor(unpack(Skin.Colors.border))
+        end
+        if chk.check then chk.check:SetVertexColor(unpack(Skin.Colors.accent)) end
+        if chk.label then chk.label:SetTextColor(unpack(Skin.Colors.text)) end
+    end
+end
+
+function Config:ApplyClickThroughToElementRows(bar)
+    if not self.ElementRows or not bar then return end
+    local disabled = not not bar.clickThrough
+    for _, row in ipairs(self.ElementRows) do
+        if row then
+            self:SetElementCheckboxDisabledVisual(row.chkTip, disabled)
+        end
+    end
 end
 
 function Config:OpenElementSettings(barIndex, elemIndex, elem)
@@ -1545,7 +1606,84 @@ function Config:OpenPrepCheckerSettings(barIndex, elemIndex, elem)
     end
 end
 
+function Config:RegisterAddonSettingsPanel()
+    if self.AddonSettingsPanel then return end
+
+    local panel = CreateFrame("Frame", "WidgetForgeAddonSettingsPanel", UIParent)
+    panel.name = "WidgetForge"
+    self.AddonSettingsPanel = panel
+
+    local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", 16, -16)
+    title:SetText("WidgetForge")
+
+    local desc = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    desc:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -12)
+    desc:SetJustifyH("LEFT")
+    desc:SetWidth(620)
+    desc:SetText("Commands:\n/wf - Opens WidgetForge config window.\n/wf help - Shows command help.")
+
+    local minimapCheck = CreateFrame("CheckButton", "WidgetForgeMinimapToggle", panel, "InterfaceOptionsCheckButtonTemplate")
+    minimapCheck:SetPoint("TOPLEFT", desc, "BOTTOMLEFT", 0, -14)
+    _G[minimapCheck:GetName() .. "Text"]:SetText("Enable minimap icon")
+
+    local function refreshState()
+        minimapCheck:SetChecked(WidgetForgeDB and WidgetForgeDB.showMinimapButton ~= false)
+    end
+
+    minimapCheck:SetScript("OnShow", refreshState)
+    minimapCheck:SetScript("OnClick", function(self)
+        if WidgetForge and WidgetForge.SetMinimapButtonEnabled then
+            WidgetForge:SetMinimapButtonEnabled(self:GetChecked())
+        else
+            WidgetForgeDB.showMinimapButton = self:GetChecked() and true or false
+        end
+    end)
+
+    local openButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    openButton:SetSize(140, 24)
+    openButton:SetPoint("TOPLEFT", minimapCheck, "BOTTOMLEFT", 4, -10)
+    openButton:SetText("Open WidgetForge")
+    openButton:SetScript("OnClick", function()
+        Config:OpenConfigWindow()
+    end)
+
+    if Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory then
+        local category = Settings.RegisterCanvasLayoutCategory(panel, "WidgetForge")
+        Settings.RegisterAddOnCategory(category)
+    elseif InterfaceOptions_AddCategory then
+        InterfaceOptions_AddCategory(panel)
+    end
+end
+
 SLASH_WIDGETFORGE1 = "/wf"
-SlashCmdList["WIDGETFORGE"] = function() 
-    Config:OpenConfigWindow() 
+SlashCmdList["WIDGETFORGE"] = function(msg)
+    local input = string.lower((msg or ""):match("^%s*(.-)%s*$"))
+
+    if input == "help" or input == "?" then
+        print("|cff00ccffWidgetForge Commands|r")
+        print("  |cff00ccff/wf|r - Open config window")
+        print("  |cff00ccff/wf help|r - Show this help")
+        print("  |cff00ccff/wf minimap on|r - Enable minimap icon")
+        print("  |cff00ccff/wf minimap off|r - Disable minimap icon")
+        return
+    end
+
+    if input == "minimap on" then
+        if WidgetForge and WidgetForge.SetMinimapButtonEnabled then
+            WidgetForge:SetMinimapButtonEnabled(true)
+        end
+        print("|cff00ccffWidgetForge|r minimap icon: |cff00ff00ON|r")
+        return
+    end
+
+    if input == "minimap off" then
+        if WidgetForge and WidgetForge.SetMinimapButtonEnabled then
+            WidgetForge:SetMinimapButtonEnabled(false)
+        end
+        print("|cff00ccffWidgetForge|r minimap icon: |cffff0000OFF|r")
+        return
+    end
+
+    Config:OpenConfigWindow()
 end

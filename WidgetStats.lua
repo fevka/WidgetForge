@@ -26,8 +26,58 @@ Stats.ActiveMainStat = "Strength" -- Default
 Stats.CombatStart = nil
 
 -- Helper for Money String
-local function GetMoneyString(copper)
+local function GetMoneyString(copper, separatorStyle)
+    copper = tonumber(copper) or 0
+
+    -- For Gold tooltip rows, support explicit thousand separators.
+    if separatorStyle then
+        local sep = ","
+        if separatorStyle == "DOT" then
+            sep = "."
+        elseif separatorStyle == "SPACE" then
+            sep = " "
+        elseif separatorStyle == "NONE" then
+            sep = ""
+        end
+
+        local gold = math.floor(copper / 10000)
+        local silver = math.floor((copper % 10000) / 100)
+        local copperOnly = copper % 100
+
+        local goldText = tostring(gold)
+        if sep ~= "" then
+            while true do
+                local k
+                goldText, k = string.gsub(goldText, "^(-?%d+)(%d%d%d)", "%1" .. sep .. "%2")
+                if k == 0 then break end
+            end
+        end
+
+        return string.format("%sg %02ds %02dc", goldText, silver, copperOnly)
+    end
+
     return GetCoinTextureString(copper)
+end
+
+local function GetCurrentCharacterKey()
+    local name = UnitName("player") or "Unknown"
+    local realm = GetRealmName() or "Unknown"
+    return (name .. "-" .. realm), name, realm
+end
+
+function Stats:PersistCurrentCharacterGold()
+    if not WidgetForgeDB then return end
+    if type(WidgetForgeDB.goldCache) ~= "table" then
+        WidgetForgeDB.goldCache = {}
+    end
+
+    local key, name, realm = GetCurrentCharacterKey()
+    WidgetForgeDB.goldCache[key] = {
+        name = name,
+        realm = realm,
+        money = GetMoney() or 0,
+        updatedAt = time(),
+    }
 end
 
 -- =========================================================================
@@ -230,6 +280,7 @@ function Stats:UpdateEventStat(event, arg1)
     
     if event == "PLAYER_MONEY" or event == "PLAYER_ENTERING_WORLD" then
         Stats.Data["Gold"] = GetMoneyString(GetMoney())
+        self:PersistCurrentCharacterGold()
     end
     
     if event == "ZONE_CHANGED_NEW_AREA" or event == "ZONE_CHANGED" or event == "ZONE_CHANGED_INDOORS" or event == "PLAYER_ENTERING_WORLD" then
@@ -442,13 +493,46 @@ function Stats:AddTooltip(owner, statType, elemData)
     if statType == "Gold" then
         GameTooltip:AddLine("Economy", 1, 1, 1)
         GameTooltip:AddLine(" ")
+        local moneySep = (elemData and elemData.separator) or "COMMA"
         local current = GetMoney()
         local start = Stats.SessionStartMoney or current
         local diff = current - start
-        GameTooltip:AddDoubleLine("Current:", GetMoneyString(current), 1,0.8,0, 1,1,1)
-        GameTooltip:AddDoubleLine("Session Start:", GetMoneyString(start), 1,0.8,0, 1,1,1)
+        GameTooltip:AddDoubleLine("Current:", GetMoneyString(current, moneySep), 1,0.8,0, 1,1,1)
+        GameTooltip:AddDoubleLine("Session Start:", GetMoneyString(start, moneySep), 1,0.8,0, 1,1,1)
         local diffColor = (diff >= 0) and {0,1,0} or {1,0,0}
-        GameTooltip:AddDoubleLine("Session Profit:", GetMoneyString(math.abs(diff)), 1,0.8,0, diffColor[1], diffColor[2], diffColor[3])
+        GameTooltip:AddDoubleLine("Session Profit:", GetMoneyString(math.abs(diff), moneySep), 1,0.8,0, diffColor[1], diffColor[2], diffColor[3])
+
+        local myKey = GetCurrentCharacterKey()
+        local goldCache = WidgetForgeDB and WidgetForgeDB.goldCache
+        local accountTotal = 0
+        local rows = {}
+        if type(goldCache) == "table" then
+            for key, data in pairs(goldCache) do
+                if type(data) == "table" and type(data.money) == "number" then
+                    accountTotal = accountTotal + data.money
+                    if key ~= myKey then
+                        local rowName = data.name or key
+                        if data.realm and data.realm ~= "" then
+                            rowName = rowName .. "-" .. data.realm
+                        end
+                        table.insert(rows, { name = rowName, money = data.money })
+                    end
+                end
+            end
+        end
+        table.sort(rows, function(a, b) return a.money > b.money end)
+
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine("Other Characters", 1, 1, 1)
+        if #rows == 0 then
+            GameTooltip:AddLine("No other character data yet.", 0.7, 0.7, 0.7)
+        else
+            for _, row in ipairs(rows) do
+                GameTooltip:AddDoubleLine(row.name, GetMoneyString(row.money, moneySep), 1, 1, 1, 1, 1, 1)
+            end
+        end
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddDoubleLine("Account Total:", GetMoneyString(accountTotal, moneySep), 1,0.8,0, 1,1,1)
         added = true
     end
     

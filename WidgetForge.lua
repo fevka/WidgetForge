@@ -1091,6 +1091,136 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
     end
 end
 
+local MINIMAP_ICON_PATH = "Interface\\AddOns\\WidgetForge\\media\\vault.tga"
+
+function WidgetForge:SetMinimapButtonPosition(angle)
+    if not self.MinimapButton then return end
+    local rad = math.rad(angle or 220)
+    local x = math.cos(rad)
+    local y = math.sin(rad)
+
+    -- Respect custom minimap shapes (ElvUI square, corner cuts, side cuts, etc.)
+    local shape = (GetMinimapShape and GetMinimapShape()) or "ROUND"
+    local shapeQuads = {
+        ["ROUND"] = {true, true, true, true},
+        ["SQUARE"] = {false, false, false, false},
+        ["CORNER-TOPLEFT"] = {false, true, true, true},
+        ["CORNER-TOPRIGHT"] = {true, false, true, true},
+        ["CORNER-BOTTOMLEFT"] = {true, true, false, true},
+        ["CORNER-BOTTOMRIGHT"] = {true, true, true, false},
+        ["SIDE-LEFT"] = {false, true, false, true},
+        ["SIDE-RIGHT"] = {true, false, true, false},
+        ["SIDE-TOP"] = {false, false, true, true},
+        ["SIDE-BOTTOM"] = {true, true, false, false},
+        ["TRICORNER-TOPLEFT"] = {false, false, false, true},
+        ["TRICORNER-TOPRIGHT"] = {false, false, true, false},
+        ["TRICORNER-BOTTOMLEFT"] = {false, true, false, false},
+        ["TRICORNER-BOTTOMRIGHT"] = {true, false, false, false},
+    }
+
+    local quadrant = 1
+    if x < 0 then quadrant = 2 end
+    if y > 0 then quadrant = quadrant + 2 end
+
+    local quads = shapeQuads[shape] or shapeQuads["ROUND"]
+    if not quads[quadrant] then
+        local scale = 1.4142 -- sqrt(2), maps circle vector to square edge
+        x = math.max(-1, math.min(1, x * scale))
+        y = math.max(-1, math.min(1, y * scale))
+    end
+
+    local minimapSize = math.min(Minimap:GetWidth() or 140, Minimap:GetHeight() or 140)
+    local radius = (minimapSize * 0.5) + 8
+    x = x * radius
+    y = y * radius
+    self.MinimapButton:ClearAllPoints()
+    self.MinimapButton:SetPoint("CENTER", Minimap, "CENTER", x, y)
+end
+
+function WidgetForge:EnsureMinimapButton()
+    if self.MinimapButton then return self.MinimapButton end
+
+    local btn = CreateFrame("Button", "WidgetForgeMinimapButton", Minimap)
+    btn:SetSize(31, 31)
+    btn:SetFrameStrata("MEDIUM")
+    btn:SetFrameLevel(8)
+    btn:RegisterForClicks("LeftButtonUp")
+    btn:RegisterForDrag("LeftButton")
+    btn:SetMovable(true)
+
+    local border = btn:CreateTexture(nil, "OVERLAY")
+    border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
+    border:SetSize(53, 53)
+    border:SetPoint("TOPLEFT")
+
+    local icon = btn:CreateTexture(nil, "BACKGROUND")
+    icon:SetTexture(MINIMAP_ICON_PATH)
+    icon:SetSize(20, 20)
+    icon:SetPoint("CENTER", 0, 0)
+    btn.icon = icon
+
+    btn:SetScript("OnDragStart", function(self)
+        self:SetScript("OnUpdate", function()
+            local mx, my = Minimap:GetCenter()
+            local cx, cy = GetCursorPosition()
+            local scale = UIParent:GetEffectiveScale()
+            cx = cx / scale
+            cy = cy / scale
+            local angle = math.deg(math.atan2(cy - my, cx - mx))
+            WidgetForgeDB.minimapButtonAngle = angle
+            WidgetForge:SetMinimapButtonPosition(angle)
+        end)
+    end)
+
+    btn:SetScript("OnDragStop", function(self)
+        self:SetScript("OnUpdate", nil)
+    end)
+
+    btn:SetScript("OnClick", function()
+        if Config and Config.OpenConfigWindow then
+            Config:OpenConfigWindow()
+        end
+    end)
+
+    btn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+        GameTooltip:SetText("WidgetForge")
+        GameTooltip:AddLine("Left Click: Open config", 1, 1, 1)
+        GameTooltip:AddLine("/wf help", 0.6, 0.8, 1)
+        GameTooltip:Show()
+    end)
+
+    btn:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+    end)
+
+    self.MinimapButton = btn
+    return btn
+end
+
+function WidgetForge:UpdateMinimapButtonVisibility()
+    local btn = self:EnsureMinimapButton()
+    local isEnabled = WidgetForgeDB and WidgetForgeDB.showMinimapButton ~= false
+    if isEnabled then
+        btn:Show()
+        self:SetMinimapButtonPosition(WidgetForgeDB.minimapButtonAngle or 220)
+    else
+        btn:Hide()
+    end
+end
+
+function WidgetForge:SetMinimapButtonEnabled(enabled)
+    if not WidgetForgeDB then return end
+    WidgetForgeDB.showMinimapButton = enabled and true or false
+    self:UpdateMinimapButtonVisibility()
+end
+
+local function ScheduleMinimapReanchor()
+    if not C_Timer or not WidgetForge or not WidgetForge.UpdateMinimapButtonVisibility then return end
+    C_Timer.After(0, function() WidgetForge:UpdateMinimapButtonVisibility() end)
+    C_Timer.After(1, function() WidgetForge:UpdateMinimapButtonVisibility() end)
+end
+
 local timer = 0
 local updateFrame = CreateFrame("Frame")
 updateFrame:SetScript("OnUpdate", function(self, elapsed)
@@ -1117,6 +1247,9 @@ loadFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
 loadFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 loadFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 loadFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+loadFrame:RegisterEvent("UI_SCALE_CHANGED")
+loadFrame:RegisterEvent("DISPLAY_SIZE_CHANGED")
+loadFrame:RegisterEvent("MINIMAP_UPDATE_ZOOM")
 
 loadFrame:SetScript("OnEvent", function(self, event, arg1)
     if event == "ADDON_LOADED" and arg1 == addonName then
@@ -1124,11 +1257,19 @@ loadFrame:SetScript("OnEvent", function(self, event, arg1)
         
         if type(WidgetForgeDB.bars) ~= "table" then WidgetForgeDB.bars = CopyTable(Config.DefaultSettings.bars) end
         if type(WidgetForgeDB.presets) ~= "table" then WidgetForgeDB.presets = {} end
+        if WidgetForgeDB.showMinimapButton == nil then WidgetForgeDB.showMinimapButton = true end
+        if type(WidgetForgeDB.minimapButtonAngle) ~= "number" then WidgetForgeDB.minimapButtonAngle = 220 end
         
         WidgetForgeUtils:MigrateDatabase(WidgetForgeDB)
         
         if ForgeStats and ForgeStats.Initialize then ForgeStats:Initialize() end
         
+        WidgetForge:UpdateMinimapButtonVisibility()
+        ScheduleMinimapReanchor()
+        if Config and Config.RegisterAddonSettingsPanel then
+            Config:RegisterAddonSettingsPanel()
+        end
+
         WidgetForge:UpdateAvailableBars()
         WidgetForge:SetBarsLocked(true)
         
@@ -1142,7 +1283,11 @@ loadFrame:SetScript("OnEvent", function(self, event, arg1)
     elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
         WidgetForge:UpdateAvailableBars()
     elseif event == "PLAYER_ENTERING_WORLD" then
+        WidgetForge:UpdateMinimapButtonVisibility()
+        ScheduleMinimapReanchor()
         WidgetForge:UpdateAvailableBars()
         WidgetForge:SetBarsLocked(true) 
+    elseif event == "UI_SCALE_CHANGED" or event == "DISPLAY_SIZE_CHANGED" or event == "MINIMAP_UPDATE_ZOOM" then
+        WidgetForge:UpdateMinimapButtonVisibility()
     end
 end)

@@ -772,14 +772,17 @@ function CCSync:GetAnnouncementChannel(elem)
     return channel
 end
 
-function CCSync:FormatCCAnnouncement(spellID)
+function CCSync:FormatCCAnnouncement(spellID, duration, includeDuration)
     local spellInfo = C_Spell.GetSpellInfo(spellID)
     local spellName = (spellInfo and spellInfo.name) or "CC"
+    if includeDuration and duration and duration > 0 then
+        return string.format("Used %s (CD: %ds)", spellName, math.floor(duration + 0.5))
+    end
     return string.format("Used %s", spellName)
 end
 
 function CCSync:RenderLocalAnnouncement(senderName, spellID, duration, channel, includeDuration)
-    local msg = self:FormatCCAnnouncement(spellID)
+    local msg = self:FormatCCAnnouncement(spellID, duration, includeDuration)
     local channelName = (channel == "INSTANCE_CHAT") and "Instance" or "Party"
     local color = (channel == "INSTANCE_CHAT") and "|cffFF7F00" or "|cffAAAAFF"
     local chatPrefix = color .. "[" .. channelName .. "] |r|cff69CCF0" .. (senderName or "Unknown") .. ": |r"
@@ -794,8 +797,8 @@ function CCSync:SendAnnouncementSync(spellID, duration, channel, includeDuration
     if not IsInGroup() then return end
     local ts = GetServerTime()
     local c = channel or "PARTY"
-    local d = 0
-    local inc = 0
+    local d = duration or 0
+    local inc = includeDuration and 1 or 0
     local msg = string.format("CCANN:%d:%.2f:%d:%s:%d", spellID, d, ts, c, inc)
     local syncChannel = IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and "INSTANCE_CHAT" or (IsInRaid() and "RAID" or "PARTY")
     C_ChatInfo.SendAddonMessage(self.commPrefix, msg, syncChannel)
@@ -811,8 +814,8 @@ function CCSync:AnnounceCC(spellID, duration)
 
     local senderName = UnitName("player") or "Unknown"
     -- Always virtual: render locally + sync to party so everyone renders client-side.
-    self:RenderLocalAnnouncement(senderName, spellID, duration, channel, false)
-    self:SendAnnouncementSync(spellID, duration, channel, false)
+    self:RenderLocalAnnouncement(senderName, spellID, duration, channel, true)
+    self:SendAnnouncementSync(spellID, duration, channel, true)
 end
 
 function CCSync:RenderSyncedCCAnnouncement(sender, spellID, duration, channel, includeDuration)

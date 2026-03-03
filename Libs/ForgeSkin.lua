@@ -302,7 +302,9 @@ function Skin:CreateCheckbox(parent, text, checked, callback)
     end
     -- Only the box itself is clickable
     cb.box:EnableMouse(true)
-    cb.box:SetScript("OnMouseDown", function() cb:SetChecked(not cb.checked) end)
+    cb.box:SetScript("OnMouseDown", function()
+        cb:SetChecked(not cb.checked)
+    end)
     if checked then cb.check:Show() else cb.check:Hide() end
     return cb
 end
