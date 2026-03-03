@@ -328,7 +328,7 @@ function TargetCastbar:Load(parent, elem)
             
             -- Interrupt detected - notify InterruptSync for party announcement
             if _G.WidgetForge and _G.WidgetForge.InterruptSync then
-                _G.WidgetForge.InterruptSync:ReportInterruptSuccess("target")
+                _G.WidgetForge.InterruptSync:ReportInterruptSuccess("target", _G.WidgetForge.InterruptSync.lastInterruptSpellID)
             end
             
         elseif event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_CHANNEL_STOP" or event == "UNIT_SPELLCAST_FAILED" then

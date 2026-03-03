@@ -13,6 +13,19 @@ addonTable.InterruptSync = InterruptSync
 
 InterruptSync.Instances = {}
 InterruptSync.commPrefix = "WF_INT_SYNC"
+InterruptSync.DebugMode = false
+local DEFAULT_INTERRUPT_COOLDOWN = 15
+local GCD_SPELL_ID = 61304
+local GCD_EPSILON = 0.15
+local QUICK_RESAMPLE_DELAY = 0.12
+local MIN_VALID_INTERRUPT_COOLDOWN = 1.0
+local SUCCESS_CDR_WINDOW = 2.0
+local SUCCESS_MATCH_WINDOW = 1.0
+local BASE_DISPATCH_DELAY = 0.22
+local DK_MIND_FREEZE_SPELL_ID = 47528
+local DK_SUCCESS_CDR_SECONDS = 3
+local DK_COLDTHIRST_TALENT_NAME = "Coldthirst"
+local DK_COLDTHIRST_TALENT_ID = 378848
 
 -- ============================================================================
 -- 1. INTERRUPT DATA (Dynamic CD Detection - Synced with TargetCastbar.lua)
@@ -32,6 +45,249 @@ local INTERRUPT_DATA = {
     HUNTER  = { DEFAULT = {ids = {147362}, spellName = "Counter Shot", names = {"Counter Shot", "Muzzle"}}, [3] = {ids = {187707}, spellName = "Muzzle", names = {"Muzzle"}} },
     DRUID   = { DEFAULT = {ids = {106839}, spellName = "Skull Bash", names = {"Skull Bash"}}, [1] = {ids = {78675}, spellName = "Solar Beam", names = {"Solar Beam"}} },
 }
+
+-- Seeded from SpellDatabase.txt (type="INTERRUPT") and kept as static fallback.
+local INTERRUPT_COOLDOWN_FALLBACK = {
+    [6552] = 15,    -- Pummel
+    [1766] = 15,    -- Kick
+    [2139] = 24,    -- Counterspell
+    [47528] = 15,   -- Mind Freeze
+    [96231] = 15,   -- Rebuke
+    [116705] = 15,  -- Spear Hand Strike
+    [183752] = 15,  -- Disrupt
+    [351338] = 20,  -- Quell
+    [57994] = 12,   -- Wind Shear
+    [15487] = 45,   -- Silence
+    [147362] = 24,  -- Counter Shot
+    [187707] = 15,  -- Muzzle
+    [106839] = 15,  -- Skull Bash
+    [78675] = 60,   -- Solar Beam
+    [119914] = 24,  -- Spell Lock
+    [132409] = 24,  -- Spell Lock (Observer)
+    [19647] = 24,   -- Spell Lock (Felhunter)
+}
+
+local STATIC_INTERRUPT_COOLDOWN_FALLBACK = {}
+for sid, dur in pairs(INTERRUPT_COOLDOWN_FALLBACK) do
+    STATIC_INTERRUPT_COOLDOWN_FALLBACK[sid] = dur
+end
+
+local INTERRUPT_NAME_COOLDOWN_FALLBACK = {}
+
+local function RegisterInterruptNameFallbackFromID(id, duration)
+    if not (C_Spell and C_Spell.GetSpellInfo) then return end
+    local info = C_Spell.GetSpellInfo(id)
+    if info and info.name then
+        INTERRUPT_NAME_COOLDOWN_FALLBACK[info.name] = duration
+    end
+end
+
+for spellID, duration in pairs(INTERRUPT_COOLDOWN_FALLBACK) do
+    RegisterInterruptNameFallbackFromID(spellID, duration)
+end
+
+local function SafeNumber(value)
+    local ok, num = pcall(function() return tonumber(value) end)
+    if ok and type(num) == "number" then return num end
+    return nil
+end
+
+local function SafeGreaterThan(value, threshold)
+    local left = SafeNumber(value)
+    if not left then return false end
+    local right = SafeNumber(threshold) or 0
+    local ok, result = pcall(function() return left > right end)
+    return ok and result or false
+end
+
+local function RoundTo2(value)
+    local n = SafeNumber(value)
+    if not n then return nil end
+    return math.floor(n * 100 + 0.5) / 100
+end
+
+local function DebugLog(self, msg)
+    return
+end
+
+function InterruptSync:HasColdthirstTalent()
+    local _, classToken = UnitClass("player")
+    if classToken ~= "DEATHKNIGHT" then return false end
+
+    local now = GetTime()
+    self._coldthirstCacheAt = self._coldthirstCacheAt or 0
+    self._coldthirstCacheValue = self._coldthirstCacheValue or false
+    if (now - self._coldthirstCacheAt) < 0.2 then
+        DebugLog(self, string.format("Coldthirst cache hit: %s age=%.3f", tostring(self._coldthirstCacheValue), now - self._coldthirstCacheAt))
+        return self._coldthirstCacheValue
+    end
+
+    local known = false
+    if DK_COLDTHIRST_TALENT_ID then
+        if IsPlayerSpell and IsPlayerSpell(DK_COLDTHIRST_TALENT_ID) then known = true end
+        if not known and IsSpellKnownOrOverridesKnown and IsSpellKnownOrOverridesKnown(DK_COLDTHIRST_TALENT_ID) then known = true end
+        if not known and IsSpellKnown and IsSpellKnown(DK_COLDTHIRST_TALENT_ID) then known = true end
+    end
+
+    self._coldthirstCacheAt = now
+    self._coldthirstCacheValue = known
+    DebugLog(self, string.format("Coldthirst check: spellID=%s active=%s", tostring(DK_COLDTHIRST_TALENT_ID), tostring(known)))
+    return known
+end
+
+function InterruptSync:GetLiveRemainingCooldown(spellID)
+    if not C_Spell then return nil end
+
+    -- Preferred API for remaining cooldown in modern clients.
+    if C_Spell.GetSpellCooldownDuration then
+        local rem = SafeNumber(C_Spell.GetSpellCooldownDuration(spellID))
+        if rem and rem > 0 then
+            return rem
+        end
+    end
+
+    -- Fallback for clients/builds where remaining duration API is unavailable.
+    if not C_Spell.GetSpellCooldown then return nil end
+    local cdInfo = C_Spell.GetSpellCooldown(spellID)
+    if not cdInfo or not SafeGreaterThan(cdInfo.duration, 0) then return 0 end
+    local startTime = SafeNumber(cdInfo.startTime) or 0
+    local duration = SafeNumber(cdInfo.duration) or 0
+    local remaining = (startTime + duration) - GetTime()
+    if remaining < 0 then remaining = 0 end
+    return remaining
+end
+
+function InterruptSync:EnsureRuntimeCooldownDB()
+    if type(_G.WidgetForgeDB) ~= "table" then _G.WidgetForgeDB = {} end
+    if type(_G.WidgetForgeDB.runtimeInterruptCooldowns) ~= "table" then
+        _G.WidgetForgeDB.runtimeInterruptCooldowns = {}
+    end
+    return _G.WidgetForgeDB.runtimeInterruptCooldowns
+end
+
+function InterruptSync:ApplyRuntimeCooldownOverrides()
+    local db = self:EnsureRuntimeCooldownDB()
+    local applied = 0
+    for spellIDStr, duration in pairs(db) do
+        local sid = tonumber(spellIDStr)
+        local dur = RoundTo2(duration)
+        if sid and dur and dur >= MIN_VALID_INTERRUPT_COOLDOWN then
+            local allow = true
+            -- Guard against stale "remaining cooldown" samples polluting base cooldown memory.
+            if sid == DK_MIND_FREEZE_SPELL_ID then
+                local staticBase = STATIC_INTERRUPT_COOLDOWN_FALLBACK[sid] or 15
+                if dur + 0.01 < staticBase then
+                    db[spellIDStr] = nil
+                    DebugLog(self, string.format("Removed invalid runtime override spell=%d duration=%.2f static=%.2f", sid, dur, staticBase))
+                    allow = false
+                end
+            end
+            if allow then
+                INTERRUPT_COOLDOWN_FALLBACK[sid] = dur
+                RegisterInterruptNameFallbackFromID(sid, dur)
+                applied = applied + 1
+            end
+        end
+    end
+    DebugLog(self, string.format("Runtime overrides applied: %d", applied))
+end
+
+function InterruptSync:RememberObservedCooldown(spellID, duration, source)
+    if not spellID then return end
+    if source ~= "live" and source ~= "charges" and source ~= "base" then return end
+
+    local dur = RoundTo2(duration)
+    if not dur or dur < MIN_VALID_INTERRUPT_COOLDOWN then return end
+
+    local sid = tonumber(spellID)
+    if not sid then return end
+
+    local prev = INTERRUPT_COOLDOWN_FALLBACK[sid]
+    if prev and math.abs(prev - dur) < 0.01 then return end
+
+    INTERRUPT_COOLDOWN_FALLBACK[sid] = dur
+    RegisterInterruptNameFallbackFromID(sid, dur)
+
+    local db = self:EnsureRuntimeCooldownDB()
+    db[tostring(sid)] = dur
+    DebugLog(self, string.format("Learned cooldown spell=%d old=%s new=%.2f source=%s (saved to WidgetForgeDB.runtimeInterruptCooldowns)", sid, tostring(prev), dur, tostring(source)))
+end
+
+function InterruptSync:GetCurrentGCD()
+    local gcd = 1.5
+    if C_Spell and C_Spell.GetSpellCooldown then
+        local cdInfo = C_Spell.GetSpellCooldown(GCD_SPELL_ID)
+        if cdInfo and SafeGreaterThan(cdInfo.duration, 0) then
+            gcd = SafeNumber(cdInfo.duration) or gcd
+        end
+    end
+    return gcd
+end
+
+function InterruptSync:ResolveInterruptCooldownDuration(spellID)
+    if not spellID then return DEFAULT_INTERRUPT_COOLDOWN, "fallback" end
+
+    if C_Spell and C_Spell.GetSpellCooldown then
+        local cdInfo = C_Spell.GetSpellCooldown(spellID)
+        if cdInfo and SafeGreaterThan(cdInfo.duration, 0) then
+            local liveDuration = SafeNumber(cdInfo.duration)
+            local gcd = self:GetCurrentGCD()
+            if liveDuration and SafeGreaterThan(liveDuration, gcd + GCD_EPSILON) then
+                return liveDuration, "live"
+            end
+        end
+    end
+
+    if C_Spell and C_Spell.GetSpellCharges then
+        local chargeInfo = C_Spell.GetSpellCharges(spellID)
+        if chargeInfo then
+            local chargeDur = chargeInfo.cooldownDuration or chargeInfo.chargeCooldownDuration
+            local current = chargeInfo.currentCharges
+            local maxc = chargeInfo.maxCharges
+            local chargeDurNum = SafeNumber(chargeDur)
+            local currentNum = SafeNumber(current)
+            local maxNum = SafeNumber(maxc)
+            if chargeDurNum and SafeGreaterThan(chargeDurNum, 0) then
+                local ok, less = pcall(function() return currentNum and maxNum and currentNum < maxNum end)
+                if ok and less then
+                    return chargeDurNum, "charges"
+                end
+            end
+        end
+    end
+
+    if C_Spell and C_Spell.GetSpellBaseCooldown then
+        local baseCooldownInfo = C_Spell.GetSpellBaseCooldown(spellID)
+        local baseMs = SafeNumber(baseCooldownInfo)
+        if baseMs and SafeGreaterThan(baseMs, 0) then
+            local baseSec = baseMs / 1000
+            local gcd = self:GetCurrentGCD()
+            if SafeGreaterThan(baseSec, gcd + GCD_EPSILON) then
+                return baseSec, "base"
+            end
+        end
+    end
+
+    local fallback = INTERRUPT_COOLDOWN_FALLBACK[spellID]
+    if fallback then
+        return fallback, "spell_fallback"
+    end
+
+    if C_Spell and C_Spell.GetSpellInfo then
+        local info = C_Spell.GetSpellInfo(spellID)
+        local byName = info and info.name and INTERRUPT_NAME_COOLDOWN_FALLBACK[info.name]
+        if byName then
+            return byName, "name_fallback"
+        end
+    end
+
+    return DEFAULT_INTERRUPT_COOLDOWN, "fallback"
+end
+
+function InterruptSync:IsPartySyncEnabled()
+    local elem = self.Instances[1] and self.Instances[1].elem
+    return elem and elem.partySync
+end
 
 -- Player's interrupt spell IDs (loaded from player class/spec)
 InterruptSync.interruptIDs = {}
@@ -87,12 +343,17 @@ function InterruptSync:LoadClassInterrupt()
 end
 
 InterruptSync:LoadClassInterrupt()
+InterruptSync:ApplyRuntimeCooldownOverrides()
 
 local specTrackerFrame = CreateFrame("Frame")
 specTrackerFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 specTrackerFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-specTrackerFrame:SetScript("OnEvent", function()
+specTrackerFrame:SetScript("OnEvent", function(_, event)
+    DebugLog(InterruptSync, "Spec tracker event: " .. tostring(event))
+    InterruptSync:RefreshColdthirstState(event)
     InterruptSync:LoadClassInterrupt()
+    InterruptSync:ApplyRuntimeCooldownOverrides()
+    InterruptSync:RefreshPlayerInterruptCooldownCache()
 end)
 
 -- Flatten for spell ID lookup
@@ -108,6 +369,7 @@ end
 -- Track player's last successful interrupt for detection
 InterruptSync.lastInterruptSpellID = nil
 InterruptSync.lastInterruptTime = 0
+InterruptSync.coldthirstEnabled = false
 
 -- ============================================================================
 -- INSTANCE & GROUP VALIDATION
@@ -128,16 +390,33 @@ function InterruptSync:IsValidContext()
     return true
 end
 
+function InterruptSync:RefreshColdthirstState(reason)
+    local _, classToken = UnitClass("player")
+    if classToken ~= "DEATHKNIGHT" then
+        self.coldthirstEnabled = false
+        DebugLog(self, string.format("Coldthirst cache refresh (%s): false (not DK)", tostring(reason)))
+        return
+    end
+    self._coldthirstCacheAt = 0
+    self._coldthirstCacheValue = false
+    self.coldthirstEnabled = self:HasColdthirstTalent() and true or false
+    DebugLog(self, string.format("Coldthirst cache refresh (%s): %s", tostring(reason), tostring(self.coldthirstEnabled)))
+end
+
 -- ============================================================================
 -- 2. EVENT HANDLING (WoW 12 COMPLIANT)
 -- ============================================================================
 function InterruptSync:UpdateGroupTracking()
     -- Always refresh our own spell data first
+    self._coldthirstCacheAt = 0
+    self._coldthirstCacheValue = false
+    self:RefreshColdthirstState("UpdateGroupTracking")
     self:LoadClassInterrupt()
+    self:ApplyRuntimeCooldownOverrides()
+    self:RefreshPlayerInterruptCooldownCache()
     
     self.eventFrame:UnregisterAllEvents()
     self.eventFrame:RegisterEvent("CHAT_MSG_ADDON")
-    self.eventFrame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
     self.eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
     self.eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     self.eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
@@ -145,6 +424,7 @@ function InterruptSync:UpdateGroupTracking()
     self.eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
     self.eventFrame:RegisterEvent("TRAIT_CONFIG_LIST_UPDATED")
     self.eventFrame:RegisterEvent("ACTIVE_COMBAT_CONFIG_CHANGED")
+    self.eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
     
     self.cachedIsValidContext = self:IsValidContext()
     
@@ -157,6 +437,61 @@ function InterruptSync:UpdateGroupTracking()
     for _, container in ipairs(self.Instances) do
         self:InitializeGroupBars(container)
     end
+end
+
+function InterruptSync:RefreshPlayerInterruptCooldownCache()
+    if #self.interruptIDs == 0 then return end
+    local gcd = self:GetCurrentGCD()
+    DebugLog(self, string.format("Refresh cache: interrupts=%d gcd=%.2f", #self.interruptIDs, gcd))
+    for _, spellID in ipairs(self.interruptIDs) do
+        local duration, source = self:ResolveInterruptCooldownDuration(spellID)
+        if duration and duration > (gcd + GCD_EPSILON) then
+            DebugLog(self, string.format("Observed cooldown spell=%d duration=%.2f source=%s", spellID, duration, tostring(source)))
+            self:RememberObservedCooldown(spellID, duration, source)
+        end
+    end
+end
+
+function InterruptSync:InitializeTargetInterruptWatcher()
+    if self.targetInterruptWatcher then return end
+
+    local f = CreateFrame("Frame")
+    f.owner = self
+    f.isInterrupted = false
+    f.interruptTime = 0
+
+    f:RegisterUnitEvent("UNIT_SPELLCAST_START", "target")
+    f:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_START", "target")
+    f:RegisterUnitEvent("UNIT_SPELLCAST_INTERRUPTED", "target")
+    f:RegisterUnitEvent("UNIT_SPELLCAST_STOP", "target")
+    f:RegisterUnitEvent("UNIT_SPELLCAST_FAILED", "target")
+    f:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_STOP", "target")
+
+    local function UpdateCastInfo(frame, event, unit)
+        if unit and unit ~= "target" then return end
+        local sync = frame.owner
+        if not sync then return end
+
+        if event == "UNIT_SPELLCAST_START" or event == "UNIT_SPELLCAST_CHANNEL_START" then
+            frame.isInterrupted = false
+        elseif event == "UNIT_SPELLCAST_INTERRUPTED" then
+            frame.isInterrupted = true
+            frame.interruptTime = GetTime()
+            DebugLog(sync, "Target watcher detected successful interrupt event")
+            sync:ReportInterruptSuccess("target", sync.lastInterruptSpellID, sync.lastInterruptCastToken)
+        elseif event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_CHANNEL_STOP" or event == "UNIT_SPELLCAST_FAILED" then
+            -- Mirror TargetCastbar behavior: keep interrupted success state until next cast start.
+            if not frame.isInterrupted then
+                frame.interruptTime = 0
+            end
+        end
+    end
+
+    f:SetScript("OnEvent", function(frame, event, unit)
+        UpdateCastInfo(frame, event, unit)
+    end)
+
+    self.targetInterruptWatcher = f
 end
 
 function InterruptSync:InitializeGroupBars(container)
@@ -272,6 +607,8 @@ if not InterruptSync.eventFrame then
         elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
             -- print("[WF_INT_SYNC] UNIT_SPELLCAST_SUCCEEDED triggered")
             InterruptSync:OnSpellcast(...)
+        elseif event == "PLAYER_REGEN_DISABLED" then
+            InterruptSync:RefreshColdthirstState("PLAYER_REGEN_DISABLED")
         elseif event == "CHAT_MSG_PARTY" or event == "CHAT_MSG_PARTY_LEADER" then
             -- print("[WF_INT_SYNC] CHAT_MSG_PARTY triggered")
             InterruptSync:OnPartyChat(...)
@@ -282,6 +619,7 @@ if not InterruptSync.eventFrame then
     end)
     -- print("[WF_INT_SYNC] Calling initial UpdateGroupTracking")
     InterruptSync:UpdateGroupTracking()
+    InterruptSync:InitializeTargetInterruptWatcher()
     -- print("[WF_INT_SYNC] Initialization complete")
 end
 
@@ -292,6 +630,7 @@ function InterruptSync:OnSpellcast(unit, castGUID, spellID)
         -- print("[WF_INT_SYNC] Ignoring - not player unit")
         return 
     end
+    DebugLog(self, string.format("OnSpellcast(player) spellID=%s", tostring(spellID)))
     
     -- Check if this is actually an interrupt spell
     if not INTERRUPT_SPELL_DATA[spellID] then 
@@ -300,28 +639,13 @@ function InterruptSync:OnSpellcast(unit, castGUID, spellID)
     end
     
     -- print("[WF_INT_SYNC] Processing player interrupt")
-    
-    -- Use class default cooldown duration (safest method - no secret number issues)
-    local duration = 15 -- fallback
-    
-    for class, data in pairs(INTERRUPT_DATA) do
-        for specIdx, specData in pairs(data) do
-            if specData.ids then
-                for _, id in ipairs(specData.ids) do
-                    if id == spellID then
-                        duration = specData.duration or 15
-                        -- print("[WF_INT_SYNC] Found interrupt duration from class data: " .. duration .. "s")
-                        break
-                    end
-                end
-            end
-        end
+    if spellID == DK_MIND_FREEZE_SPELL_ID then
+        self:RefreshColdthirstState("OnSpellcast_MindFreeze")
     end
     
-    if not duration or duration <= 0 then 
-        -- print("[WF_INT_SYNC] Invalid duration, returning")
-        return 
-    end
+    local duration, source = self:ResolveInterruptCooldownDuration(spellID)
+    if not duration or duration <= 0 then duration = DEFAULT_INTERRUPT_COOLDOWN end
+    self:RememberObservedCooldown(spellID, duration, source)
     
     local name = UnitName(unit)
     if not name then 
@@ -334,16 +658,140 @@ function InterruptSync:OnSpellcast(unit, castGUID, spellID)
     -- Track this interrupt for success detection (TargetCastbar integration)
     self.lastInterruptSpellID = spellID
     self.lastInterruptTime = GetTime()
+    self.lastInterruptCastToken = (self.lastInterruptCastToken or 0) + 1
+    self.lastInterruptCastTokenSpellID = spellID
+    self.lastInterruptCastDuration = duration
+    self.pendingSuccessToken = self.lastInterruptCastToken
+    self.pendingSuccessSpellID = spellID
+    self.pendingSuccessExpire = GetTime() + SUCCESS_MATCH_WINDOW
+    self.pendingSuccessConsumed = false
+    self._cdrDispatchToken = nil
     
     for _, container in ipairs(self.Instances) do
         self:UpdateBar(container, name, spellID, duration)
     end
-    
-    -- Always sync via addon channel (works in combat)
-    self:SendSync(spellID, duration)
-    
-    -- Always call announce path; it handles combat-safe local render internally.
-    self:AnnounceInterrupt(spellID, duration)
+
+    if self:ShouldDelayInitialDispatchForMindFreeze(spellID) then
+        DebugLog(self, string.format("Initial dispatch delayed for Mind Freeze token=%s duration=%.2f", tostring(self.lastInterruptCastToken), duration))
+        self:ScheduleDelayedInterruptDispatch(spellID, duration, self.lastInterruptCastToken)
+    else
+        -- Always sync via addon channel (works in combat)
+        self:SendSync(spellID, duration)
+
+        -- Always call announce path; it handles combat-safe local render internally.
+        self:AnnounceInterrupt(spellID, duration)
+    end
+
+    -- Talent/success based CDR can apply after cast; detect by comparing live cooldown to predicted cooldown.
+    self:SchedulePostCastCooldownAdjustChecks(spellID, self.lastInterruptCastToken)
+
+    if source == "fallback" or source == "spell_fallback" then
+        C_Timer.After(QUICK_RESAMPLE_DELAY, function()
+            local refinedDuration, refinedSource = self:ResolveInterruptCooldownDuration(spellID)
+            if not refinedDuration or refinedDuration <= 0 then return end
+            if refinedSource == "fallback" or refinedSource == "spell_fallback" then return end
+            if math.abs(refinedDuration - duration) < 0.5 then return end
+            self:RememberObservedCooldown(spellID, refinedDuration, refinedSource)
+
+            for _, container in ipairs(self.Instances) do
+                self:UpdateBar(container, name, spellID, refinedDuration)
+            end
+            self:SendSync(spellID, refinedDuration)
+        end)
+    end
+end
+
+function InterruptSync:SchedulePostCastCooldownAdjustChecks(spellID, castToken)
+    local delays = {0.08, 0.18, 0.32, 0.55, 0.90}
+    for _, delay in ipairs(delays) do
+        C_Timer.After(delay, function()
+            InterruptSync:DetectPostCastCooldownAdjustment(spellID, castToken)
+        end)
+    end
+end
+
+function InterruptSync:ShouldDelayInitialDispatchForMindFreeze(spellID)
+    if spellID ~= DK_MIND_FREEZE_SPELL_ID then return false end
+    local _, classToken = UnitClass("player")
+    if classToken ~= "DEATHKNIGHT" then return false end
+    -- Always delay initial Mind Freeze dispatch briefly so success-driven CDR
+    -- can correct outgoing sync/announce before a base 15s message is emitted.
+    return true
+end
+
+function InterruptSync:ScheduleDelayedInterruptDispatch(spellID, duration, castToken)
+    local delay = BASE_DISPATCH_DELAY
+    C_Timer.After(delay, function()
+        if self._suppressBaseDispatchTokens and self._suppressBaseDispatchTokens[castToken] then
+            DebugLog(self, string.format("Delayed dispatch skipped: suppressed token=%s", tostring(castToken)))
+            return
+        end
+        if castToken ~= self.lastInterruptCastToken then
+            DebugLog(self, string.format("Delayed dispatch skipped: stale token=%s current=%s", tostring(castToken), tostring(self.lastInterruptCastToken)))
+            return
+        end
+        DebugLog(self, string.format("Delayed dispatch sending base cooldown spell=%d duration=%.2f token=%s", spellID, duration, tostring(castToken)))
+        self:SendSync(spellID, duration)
+        self:AnnounceInterrupt(spellID, duration)
+    end)
+end
+
+function InterruptSync:DetectPostCastCooldownAdjustment(spellID, castToken)
+    if castToken ~= self.lastInterruptCastToken then
+        DebugLog(self, string.format("Post-cast CDR ignore: stale token=%s current=%s", tostring(castToken), tostring(self.lastInterruptCastToken)))
+        return
+    end
+    if spellID ~= self.lastInterruptCastTokenSpellID then
+        DebugLog(self, string.format("Post-cast CDR ignore: spell mismatch req=%s current=%s", tostring(spellID), tostring(self.lastInterruptCastTokenSpellID)))
+        return
+    end
+    if not self.lastInterruptTime or not self.lastInterruptCastDuration then
+        DebugLog(self, "Post-cast CDR ignore: missing cast timing memory")
+        return
+    end
+
+    local elapsed = GetTime() - self.lastInterruptTime
+    if elapsed < 0 then return end
+
+    local predictedRemaining = math.max(0, self.lastInterruptCastDuration - elapsed)
+    local liveRemaining = self:GetLiveRemainingCooldown(spellID)
+    if not liveRemaining or liveRemaining <= 0.05 then
+        DebugLog(self, string.format("Post-cast CDR ignore: no live cooldown (spell=%s live=%s predicted=%.2f)", tostring(spellID), tostring(liveRemaining), predictedRemaining))
+        return
+    end
+
+    local reduction = predictedRemaining - liveRemaining
+    if spellID == DK_MIND_FREEZE_SPELL_ID then
+        -- For Mind Freeze, accept only real ~3s success reduction from live cooldown.
+        if reduction < 2.4 or reduction > 3.6 then
+            DebugLog(self, string.format("Post-cast CDR reject MF window: reduction=%.2f predicted=%.2f live=%.2f", reduction, predictedRemaining, liveRemaining))
+            return
+        end
+    else
+        -- Generic path for other spells: require meaningful reduction.
+        if liveRemaining + 1.5 >= predictedRemaining then
+            DebugLog(self, string.format("Post-cast CDR reject generic: reduction=%.2f predicted=%.2f live=%.2f", reduction, predictedRemaining, liveRemaining))
+            return
+        end
+    end
+
+    local playerName = UnitName("player")
+    if not playerName then return end
+
+    DebugLog(self, string.format("Post-cast CDR detected: spell=%d predicted=%.2f live=%.2f reduction=%.2f", spellID, predictedRemaining, liveRemaining, reduction))
+    for _, container in ipairs(self.Instances) do
+        self:UpdateBar(container, playerName, spellID, liveRemaining)
+    end
+    self:SendSync(spellID, liveRemaining, GetServerTime())
+    if spellID == DK_MIND_FREEZE_SPELL_ID and self._cdrDispatchToken ~= castToken then
+        self._suppressBaseDispatchTokens = self._suppressBaseDispatchTokens or {}
+        if castToken then
+            self._suppressBaseDispatchTokens[castToken] = true
+        end
+        self:AnnounceInterrupt(spellID, liveRemaining)
+        self._cdrDispatchToken = castToken
+        DebugLog(self, string.format("Post-cast CDR announcement dispatched token=%s duration=%.2f", tostring(castToken), liveRemaining))
+    end
 end
 
 function InterruptSync:OnPartyChat(text, playerName, ...)
@@ -353,7 +801,6 @@ function InterruptSync:OnPartyChat(text, playerName, ...)
     
     playerName = Ambiguate(playerName, "none")
     if playerName == UnitName("player") then
-        if self.DebugMode then print("[WF_INT_SYNC DEBUG] Received own message: " .. text) end
         return
     end
     
@@ -371,47 +818,132 @@ function InterruptSync:OnPartyChat(text, playerName, ...)
     end
     
     if not spellID then
-        if self.DebugMode then print("[WF_INT_SYNC DEBUG] Could not find spellID for: " .. spellName) end
         return
     end
     
-    -- Get cooldown duration from class data
-    local duration = 15 -- fallback
-    for class, data in pairs(INTERRUPT_DATA) do
-        for specIdx, specData in pairs(data) do
-            if specData.ids then
-                for _, id in ipairs(specData.ids) do
-                    if id == spellID then
-                        duration = specData.duration or 15
-                        break
-                    end
-                end
-            end
-        end
-    end
+    local duration = self:ResolveInterruptCooldownDuration(spellID)
     
     -- Notice here we aren't fetching the real api CD.
     -- This is because party members' cooldown reductions are hidden.
 
-    if not duration or duration <= 0 then duration = 15 end
-    
-    if self.DebugMode then print("[WF_INT_SYNC DEBUG] " .. playerName .. " cast " .. spellName .. " (ID: " .. spellID .. ", CD: " .. duration .. "s)") end
+    if type(duration) ~= "number" or duration <= 0 then duration = DEFAULT_INTERRUPT_COOLDOWN end
     
     for _, container in ipairs(self.Instances) do
         self:UpdateBar(container, playerName, spellID, duration)
     end
 end
 
-function InterruptSync:ReportInterruptSuccess(targetUnit, interruptSpellID)
+function InterruptSync:ReportInterruptSuccess(targetUnit, interruptSpellID, castToken)
     -- Called by TargetCastbar when an interrupt is successfully detected
     -- This is the "detected interrupt" system - different from cast tracking
-    if not interruptSpellID then return end
-    if self.DebugMode then print("[WF_INT_SYNC DEBUG] Interrupt detected! Spell ID: " .. interruptSpellID) end
+    local now = GetTime()
+    if not interruptSpellID then
+        if not self.pendingSuccessToken or self.pendingSuccessConsumed or not self.pendingSuccessExpire or now > self.pendingSuccessExpire then
+            DebugLog(self, "Interrupt success ignored: no valid pending cast token")
+            return
+        end
+        interruptSpellID = self.pendingSuccessSpellID or self.lastInterruptSpellID
+        castToken = self.pendingSuccessToken
+    end
+
+    if castToken then
+        if self.pendingSuccessConsumed and self.lastConfirmedSuccessToken == castToken then
+            DebugLog(self, string.format("Interrupt success deduped by token: %d", castToken))
+            return
+        end
+        if self.pendingSuccessToken ~= castToken then
+            DebugLog(self, string.format("Interrupt success ignored: stale token %s current=%s", tostring(castToken), tostring(self.pendingSuccessToken)))
+            return
+        end
+        if self.pendingSuccessExpire and now > self.pendingSuccessExpire then
+            DebugLog(self, string.format("Interrupt success ignored: token expired %d", castToken))
+            return
+        end
+    end
+
+    if not interruptSpellID then
+        local age = GetTime() - (self.lastInterruptTime or 0)
+        if self.lastInterruptSpellID and age <= SUCCESS_CDR_WINDOW then
+            interruptSpellID = self.lastInterruptSpellID
+            DebugLog(self, string.format("Interrupt success inferred from recent cast: spell=%d age=%.2f", interruptSpellID, age))
+        else
+            DebugLog(self, "Interrupt success received without spell ID and no recent cast to match")
+            return
+        end
+    end
+    if castToken then
+        self.pendingSuccessConsumed = true
+        self.lastConfirmedSuccessToken = castToken
+    end
+
+    -- Apply success-based CDR regardless of announcement settings.
+    self:ApplySuccessfulInterruptCDR(interruptSpellID, castToken)
     
     local elem = self.Instances[1] and self.Instances[1].elem
     if not elem or not elem.announceInterruptSuccess then return end
     
     self:AnnounceInterruptSuccess(interruptSpellID)
+end
+
+function InterruptSync:ApplySuccessfulInterruptCDR(interruptSpellID, castToken)
+    if interruptSpellID ~= DK_MIND_FREEZE_SPELL_ID then return end
+    local _, classToken = UnitClass("player")
+    if classToken ~= "DEATHKNIGHT" then return end
+    self:RefreshColdthirstState("ApplySuccessfulInterruptCDR")
+    DebugLog(self, string.format("Success CDR entry: spell=%s token=%s coldthirstCache=%s", tostring(interruptSpellID), tostring(castToken), tostring(self.coldthirstEnabled)))
+    if not self.coldthirstEnabled then
+        DebugLog(self, "Success CDR skipped: Coldthirst cache=false")
+        return
+    end
+
+    local playerName = UnitName("player")
+    if not playerName then
+        DebugLog(self, "Success CDR skipped: playerName unavailable")
+        return
+    end
+
+    local now = GetTime()
+    self.activeCooldowns = self.activeCooldowns or {}
+    local mem = self.activeCooldowns[playerName]
+
+    local remaining = nil
+    if mem and mem.spellID == interruptSpellID and mem.endTime then
+        remaining = math.max(0, mem.endTime - now)
+        DebugLog(self, string.format("Success CDR base remaining from memory: %.2f", remaining))
+    elseif castToken and castToken == self.lastInterruptCastToken and self.lastInterruptCastDuration and self.lastInterruptTime then
+        remaining = math.max(0, self.lastInterruptCastDuration - (now - self.lastInterruptTime))
+        DebugLog(self, string.format("Success CDR base remaining from cast state: %.2f", remaining))
+    end
+
+    if not remaining or remaining <= 0.05 then
+        DebugLog(self, "Success CDR skipped: no active remaining cooldown to reduce")
+        return
+    end
+
+    local newRemaining = math.max(0, remaining - DK_SUCCESS_CDR_SECONDS)
+    local reducedBy = remaining - newRemaining
+    if reducedBy <= 0 then
+        DebugLog(self, "Success CDR skipped: reducedBy <= 0")
+        return
+    end
+
+    for _, container in ipairs(self.Instances) do
+        self:UpdateBar(container, playerName, interruptSpellID, newRemaining)
+    end
+
+    DebugLog(self, string.format("Success CDR applied: spell=%d reduced=%.2fs remaining=%.2fs", interruptSpellID, reducedBy, newRemaining))
+    if newRemaining > 0.05 then
+        local dispatchDuration = math.max(0, (self.lastInterruptCastDuration or DEFAULT_INTERRUPT_COOLDOWN) - DK_SUCCESS_CDR_SECONDS)
+        self._suppressBaseDispatchTokens = self._suppressBaseDispatchTokens or {}
+        local dispatchToken = castToken or self.lastInterruptCastToken
+        if dispatchToken then
+            self._suppressBaseDispatchTokens[dispatchToken] = true
+        end
+        self:SendSync(interruptSpellID, dispatchDuration, GetServerTime())
+        self:AnnounceInterrupt(interruptSpellID, dispatchDuration)
+        self._cdrDispatchToken = dispatchToken
+        DebugLog(self, string.format("Success CDR dispatch duration sent=%.2f (base=%.2f)", dispatchDuration, (self.lastInterruptCastDuration or DEFAULT_INTERRUPT_COOLDOWN)))
+    end
 end
 
 function InterruptSync:AnnounceInterruptSuccess(interruptSpellID)
@@ -436,9 +968,7 @@ function InterruptSync:AnnounceInterruptSuccess(interruptSpellID)
         local color = (channel == "INSTANCE_CHAT") and "|cffFF7F00" or "|cffAAAAFF" 
         local chatPrefix = color .. "[" .. channelName .. "] |r|cff69CCF0" .. UnitName("player") .. ": |r"
         DEFAULT_CHAT_FRAME:AddMessage(chatPrefix .. msg)
-        if self.DebugMode then print("[WF_INT_SYNC DEBUG] Virtual Announcement: " .. msg) end
     else
-        if self.DebugMode then print("[WF_INT_SYNC DEBUG] Announcement: " .. msg) end
         SendChatMessage(msg, channel)
     end
 end
@@ -479,14 +1009,11 @@ function InterruptSync:AnnounceInterrupt(spellID, duration)
         else
             print(msg)
         end
-        if self.DebugMode then print("[WF_INT_SYNC DEBUG] Virtual Announcing: " .. msg .. " to " .. channel) end
     else
         if not canSend then
             -- Outside combat we only send real chat messages to valid channels.
-            if self.DebugMode then print("[WF_INT_SYNC DEBUG] Skipping SendChatMessage - invalid channel context") end
             return
         end
-        if self.DebugMode then print("[WF_INT_SYNC DEBUG] Announcing: " .. msg .. " to " .. channel) end
         SendChatMessage(msg, channel)
     end
 end
@@ -518,54 +1045,61 @@ function InterruptSync:SendSync(spellID, duration, timestamp)
     if not duration or duration <= 0 then return end
     
     local ts = timestamp or GetServerTime()
-    local msg = string.format("INT:%d:%d:%d", spellID, duration, ts)
+    local msg = string.format("INT:%d:%.2f:%d", spellID, duration, ts)
     local channel = IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and "INSTANCE_CHAT" or (IsInRaid() and "RAID" or "PARTY")
     
-    if self.DebugMode then print("[WF_INT_SYNC DEBUG] Sending sync: " .. msg .. " to " .. channel .. " (Real CD: " .. duration .. "s)") end
     C_ChatInfo.SendAddonMessage(self.commPrefix, msg, channel)
 end
 
 function InterruptSync:OnCommReceived(prefix, text, channel, sender)
     if prefix ~= self.commPrefix then return end
+    if not self:IsPartySyncEnabled() then return end
     sender = Ambiguate(sender, "none")
-    
-    if self.DebugMode then print("[WF_INT_SYNC DEBUG] Received addon message from " .. sender .. " via " .. channel .. ": " .. text) end
-    
+
     if sender == UnitName("player") then 
-        if self.DebugMode then print("[WF_INT_SYNC DEBUG] Ignoring own message") end
         return 
     end
     
-    local cmd, spellID, _, timestamp = strsplit(":", text)
+    local cmd, spellID, incDuration, timestamp = strsplit(":", text)
     spellID = tonumber(spellID)
+    incDuration = tonumber(incDuration)
     timestamp = tonumber(timestamp)
     
     if cmd == "INT" and spellID then 
-        -- Get cooldown duration from class data
-        local duration = 15 -- fallback
-        for class, data in pairs(INTERRUPT_DATA) do
-            for specIdx, specData in pairs(data) do
-                if specData.ids then
-                    for _, id in ipairs(specData.ids) do
-                        if id == spellID then
-                            duration = specData.duration or 15
-                            break
-                        end
-                    end
-                end
-            end
-        end
-        
-        if not duration or duration <= 0 then duration = 15 end
+        local duration = incDuration or self:ResolveInterruptCooldownDuration(spellID)
+        if type(duration) ~= "number" or duration <= 0 then duration = DEFAULT_INTERRUPT_COOLDOWN end
         
         local lag = math.max(0, GetServerTime() - (timestamp or 0))
         local adjDur = duration - lag
-        if self.DebugMode then print("[WF_INT_SYNC DEBUG] " .. sender .. "'s interrupt cooldown: " .. spellID .. " for " .. adjDur .. "s (Real CD: " .. duration .. "s, Lag: " .. lag .. "s)") end
         if adjDur > 0 then
             for _, container in ipairs(self.Instances) do
                 self:UpdateBar(container, sender, spellID, adjDur)
             end
             self:RenderSyncedInterrupt(sender, spellID, duration)
+        end
+    end
+end
+
+function InterruptSync:BroadcastActiveInterruptCooldown()
+    if not IsInGroup() then return end
+    if #self.interruptIDs == 0 then return end
+
+    local now = GetTime()
+    for _, spellID in ipairs(self.interruptIDs) do
+        local duration, source = self:ResolveInterruptCooldownDuration(spellID)
+        if duration and duration >= MIN_VALID_INTERRUPT_COOLDOWN then
+            self:RememberObservedCooldown(spellID, duration, source)
+        end
+        if C_Spell and C_Spell.GetSpellCooldown then
+            local cdInfo = C_Spell.GetSpellCooldown(spellID)
+            if cdInfo and SafeGreaterThan(cdInfo.duration, 0) then
+                local startTime = SafeNumber(cdInfo.startTime) or 0
+                local duration = SafeNumber(cdInfo.duration) or 0
+                local remaining = (startTime + duration) - now
+                if duration > 0 and remaining > 0.15 then
+                    self:SendSync(spellID, duration, GetServerTime())
+                end
+            end
         end
     end
 end
@@ -612,6 +1146,16 @@ function InterruptSync:Load(parent, elem)
     container:Show()
     table.insert(InterruptSync.Instances, container)
     self:InitializeGroupBars(container)
+    
+    -- Scan immediately when widget is added/enabled so it doesn't depend on opening settings.
+    C_Timer.After(0.05, function()
+        if not container or not container:IsShown() then return end
+        InterruptSync:LoadClassInterrupt()
+        InterruptSync:ApplyRuntimeCooldownOverrides()
+        InterruptSync:RefreshPlayerInterruptCooldownCache()
+        InterruptSync:BroadcastActiveInterruptCooldown()
+        DebugLog(InterruptSync, "Initial scan completed on widget load")
+    end)
     
     container:SetScript("OnHide", function(self)
         for i, inst in ipairs(InterruptSync.Instances) do
@@ -1017,6 +1561,14 @@ function InterruptSync:CreateSettings(parentFrame)
     if not _G.WidgetForgeUtils or not _G.WidgetForgeUtils.CreateSettingsBuilder then return end
     local sb = f.builder or _G.WidgetForgeUtils:CreateSettingsBuilder(f.content)
     f.builder = sb
+
+    -- Settings panel is a good safe point to refresh and broadcast current interrupt cooldown state.
+    C_Timer.After(0.05, function()
+        InterruptSync:LoadClassInterrupt()
+        InterruptSync:ApplyRuntimeCooldownOverrides()
+        InterruptSync:RefreshPlayerInterruptCooldownCache()
+        InterruptSync:BroadcastActiveInterruptCooldown()
+    end)
     
     local texItems = {}
     if Skin and Skin.Media and Skin.Media.Textures then 

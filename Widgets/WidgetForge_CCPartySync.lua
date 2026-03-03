@@ -169,6 +169,8 @@ specTrackerFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 specTrackerFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 specTrackerFrame:SetScript("OnEvent", function(_, event)
     CCSync:LoadClassCC()
+    CCSync:ApplyRuntimeCooldownOverrides()
+    CCSync:RefreshPlayerCCCooldownCache()
     -- Re-broadcast on spec change or entering world (dungeon entry)
     if IsInGroup() then
         C_Timer.After(1, function() CCSync:BroadcastSpells() end)
@@ -207,6 +209,7 @@ local DEFAULT_CC_COOLDOWN = 60
 local GCD_SPELL_ID = 61304
 local GCD_EPSILON = 0.15
 local QUICK_RESAMPLE_DELAY = 0.12
+local MIN_VALID_CC_COOLDOWN = 1.0
 
 -- Targeted safety fallbacks for spells that are often misread as GCD in the same frame as cast.
 local CC_COOLDOWN_FALLBACK = {
@@ -241,6 +244,95 @@ local function SafeGreaterThan(value, threshold)
     local right = SafeNumber(threshold) or 0
     local ok, result = pcall(function() return left > right end)
     return ok and result or false
+end
+
+local function RoundTo2(value)
+    local n = SafeNumber(value)
+    if not n then return nil end
+    return math.floor(n * 100 + 0.5) / 100
+end
+
+local function ExtractBaseCooldownSeconds(baseCooldownInfo)
+    local n = SafeNumber(baseCooldownInfo)
+    if n and n > 0 then
+        return n / 1000
+    end
+    if type(baseCooldownInfo) == "table" then
+        local ms = SafeNumber(baseCooldownInfo.baseCooldownMS)
+            or SafeNumber(baseCooldownInfo.cooldownMS)
+            or SafeNumber(baseCooldownInfo.baseCooldown)
+            or SafeNumber(baseCooldownInfo.cooldown)
+            or SafeNumber(baseCooldownInfo.durationMS)
+            or SafeNumber(baseCooldownInfo.duration)
+        if ms and ms > 0 then
+            -- API variants may already be seconds; normalize only when value looks like ms.
+            if ms > 100 then
+                return ms / 1000
+            end
+            return ms
+        end
+    end
+    return nil
+end
+
+local function DebugLog(self, msg)
+    if self and self.DebugMode then
+        print("[WF_CC_SYNC DEBUG] " .. tostring(msg))
+    end
+end
+
+function CCSync:EnsureRuntimeCooldownDB()
+    if type(_G.WidgetForgeDB) ~= "table" then _G.WidgetForgeDB = {} end
+    if type(_G.WidgetForgeDB.runtimeCCCooldowns) ~= "table" then
+        _G.WidgetForgeDB.runtimeCCCooldowns = {}
+    end
+    return _G.WidgetForgeDB.runtimeCCCooldowns
+end
+
+function CCSync:ApplyRuntimeCooldownOverrides()
+    local db = self:EnsureRuntimeCooldownDB()
+    local applied = 0
+    for spellIDStr, duration in pairs(db) do
+        local sid = tonumber(spellIDStr)
+        local dur = RoundTo2(duration)
+        if sid and dur and dur >= MIN_VALID_CC_COOLDOWN then
+            CC_COOLDOWN_FALLBACK[sid] = dur
+            RegisterNameFallbackFromID(sid, dur)
+            applied = applied + 1
+        end
+    end
+    DebugLog(self, string.format("Runtime CC overrides applied: %d", applied))
+end
+
+function CCSync:RememberObservedCooldown(spellID, duration, source)
+    if not spellID then return end
+    if source ~= "live" and source ~= "charges" and source ~= "base" then return end
+
+    local dur = RoundTo2(duration)
+    if not dur or dur < MIN_VALID_CC_COOLDOWN then return end
+
+    local sid = tonumber(spellID)
+    if not sid then return end
+
+    local prev = CC_COOLDOWN_FALLBACK[sid]
+    local db = self:EnsureRuntimeCooldownDB()
+    local existingPersisted = SafeNumber(db[tostring(sid)])
+    if prev and math.abs(prev - dur) < 0.01 then
+        -- Persist baseline once so next sessions can confirm runtime overrides were loaded.
+        if not existingPersisted then
+            db[tostring(sid)] = dur
+            DebugLog(self, string.format("Persisted baseline CC cooldown spell=%d value=%.2f source=%s", sid, dur, tostring(source)))
+        else
+            DebugLog(self, string.format("CC cooldown unchanged spell=%d value=%.2f source=%s", sid, dur, tostring(source)))
+        end
+        return
+    end
+
+    CC_COOLDOWN_FALLBACK[sid] = dur
+    RegisterNameFallbackFromID(sid, dur)
+
+    db[tostring(sid)] = dur
+    DebugLog(self, string.format("Learned CC cooldown spell=%d old=%s new=%.2f source=%s (saved to WidgetForgeDB.runtimeCCCooldowns)", sid, tostring(prev), dur, tostring(source)))
 end
 
 function CCSync:ResolveCooldownDuration(spellID)
@@ -280,9 +372,8 @@ function CCSync:ResolveCooldownDuration(spellID)
     -- Fallback: use static spell base cooldown (milliseconds -> seconds).
     if C_Spell and C_Spell.GetSpellBaseCooldown then
         local baseCooldownInfo = C_Spell.GetSpellBaseCooldown(spellID)
-        local baseMs = SafeNumber(baseCooldownInfo)
-        if baseMs and SafeGreaterThan(baseMs, 0) then
-            local baseSec = baseMs / 1000
+        local baseSec = ExtractBaseCooldownSeconds(baseCooldownInfo)
+        if baseSec and SafeGreaterThan(baseSec, 0) then
             local gcd = self:GetCurrentGCD()
             if SafeGreaterThan(baseSec, gcd + GCD_EPSILON) then
                 return baseSec, "base"
@@ -382,6 +473,8 @@ function CCSync:UpdateGroupTracking()
     
     -- Always refresh our own spell data first
     self:LoadClassCC()
+    self:ApplyRuntimeCooldownOverrides()
+    self:RefreshPlayerCCCooldownCache()
     
     local newSpellsHash = ""
     if myName and self.knownSpells[myName] then
@@ -395,7 +488,6 @@ function CCSync:UpdateGroupTracking()
     
     self.eventFrame:UnregisterAllEvents()
     self.eventFrame:RegisterEvent("CHAT_MSG_ADDON")
-    self.eventFrame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
     self.eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
     self.eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     self.eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
@@ -435,6 +527,19 @@ function CCSync:UpdateGroupTracking()
         end
     end
     self.lastPartySize = currentSize
+end
+
+function CCSync:RefreshPlayerCCCooldownCache()
+    if #self.ccIDs == 0 then return end
+    local gcd = self:GetCurrentGCD()
+    DebugLog(self, string.format("Refresh CC cache: spells=%d gcd=%.2f", #self.ccIDs, gcd))
+    for _, spellID in ipairs(self.ccIDs) do
+        local duration, source = self:ResolveCooldownDuration(spellID)
+        DebugLog(self, string.format("Cache probe spell=%d duration=%s source=%s", spellID, tostring(duration), tostring(source)))
+        if duration and duration > (gcd + GCD_EPSILON) then
+            self:RememberObservedCooldown(spellID, duration, source)
+        end
+    end
 end
 
 function CCSync:InitializeGroupBars(container)
@@ -601,6 +706,8 @@ function CCSync:OnSpellcast(unit, castGUID, spellID)
     if not duration or duration <= 0 then
         duration = DEFAULT_CC_COOLDOWN
     end
+    DebugLog(self, string.format("OnSpellcast(player) spell=%d duration=%.2f source=%s", spellID, duration, tostring(source)))
+    self:RememberObservedCooldown(spellID, duration, source)
     
     for _, container in ipairs(self.Instances) do
         self:UpdateBar(container, name, spellID, duration)
@@ -616,6 +723,8 @@ function CCSync:OnSpellcast(unit, castGUID, spellID)
             if not refinedDuration or refinedDuration <= 0 then return end
             if refinedSource == "fallback" or refinedSource == "spell_fallback" then return end
             if math.abs(refinedDuration - duration) < 0.5 then return end
+            DebugLog(self, string.format("Resample refined spell=%d from=%.2f to=%.2f source=%s", spellID, duration, refinedDuration, tostring(refinedSource)))
+            self:RememberObservedCooldown(spellID, refinedDuration, refinedSource)
             
             for _, container in ipairs(self.Instances) do
                 self:UpdateBar(container, name, spellID, refinedDuration)
@@ -632,12 +741,19 @@ function CCSync:SendSync(spellID, duration, timestamp)
     local ts = timestamp or GetServerTime()
     local msg = string.format("CC:%d:%.2f:%d", spellID, duration, ts)
     local channel = IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and "INSTANCE_CHAT" or (IsInRaid() and "RAID" or "PARTY")
-    
+    DebugLog(self, string.format("Sending sync: %s to %s", msg, channel))
     C_ChatInfo.SendAddonMessage(self.commPrefix, msg, channel)
 end
 
 function CCSync:GetAnnouncementElement()
     return self.Instances[1] and self.Instances[1].elem
+end
+
+function CCSync:IsPartySyncEnabled()
+    local elem = self:GetAnnouncementElement()
+    if not elem then return true end
+    if elem.partySync == nil then return true end
+    return elem.partySync == true
 end
 
 function CCSync:GetAnnouncementChannel(elem)
@@ -708,9 +824,11 @@ end
 
 function CCSync:OnCommReceived(prefix, text, channel, sender)
     if prefix ~= self.commPrefix then return end
+    if not self:IsPartySyncEnabled() then return end
     sender = Ambiguate(sender, "none")
     
     if sender == UnitName("player") then return end
+    DebugLog(self, string.format("Received addon msg from %s via %s: %s", tostring(sender), tostring(channel), tostring(text)))
     
     local parts = {strsplit(":", text)}
     local cmd = parts[1]
@@ -741,6 +859,7 @@ function CCSync:OnCommReceived(prefix, text, channel, sender)
             local duration = incDuration or 60
             local lag = math.max(0, GetServerTime() - (timestamp or 0))
             local adjDur = duration - lag
+            DebugLog(self, string.format("Incoming CC sync sender=%s spell=%d duration=%.2f lag=%.2f adjusted=%.2f", tostring(sender), spellID, duration, lag, adjDur))
             
             if adjDur > 0 then
                 for _, container in ipairs(self.Instances) do
@@ -757,6 +876,46 @@ function CCSync:OnCommReceived(prefix, text, channel, sender)
             self:RenderSyncedCCAnnouncement(sender, spellID, incDuration, ch, includeDuration)
         end
     end
+end
+
+function CCSync:BroadcastActiveCCCooldowns()
+    if not IsInGroup() then return end
+    if #self.ccIDs == 0 then return end
+
+    local now = GetTime()
+    for _, spellID in ipairs(self.ccIDs) do
+        local duration, source = self:ResolveCooldownDuration(spellID)
+        if duration and duration >= MIN_VALID_CC_COOLDOWN then
+            self:RememberObservedCooldown(spellID, duration, source)
+        end
+        if C_Spell and C_Spell.GetSpellCooldown then
+            local cdInfo = C_Spell.GetSpellCooldown(spellID)
+            if cdInfo and SafeGreaterThan(cdInfo.duration, 0) then
+                local startTime = SafeNumber(cdInfo.startTime) or 0
+                local duration = SafeNumber(cdInfo.duration) or 0
+                local remaining = (startTime + duration) - now
+                if duration > 0 and remaining > 0.15 then
+                    DebugLog(self, string.format("Broadcast active CC spell=%d duration=%.2f remaining=%.2f source=%s", spellID, duration, remaining, tostring(source)))
+                    self:SendSync(spellID, duration, GetServerTime())
+                end
+            end
+        end
+    end
+end
+
+function CCSync:QueueWarmupSync()
+    self._warmupSerial = (self._warmupSerial or 0) + 1
+    local serial = self._warmupSerial
+    local function RunIfLatest()
+        if serial ~= self._warmupSerial then return end
+        CCSync:LoadClassCC()
+        CCSync:ApplyRuntimeCooldownOverrides()
+        CCSync:RefreshPlayerCCCooldownCache()
+        CCSync:BroadcastSpells()
+        CCSync:BroadcastActiveCCCooldowns()
+    end
+    C_Timer.After(0.05, RunIfLatest)
+    C_Timer.After(0.60, RunIfLatest)
 end
 
 -- ============================================================================
@@ -808,6 +967,9 @@ function CCSync:Load(parent, elem)
     container:Show()
     table.insert(CCSync.Instances, container)
     self:InitializeGroupBars(container)
+    
+    -- Scan immediately when widget is added/enabled so it doesn't depend on opening settings.
+    CCSync:QueueWarmupSync()
     
     container:SetScript("OnHide", function(self)
         for i, inst in ipairs(CCSync.Instances) do
@@ -1074,6 +1236,41 @@ function CCSync:UpdateBar(container, senderName, spellID, duration)
     self:LayoutBars(container)
 end
 
+local function FrameMatchesUnit(frame, unitId)
+    if not frame or not unitId then return false end
+    local unit = frame.unit
+    if not unit and frame.GetAttribute then
+        unit = frame:GetAttribute("unit")
+    end
+    local displayed = frame.displayedUnit
+    return unit == unitId or displayed == unitId
+end
+
+local function FindDescendantFrameByUnit(root, unitId, requireVisible)
+    if not root then return nil end
+    local queue = {root}
+    local index = 1
+    local scanned = 0
+    while queue[index] and scanned < 800 do
+        local frame = queue[index]
+        index = index + 1
+        scanned = scanned + 1
+
+        local visibleOK = (not requireVisible) or (frame.IsVisible and frame:IsVisible())
+        if visibleOK and FrameMatchesUnit(frame, unitId) then
+            return frame
+        end
+
+        if frame.GetChildren then
+            local children = {frame:GetChildren()}
+            for i = 1, #children do
+                queue[#queue + 1] = children[i]
+            end
+        end
+    end
+    return nil
+end
+
 function CCSync:GetUnitFrame(unitName)
     if not unitName then return nil end
     local isPlayer = (unitName == UnitName("player"))
@@ -1134,6 +1331,18 @@ function CCSync:GetUnitFrame(unitName)
     for i = 1, 4 do
         local f = _G["PartyMemberFrame"..i]
         if f and f:IsVisible() and f.unit == unitId then return f end
+    end
+
+    -- Dynamic Blizzard fallback: retail layouts can nest/rename party member frames.
+    local roots = {
+        _G.CompactPartyFrame,
+        _G.CompactRaidFrameContainer,
+        _G.CompactRaidGroup1,
+        _G.PartyFrame,
+    }
+    for i = 1, #roots do
+        local f = FindDescendantFrameByUnit(roots[i], unitId, true)
+        if f then return f end
     end
 
     -- Fallback for player when no party/raid unit frame matched.
@@ -1236,10 +1445,19 @@ function CCSync:LayoutBars(container)
                     bar:SetPoint(point, targetFrame, relPoint, offX + (stack * step * dirX), offY + (stack * step * dirY))
                     ownerStackIndex[ownerName] = stack + 1
                 else
-                        -- If frame not found and not testing, un-anchor or hide
-                        if not self.ForceTest then
-                            bar:Hide()
+                        -- If frame is not currently resolvable, keep icon visible in container stack
+                        -- instead of disappearing completely.
+                        if bar:GetParent() ~= container then
+                            bar:SetParent(container)
                         end
+                        bar:SetFrameStrata(container:GetFrameStrata() or "MEDIUM")
+                        bar:SetFrameLevel((container:GetFrameLevel() or 1) + 1)
+                        if not prev then
+                            bar:SetPoint("TOPLEFT", container, "TOPLEFT", 0, 0)
+                        else
+                            bar:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, -spacing)
+                        end
+                        prev = bar
                     end
                     
                     -- Disable clicks so it doesn't block party frame interaction
@@ -1450,6 +1668,9 @@ function CCSync:CreateSettings(parentFrame)
     if not _G.WidgetForgeUtils or not _G.WidgetForgeUtils.CreateSettingsBuilder then return end
     local sb = f.builder or _G.WidgetForgeUtils:CreateSettingsBuilder(f.content)
     f.builder = sb
+
+    -- Entering widget settings is a safe point to refresh and sync current CC cooldown state.
+    CCSync:QueueWarmupSync()
     
     local texItems = {}
     if Skin and Skin.Media and Skin.Media.Textures then 
