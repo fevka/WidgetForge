@@ -34,7 +34,7 @@ Config.ElementTypes = {
     "Avoidance", "Leech", "Speed", "Run Speed", "Dodge", "Parry", "Armor", "Max HP",
     "Gold", "Zone", "Coords", "Item Level", "Combat Timer", "XP",
     "Dragonriding", "Skill Stream", "Guild", "Friends", "Difficulty", "Target Castbar", "Talent Loadout", "Custom Code", 
-    "Interrupt Sync", "VaultEye", "CCPartySync", "PrepChecker", "Move Widget"
+    "Interrupt Sync", "VaultEye", "CCPartySync", "PrepChecker", "Move Widget", "Level Up Tracker"
 }
 
 Config.Presets = {
@@ -434,7 +434,7 @@ function Config:SelectBar(index)
     local isExclusive = false
     local exclusiveType = nil
     for _, e in ipairs(bar.elements) do
-        if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" or e.type == "VaultEye" or e.type == "CCPartySync" or e.type == "PrepChecker" or e.type == "Move Widget" then 
+        if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" or e.type == "VaultEye" or e.type == "CCPartySync" or e.type == "PrepChecker" or e.type == "Move Widget" or e.type == "Level Up Tracker" then 
             isExclusive = true
             exclusiveType = e.type
             break 
@@ -650,7 +650,7 @@ function Config:SelectBar(index)
     if bar.elements and #bar.elements > 0 then
         barMode = "STANDARD"
         for _, e in ipairs(bar.elements) do
-            if e.type == "Dragonriding" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" or e.type == "VaultEye" or e.type == "CCPartySync" or e.type == "PrepChecker" or e.type == "Move Widget" then 
+            if e.type == "Dragonriding" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" or e.type == "VaultEye" or e.type == "CCPartySync" or e.type == "PrepChecker" or e.type == "Move Widget" or e.type == "Level Up Tracker" then 
                 barMode = "STRICT"
                 break 
             elseif OverlayTypes[e.type] then
@@ -666,7 +666,7 @@ function Config:SelectBar(index)
         { name = "Navigation", elements = { "Zone", "Coords" } },
         { name = "Social", elements = { "Guild", "Friends" } },
         { name = "Dungeon & Raid", elements = { "Mythic+ Dashboard", "Target Castbar", "Interrupt Sync", "CCPartySync", "PrepChecker", "Combat Timer", "Difficulty" } },
-        { name = "Utils", elements = { "Dragonriding", "Cursor Ring", "Retirement Home", "Skill Stream", "VaultEye", "Move Widget", "Talent Loadout", "Custom Code" } }
+        { name = "Utils", elements = { "Dragonriding", "Cursor Ring", "Retirement Home", "Skill Stream", "VaultEye", "Move Widget", "Level Up Tracker", "Talent Loadout", "Custom Code" } }
     }
     
     Config.AccordionStates = Config.AccordionStates or {} 
@@ -759,7 +759,7 @@ function Config:SelectBar(index)
             local isSkillStreamBtn = (typeName == "Skill Stream")
             local isTargetCastBtn = (typeName == "Target Castbar")
             local isDivider = (typeName == "Divider")
-            local isBigWidget = (typeName == "Dragonriding" or typeName == "Skill Stream" or typeName == "Target Castbar" or typeName == "Mythic+ Dashboard" or typeName == "Interrupt Sync" or typeName == "VaultEye" or typeName == "Cursor Ring" or typeName == "Retirement Home" or typeName == "Custom Code" or typeName == "CCPartySync" or typeName == "PrepChecker" or typeName == "Move Widget")
+            local isBigWidget = (typeName == "Dragonriding" or typeName == "Skill Stream" or typeName == "Target Castbar" or typeName == "Mythic+ Dashboard" or typeName == "Interrupt Sync" or typeName == "VaultEye" or typeName == "Cursor Ring" or typeName == "Retirement Home" or typeName == "Custom Code" or typeName == "CCPartySync" or typeName == "PrepChecker" or typeName == "Move Widget" or typeName == "Level Up Tracker")
             
             local isActive = false
             for _, e in ipairs(bar.elements) do 
@@ -823,7 +823,7 @@ function Config:SelectBar(index)
             btn:SetScript("OnLeave", function(self) UpdateButtonStyle() end)
             
             local canAdd = true
-            local btnIsStrict = (typeName == "Dragonriding" or typeName == "Mythic+ Dashboard" or typeName == "Skill Stream" or typeName == "Target Castbar" or typeName == "Interrupt Sync" or typeName == "VaultEye" or typeName == "CCPartySync" or typeName == "PrepChecker" or typeName == "Move Widget")
+            local btnIsStrict = (typeName == "Dragonriding" or typeName == "Mythic+ Dashboard" or typeName == "Skill Stream" or typeName == "Target Castbar" or typeName == "Interrupt Sync" or typeName == "VaultEye" or typeName == "CCPartySync" or typeName == "PrepChecker" or typeName == "Move Widget" or typeName == "Level Up Tracker")
             local btnIsOverlay = OverlayTypes[typeName]
             local btnIsDivider = (typeName == "Divider")
             
@@ -928,6 +928,46 @@ function Config:SelectBar(index)
                           newEl.colorNeutral = {0.4, 0.4, 0.8, 1}
                      elseif typeName == "Move Widget" then
                           newEl.savePosition = true
+                     elseif typeName == "Level Up Tracker" then
+                          newEl.widgetWidth = 320
+                          newEl.widgetHeight = 64
+                          newEl.fontSize = 12
+                          newEl.font = "Righteous"
+                          newEl.fontOutline = "OUTLINE"
+                          newEl.textLayout = "SPLIT"
+                          newEl.line1Role = "AUTO_TOP"
+                          newEl.line2Role = "AUTO_BOTTOM"
+                          newEl.textAnchorSpace = "PANEL"
+                          newEl.topTextAnchor = "TOPLEFT"
+                          newEl.topTextOffsetX = 0
+                          newEl.topTextOffsetY = 0
+                          newEl.bottomTextAnchor = "BOTTOMLEFT"
+                          newEl.bottomTextOffsetX = 0
+                          newEl.bottomTextOffsetY = 0
+                          newEl.texture = "2. Smooth"
+                          newEl.barHeight = 16
+                          newEl.barOffsetY = 0
+                          newEl.panelBgAlpha = 0
+                          newEl.barBgAlpha = 0.12
+                          newEl.showPanelBorder = true
+                          newEl.panelBorderSize = 1
+                          newEl.panelBorderColor = {0.18, 0.18, 0.18, 1}
+                          newEl.showBarBorder = true
+                          newEl.barBorderSize = 1
+                          newEl.barBorderColor = {0.15, 0.15, 0.15, 1}
+                          newEl.compactMode = false
+                          newEl.showPercent = true
+                          newEl.showRemainingXP = true
+                          newEl.showRestedXP = true
+                          newEl.showSessionTime = false
+                          newEl.showTimeToLevel = false
+                          newEl.showLastLevelUp = true
+                          newEl.playSoundOnLevelUp = true
+                          newEl.announceInChat = "OFF"
+                          newEl.milestoneLevels = "10,20,30,40,50,60,70,80"
+                          newEl.xpBarColor = {0.1, 0.7, 1.0, 1}
+                          newEl.textColor = {1, 1, 1, 1}
+                          newEl.flashColor = {1.0, 0.85, 0.2, 1}
                      elseif isDivider then
                           newEl.size = 20; newEl.thickness = 2; newEl.dividerMode = "LINE"; newEl.dividerStyle = "VERTICAL"; newEl.offset = 0
                     end
@@ -1154,6 +1194,11 @@ function Config:SelectBar(index)
              local btnSettings = Skin:CreateButton(item, "Settings", 80, 22)
              btnSettings:SetPoint("RIGHT", dragHandle, "LEFT", -10, 0)
              btnSettings:SetScript("OnClick", function() Config:OpenPrepCheckerSettings(index, i, elem) end)
+        elseif elem.type == "Level Up Tracker" then
+             btnCol:Hide()
+             local btnSettings = Skin:CreateButton(item, "Settings", 80, 22)
+             btnSettings:SetPoint("RIGHT", dragHandle, "LEFT", -10, 0)
+             btnSettings:SetScript("OnClick", function() Config:OpenLevelUpTrackerSettings(index, i, elem) end)
         elseif elem.type == "Move Widget" then
              btnCol:Hide()
              local btnReset = Skin:CreateButton(item, "Reset", 80, 22)
@@ -1603,6 +1648,23 @@ function Config:OpenPrepCheckerSettings(barIndex, elemIndex, elem)
     if panel.builder then if panel.builder.Release then panel.builder:Release() end panel.builder = nil end
     if _G.WidgetForge and _G.WidgetForge.PrepChecker and _G.WidgetForge.PrepChecker.CreateSettings then
         _G.WidgetForge.PrepChecker:CreateSettings(panel)
+    end
+end
+
+function Config:OpenLevelUpTrackerSettings(barIndex, elemIndex, elem)
+    local panel = Config:GetSlidePanel()
+    Config:ToggleSlidePanel(true)
+    panel.header.title:SetText("Level Up Tracker Settings")
+    panel.config = elem
+    panel.barIndex = barIndex
+    local content = panel.content
+    local kids = {content:GetChildren()}
+    for _, k in ipairs(kids) do k:Hide() end
+    local regions = {content:GetRegions()}
+    for _, r in ipairs(regions) do r:Hide() end
+    if panel.builder then if panel.builder.Release then panel.builder:Release() end panel.builder = nil end
+    if _G.WidgetForge and _G.WidgetForge.LevelUpTracker and _G.WidgetForge.LevelUpTracker.CreateSettings then
+        _G.WidgetForge.LevelUpTracker:CreateSettings(panel)
     end
 end
 

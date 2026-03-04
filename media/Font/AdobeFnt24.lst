@@ -1,0 +1,42 @@
+%!Adobe-FontList 1.24
+%Locale:0x41f
+
+%BeginFont
+Handler:DirectoryHandler
+FontType:Invalid
+OutlineFileName:E:\World of Warcraft\_retail_\Interface\Addons\WidgetForge\media\Font\LICENSE.txt
+FileModTime:1772573385
+%EndFont
+
+%BeginFont
+Handler:DirectoryHandler
+FontType:Invalid
+OutlineFileName:E:\World of Warcraft\_retail_\Interface\Addons\WidgetForge\media\Font\Righteous Font LICENSE.txt
+FileModTime:1772573385
+%EndFont
+
+%BeginFont
+Handler:DirectoryHandler
+FontType:TrueType
+FontName:Righteous-Regular
+FamilyName:Righteous
+StyleName:Regular
+FullName:Righteous
+MenuName:Righteous
+StyleBits:0
+WritingScript:Roman
+OutlineFileName:E:\World of Warcraft\_retail_\Interface\Addons\WidgetForge\media\Font\Righteous.TTF
+DataFormat:sfntData
+hasSVG:no
+hasCOLR:no
+VariableFontType:NonVariableFont
+FileLength:43104
+FileModTime:1772573385
+WeightClass:400
+WidthClass:5
+AngleClass:0
+NameArray:0,Mac,18,Righteous
+NameArray:0,Mac,4,Righteous
+NameArray:0,Win,1,Righteous
+%EndFont
+

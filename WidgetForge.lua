@@ -52,7 +52,8 @@ WidgetForge.StatIcons = {
     ["Custom Code"] = "Interface\\Icons\\Trade_Engineering",
     ["CCPartySync"] = "Interface\\Icons\\Spell_Frost_FrostNova",
     ["PrepChecker"] = "Interface\\Icons\\Achievement_Dungeon_GloryoftheRaider",
-    ["Move Widget"] = "Interface\\Icons\\INV_Gizmo_GoblinBoomBox_01"
+    ["Move Widget"] = "Interface\\Icons\\INV_Gizmo_GoblinBoomBox_01",
+    ["Level Up Tracker"] = "Interface\\Icons\\INV_Misc_Book_11"
 }
 
 -- --- HELPER FUNCTIONS ---
@@ -230,7 +231,7 @@ function WidgetForge:UpdateAvailableBars()
             local isExclusive = false
             if conf.elements then
                 for _, e in ipairs(conf.elements) do
-                    if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" or e.type == "Vault Eye" or e.type == "VaultEye" or e.type == "CCPartySync" or e.type == "PrepChecker" or e.type == "Move Widget" then 
+                    if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" or e.type == "Vault Eye" or e.type == "VaultEye" or e.type == "CCPartySync" or e.type == "PrepChecker" or e.type == "Move Widget" or e.type == "Level Up Tracker" then 
                         isExclusive = true
                         break 
                     end
@@ -427,7 +428,7 @@ function WidgetForge:RebuildBarComponents(index)
     local isSplit = (conf.layout == "VERTICAL" and justify ~= "CENTER")
 
     local OverlayTypes = { ["Cursor Ring"] = true, ["Retirement Home"] = true }
-    local StrictTypes = { ["Mythic+ Dashboard"] = true, ["Dragonriding"] = true, ["Skill Stream"] = true, ["Target Castbar"] = true, ["Interrupt Sync"] = true, ["VaultEye"] = true, ["CCPartySync"] = true, ["PrepChecker"] = true, ["Move Widget"] = true }
+    local StrictTypes = { ["Mythic+ Dashboard"] = true, ["Dragonriding"] = true, ["Skill Stream"] = true, ["Target Castbar"] = true, ["Interrupt Sync"] = true, ["VaultEye"] = true, ["CCPartySync"] = true, ["PrepChecker"] = true, ["Move Widget"] = true, ["Level Up Tracker"] = true }
     
     local exclusiveType = nil
     for _, e in ipairs(conf.elements) do
@@ -479,6 +480,9 @@ function WidgetForge:RebuildBarComponents(index)
                 if ref then LoadAddonWidget(f, elem, i, ref, nil) end
             elseif elem.type == "Move Widget" then
                 local ref = addonTable.MoveWidget or _G.WidgetForge.MoveWidget
+                if ref then LoadAddonWidget(f, elem, i, ref, nil) end
+            elseif elem.type == "Level Up Tracker" then
+                local ref = addonTable.LevelUpTracker or _G.WidgetForge.LevelUpTracker
                 if ref then LoadAddonWidget(f, elem, i, ref, nil) end
             elseif elem.type == "Custom Code" then
                 if addonTable.CustomCode then LoadAddonWidget(f, elem, i, addonTable.CustomCode, "codeFrames") end
@@ -603,7 +607,7 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
     
     local fetchedValues = {}
     for i, elem in ipairs(conf.elements) do
-        if not (elem.type == "Divider" or elem.type == "Custom Code" or elem.type == "Dragonriding" or elem.type == "Target Castbar" or elem.type == "Skill Stream" or elem.type == "Cursor Ring" or elem.type == "Retirement Home" or elem.type == "Mythic+ Dashboard" or elem.type == "Interrupt Sync" or elem.type == "CCPartySync" or elem.type == "VaultEye" or elem.type == "PrepChecker" or elem.type == "Move Widget") then
+        if not (elem.type == "Divider" or elem.type == "Custom Code" or elem.type == "Dragonriding" or elem.type == "Target Castbar" or elem.type == "Skill Stream" or elem.type == "Cursor Ring" or elem.type == "Retirement Home" or elem.type == "Mythic+ Dashboard" or elem.type == "Interrupt Sync" or elem.type == "CCPartySync" or elem.type == "VaultEye" or elem.type == "PrepChecker" or elem.type == "Move Widget" or elem.type == "Level Up Tracker") then
             local valStr, lblStr = "---", ""
             if ForgeStats and ForgeStats.GetStat then
                 valStr, lblStr = ForgeStats:GetStat(elem.type) 
@@ -754,6 +758,9 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
                 elemWidth = (count * size) + ((count - 1) * spacing)
                 elemHeight = size
             end
+        elseif elem.type == "Level Up Tracker" then
+            elemWidth = elem.widgetWidth or 320
+            elemHeight = elem.widgetHeight or 52
         elseif elem.type == "Cursor Ring" or elem.type == "Retirement Home" or elem.type == "Mythic+ Dashboard" or elem.type == "VaultEye" or elem.type == "Move Widget" then
             -- Handled
         else
@@ -864,6 +871,8 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
                  local dir = elem.direction or "RIGHT_TO_LEFT"
                  if dir == "TOP_TO_BOTTOM" or dir == "BOTTOM_TO_TOP" then elemHeight = (limit * size) + ((limit - 1) * spacing)
                  else elemHeight = size end
+            elseif elem.type == "Level Up Tracker" then
+                 elemHeight = elem.widgetHeight or 52
             else
                  elemHeight = elem.size or 12
             end
@@ -886,7 +895,7 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
                 end
                 currentY = currentY - elemHeight
                 if i < #conf.elements then currentY = currentY - conf.padding end
-            elseif elem.type == "Dragonriding" or elem.type == "Skill Stream" or elem.type == "Target Castbar" or elem.type == "Custom Code" or elem.type == "Interrupt Sync" or elem.type == "CCPartySync" or elem.type == "PrepChecker" or elem.type == "Move Widget" then
+            elseif elem.type == "Dragonriding" or elem.type == "Skill Stream" or elem.type == "Target Castbar" or elem.type == "Custom Code" or elem.type == "Interrupt Sync" or elem.type == "CCPartySync" or elem.type == "PrepChecker" or elem.type == "Move Widget" or elem.type == "Level Up Tracker" then
                 if elem.type == "Custom Code" then
                     local cf = f.codeFrames and f.codeFrames[i]
                     if cf then cf:ClearAllPoints(); cf:SetPoint("CENTER", f, "CENTER", 0, placementY) end
@@ -1062,6 +1071,8 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
                      pcW = (7 * sz) + (6 * sp)
                  end
                  currentX = currentX + (pcW or 260) + conf.padding
+            elseif elem.type == "Level Up Tracker" then
+                 currentX = currentX + (elem.widgetWidth or 320) + conf.padding
             else
                 local tVal = f.textsVal[i]
                 if tVal then
