@@ -40,11 +40,23 @@ Skin.Media = {
         ["8. Otter"] = "Interface\\TargetingFrame\\UI-TargetingFrame-BarFill",
     },
     Fonts = {
+        -- Addon Font
+        ["Righteous"] = "Interface\\AddOns\\WidgetForge\\media\\Font\\Righteous.TTF",
+        -- WoW Built-in Fonts
         ["Friz Quadrata"] = "Fonts\\FRIZQT__.TTF",
         ["Arial Narrow"] = "Fonts\\ARIALN.TTF",
         ["Morpheus"] = "Fonts\\MORPHEUS.TTF",
-        ["Skurri"] = "Fonts\\skurri.ttf",
-        ["Righteous"] = "Interface\\AddOns\\WidgetForge\\media\\Font\\Righteous.TTF",
+        ["Skurri"] = "Fonts\\SKURRI.TTF",
+        ["2002"] = "Fonts\\2002.TTF",
+        ["2002 Bold"] = "Fonts\\2002B.TTF",
+        ["AR CrystalzcuheiGBK Demibold"] = "Fonts\\ARHei.TTF",
+        ["AR ZhongkaiGBK Medium (Combat)"] = "Fonts\\ARKai_C.TTF",
+        ["AR ZhongkaiGBK Medium"] = "Fonts\\ARKai_T.TTF",
+        ["Friz Quadrata CYR"] = "Fonts\\FRIZQT___CYR.TTF",
+        ["MoK"] = "Fonts\\K_Pagetext.TTF",
+        ["Morpheus CYR"] = "Fonts\\MORPHEUS_CYR.TTF",
+        ["Nimrod MT"] = "Fonts\\NIM_____.ttf",
+        ["Skurri CYR"] = "Fonts\\SKURRI_CYR.TTF",
     },
     Outlines = {
         {text = "None", value = ""},

@@ -51,6 +51,7 @@ WidgetForge.StatIcons = {
     ["Talent Loadout"] = "Interface\\Icons\\Spell_ChargePositive",
     ["Custom Code"] = "Interface\\Icons\\Trade_Engineering",
     ["CCPartySync"] = "Interface\\Icons\\Spell_Frost_FrostNova",
+    ["Party Defensives & Utility"] = "Interface\\Icons\\Ability_Paladin_BlessedMending",
     ["PrepChecker"] = "Interface\\Icons\\Achievement_Dungeon_GloryoftheRaider",
     ["Move Widget"] = "Interface\\Icons\\INV_Gizmo_GoblinBoomBox_01",
     ["Level Up Tracker"] = "Interface\\Icons\\INV_Misc_Book_11"
@@ -231,7 +232,7 @@ function WidgetForge:UpdateAvailableBars()
             local isExclusive = false
             if conf.elements then
                 for _, e in ipairs(conf.elements) do
-                    if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" or e.type == "Vault Eye" or e.type == "VaultEye" or e.type == "CCPartySync" or e.type == "PrepChecker" or e.type == "Move Widget" or e.type == "Level Up Tracker" then 
+                    if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" or e.type == "Vault Eye" or e.type == "VaultEye" or e.type == "CCPartySync" or e.type == "Party Defensives & Utility" or e.type == "PrepChecker" or e.type == "Move Widget" or e.type == "Level Up Tracker" then 
                         isExclusive = true
                         break 
                     end
@@ -428,7 +429,7 @@ function WidgetForge:RebuildBarComponents(index)
     local isSplit = (conf.layout == "VERTICAL" and justify ~= "CENTER")
 
     local OverlayTypes = { ["Cursor Ring"] = true, ["Retirement Home"] = true }
-    local StrictTypes = { ["Mythic+ Dashboard"] = true, ["Dragonriding"] = true, ["Skill Stream"] = true, ["Target Castbar"] = true, ["Interrupt Sync"] = true, ["VaultEye"] = true, ["CCPartySync"] = true, ["PrepChecker"] = true, ["Move Widget"] = true, ["Level Up Tracker"] = true }
+    local StrictTypes = { ["Mythic+ Dashboard"] = true, ["Dragonriding"] = true, ["Skill Stream"] = true, ["Target Castbar"] = true, ["Interrupt Sync"] = true, ["VaultEye"] = true, ["CCPartySync"] = true, ["Party Defensives & Utility"] = true, ["PrepChecker"] = true, ["Move Widget"] = true, ["Level Up Tracker"] = true }
     
     local exclusiveType = nil
     for _, e in ipairs(conf.elements) do
@@ -474,6 +475,9 @@ function WidgetForge:RebuildBarComponents(index)
                 if ref then LoadAddonWidget(f, elem, i, ref, "syncFrames") end
             elseif elem.type == "CCPartySync" then
                 local ref = addonTable.CCSync or _G.WidgetForge.CCSync
+                if ref then LoadAddonWidget(f, elem, i, ref, "syncFrames") end
+            elseif elem.type == "Party Defensives & Utility" then
+                local ref = addonTable.DefUtilSync or _G.WidgetForge.DefUtilSync
                 if ref then LoadAddonWidget(f, elem, i, ref, "syncFrames") end
             elseif elem.type == "PrepChecker" then
                 local ref = addonTable.PrepChecker or _G.WidgetForge.PrepChecker
@@ -607,7 +611,7 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
     
     local fetchedValues = {}
     for i, elem in ipairs(conf.elements) do
-        if not (elem.type == "Divider" or elem.type == "Custom Code" or elem.type == "Dragonriding" or elem.type == "Target Castbar" or elem.type == "Skill Stream" or elem.type == "Cursor Ring" or elem.type == "Retirement Home" or elem.type == "Mythic+ Dashboard" or elem.type == "Interrupt Sync" or elem.type == "CCPartySync" or elem.type == "VaultEye" or elem.type == "PrepChecker" or elem.type == "Move Widget" or elem.type == "Level Up Tracker") then
+        if not (elem.type == "Divider" or elem.type == "Custom Code" or elem.type == "Dragonriding" or elem.type == "Target Castbar" or elem.type == "Skill Stream" or elem.type == "Cursor Ring" or elem.type == "Retirement Home" or elem.type == "Mythic+ Dashboard" or elem.type == "Interrupt Sync" or elem.type == "CCPartySync" or elem.type == "Party Defensives & Utility" or elem.type == "VaultEye" or elem.type == "PrepChecker" or elem.type == "Move Widget" or elem.type == "Level Up Tracker") then
             local valStr, lblStr = "---", ""
             if ForgeStats and ForgeStats.GetStat then
                 valStr, lblStr = ForgeStats:GetStat(elem.type) 
@@ -676,6 +680,14 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
                     ref:RefreshBars(sf)
                 end
             end
+        elseif elem.type == "Party Defensives & Utility" then
+            local sf = f.syncFrames and f.syncFrames[i]
+            if sf then
+                local ref = addonTable.DefUtilSync or _G.WidgetForge.DefUtilSync
+                if ref and ref.RefreshBars then
+                    ref:RefreshBars(sf)
+                end
+            end
         end
     end
 
@@ -723,6 +735,12 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
             elemWidth = elem.barWidth or 220
             elemHeight = (limit * h) + ((limit - 1) * s)
         elseif elem.type == "CCPartySync" then
+            local limit = 5 -- Test mode or standard limit
+            local h = elem.barHeight or 30
+            local s = elem.spacing or 5
+            elemWidth = elem.barWidth or 220
+            elemHeight = (limit * h) + ((limit - 1) * s)
+        elseif elem.type == "Party Defensives & Utility" then
             local limit = 5 -- Test mode or standard limit
             local h = elem.barHeight or 30
             local s = elem.spacing or 5
@@ -859,7 +877,7 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
             elseif elem.type == "Dragonriding" then elemHeight = elem.widgetHeight or 45
             elseif elem.type == "Target Castbar" then elemHeight = elem.widgetHeight or 25
             elseif elem.type == "Custom Code" then elemHeight = elem.widgetHeight or 30
-            elseif elem.type == "Interrupt Sync" or elem.type == "CCPartySync" then
+            elseif elem.type == "Interrupt Sync" or elem.type == "CCPartySync" or elem.type == "Party Defensives & Utility" then
                  local limit = 5 -- Test mode or standard limit
                  local h = elem.barHeight or 30
                  local s = elem.spacing or 5
@@ -895,7 +913,7 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
                 end
                 currentY = currentY - elemHeight
                 if i < #conf.elements then currentY = currentY - conf.padding end
-            elseif elem.type == "Dragonriding" or elem.type == "Skill Stream" or elem.type == "Target Castbar" or elem.type == "Custom Code" or elem.type == "Interrupt Sync" or elem.type == "CCPartySync" or elem.type == "PrepChecker" or elem.type == "Move Widget" or elem.type == "Level Up Tracker" then
+            elseif elem.type == "Dragonriding" or elem.type == "Skill Stream" or elem.type == "Target Castbar" or elem.type == "Custom Code" or elem.type == "Interrupt Sync" or elem.type == "CCPartySync" or elem.type == "Party Defensives & Utility" or elem.type == "PrepChecker" or elem.type == "Move Widget" or elem.type == "Level Up Tracker" then
                 if elem.type == "Custom Code" then
                     local cf = f.codeFrames and f.codeFrames[i]
                     if cf then cf:ClearAllPoints(); cf:SetPoint("CENTER", f, "CENTER", 0, placementY) end
@@ -906,6 +924,9 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
                     local sf = f.syncFrames and f.syncFrames[i]
                     if sf then sf:ClearAllPoints(); sf:SetPoint("CENTER", f, "CENTER", 0, placementY) end
                 elseif elem.type == "CCPartySync" then
+                    local sf = f.syncFrames and f.syncFrames[i]
+                    if sf then sf:ClearAllPoints(); sf:SetPoint("CENTER", f, "CENTER", 0, placementY) end
+                elseif elem.type == "Party Defensives & Utility" then
                     local sf = f.syncFrames and f.syncFrames[i]
                     if sf then sf:ClearAllPoints(); sf:SetPoint("CENTER", f, "CENTER", 0, placementY) end
                 end
@@ -1045,6 +1066,10 @@ function WidgetForge:UpdateBarValues(index, forceLayout)
                 local sf = f.syncFrames and f.syncFrames[i]
                 if sf then sf:ClearAllPoints(); sf:SetPoint("LEFT", f, "CENTER", placementX, currentY) end
                 currentX = currentX + (elem.barWidth or 220) + conf.padding
+            elseif elem.type == "Party Defensives & Utility" then
+                local sf = f.syncFrames and f.syncFrames[i]
+                if sf then sf:ClearAllPoints(); sf:SetPoint("LEFT", f, "CENTER", placementX, currentY) end
+                currentX = currentX + (elem.barWidth or 220) + conf.padding
             elseif elem.type == "Custom Code" then
                  local cf = f.codeFrames and f.codeFrames[i]
                  if cf then
@@ -1155,7 +1180,7 @@ function WidgetForge:EnsureMinimapButton()
     btn:SetSize(31, 31)
     btn:SetFrameStrata("MEDIUM")
     btn:SetFrameLevel(8)
-    btn:RegisterForClicks("LeftButtonUp")
+    btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     btn:RegisterForDrag("LeftButton")
     btn:SetMovable(true)
 
@@ -1187,7 +1212,11 @@ function WidgetForge:EnsureMinimapButton()
         self:SetScript("OnUpdate", nil)
     end)
 
-    btn:SetScript("OnClick", function()
+    btn:SetScript("OnClick", function(_, button)
+        if button == "RightButton" then
+            if ReloadUI then ReloadUI() end
+            return
+        end
         if Config and Config.OpenConfigWindow then
             Config:OpenConfigWindow()
         end
@@ -1197,6 +1226,7 @@ function WidgetForge:EnsureMinimapButton()
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
         GameTooltip:SetText("WidgetForge")
         GameTooltip:AddLine("Left Click: Open config", 1, 1, 1)
+        GameTooltip:AddLine("Right Click: Reload UI", 1, 1, 1)
         GameTooltip:AddLine("/wf help", 0.6, 0.8, 1)
         GameTooltip:Show()
     end)

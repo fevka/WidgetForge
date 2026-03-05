@@ -34,7 +34,7 @@ Config.ElementTypes = {
     "Avoidance", "Leech", "Speed", "Run Speed", "Dodge", "Parry", "Armor", "Max HP",
     "Gold", "Zone", "Coords", "Item Level", "Combat Timer", "XP",
     "Dragonriding", "Skill Stream", "Guild", "Friends", "Difficulty", "Target Castbar", "Talent Loadout", "Custom Code", 
-    "Interrupt Sync", "VaultEye", "CCPartySync", "PrepChecker", "Move Widget", "Level Up Tracker"
+    "Interrupt Sync", "VaultEye", "CCPartySync", "Party Defensives & Utility", "PrepChecker", "Move Widget", "Level Up Tracker"
 }
 
 Config.Presets = {
@@ -434,7 +434,7 @@ function Config:SelectBar(index)
     local isExclusive = false
     local exclusiveType = nil
     for _, e in ipairs(bar.elements) do
-        if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" or e.type == "VaultEye" or e.type == "CCPartySync" or e.type == "PrepChecker" or e.type == "Move Widget" or e.type == "Level Up Tracker" then 
+        if e.type == "Dragonriding" or e.type == "Cursor Ring" or e.type == "Retirement Home" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" or e.type == "VaultEye" or e.type == "CCPartySync" or e.type == "Party Defensives & Utility" or e.type == "PrepChecker" or e.type == "Move Widget" or e.type == "Level Up Tracker" then 
             isExclusive = true
             exclusiveType = e.type
             break 
@@ -650,7 +650,7 @@ function Config:SelectBar(index)
     if bar.elements and #bar.elements > 0 then
         barMode = "STANDARD"
         for _, e in ipairs(bar.elements) do
-            if e.type == "Dragonriding" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" or e.type == "VaultEye" or e.type == "CCPartySync" or e.type == "PrepChecker" or e.type == "Move Widget" or e.type == "Level Up Tracker" then 
+            if e.type == "Dragonriding" or e.type == "Mythic+ Dashboard" or e.type == "Skill Stream" or e.type == "Target Castbar" or e.type == "Interrupt Sync" or e.type == "VaultEye" or e.type == "CCPartySync" or e.type == "Party Defensives & Utility" or e.type == "PrepChecker" or e.type == "Move Widget" or e.type == "Level Up Tracker" then 
                 barMode = "STRICT"
                 break 
             elseif OverlayTypes[e.type] then
@@ -665,7 +665,7 @@ function Config:SelectBar(index)
         { name = "Progression & Goods", elements = { "XP", "Gold", "Bag Space", "Item Level", "Durability" } },
         { name = "Navigation", elements = { "Zone", "Coords" } },
         { name = "Social", elements = { "Guild", "Friends" } },
-        { name = "Dungeon & Raid", elements = { "Mythic+ Dashboard", "Target Castbar", "Interrupt Sync", "CCPartySync", "PrepChecker", "Combat Timer", "Difficulty" } },
+        { name = "Dungeon & Raid", elements = { "Mythic+ Dashboard", "Target Castbar", "Interrupt Sync", "CCPartySync", "Party Defensives & Utility", "PrepChecker", "Combat Timer", "Difficulty" } },
         { name = "Utils", elements = { "Dragonriding", "Cursor Ring", "Retirement Home", "Skill Stream", "VaultEye", "Move Widget", "Level Up Tracker", "Talent Loadout", "Custom Code" } }
     }
     
@@ -759,7 +759,7 @@ function Config:SelectBar(index)
             local isSkillStreamBtn = (typeName == "Skill Stream")
             local isTargetCastBtn = (typeName == "Target Castbar")
             local isDivider = (typeName == "Divider")
-            local isBigWidget = (typeName == "Dragonriding" or typeName == "Skill Stream" or typeName == "Target Castbar" or typeName == "Mythic+ Dashboard" or typeName == "Interrupt Sync" or typeName == "VaultEye" or typeName == "Cursor Ring" or typeName == "Retirement Home" or typeName == "Custom Code" or typeName == "CCPartySync" or typeName == "PrepChecker" or typeName == "Move Widget" or typeName == "Level Up Tracker")
+            local isBigWidget = (typeName == "Dragonriding" or typeName == "Skill Stream" or typeName == "Target Castbar" or typeName == "Mythic+ Dashboard" or typeName == "Interrupt Sync" or typeName == "VaultEye" or typeName == "Cursor Ring" or typeName == "Retirement Home" or typeName == "Custom Code" or typeName == "CCPartySync" or typeName == "Party Defensives & Utility" or typeName == "PrepChecker" or typeName == "Move Widget" or typeName == "Level Up Tracker")
             
             local isActive = false
             for _, e in ipairs(bar.elements) do 
@@ -773,6 +773,8 @@ function Config:SelectBar(index)
                 buttonLabel = "Preep Checker"
             elseif typeName == "CCPartySync" then
                 buttonLabel = "CC Sync"
+            elseif typeName == "Party Defensives & Utility" then
+                buttonLabel = "Def / Ult Sync"
             end
             local btn = Skin:CreateButton(acc.content, buttonLabel, 115, 25) 
             btn:SetPoint("TOPLEFT", btnX, btnY)
@@ -823,7 +825,7 @@ function Config:SelectBar(index)
             btn:SetScript("OnLeave", function(self) UpdateButtonStyle() end)
             
             local canAdd = true
-            local btnIsStrict = (typeName == "Dragonriding" or typeName == "Mythic+ Dashboard" or typeName == "Skill Stream" or typeName == "Target Castbar" or typeName == "Interrupt Sync" or typeName == "VaultEye" or typeName == "CCPartySync" or typeName == "PrepChecker" or typeName == "Move Widget" or typeName == "Level Up Tracker")
+            local btnIsStrict = (typeName == "Dragonriding" or typeName == "Mythic+ Dashboard" or typeName == "Skill Stream" or typeName == "Target Castbar" or typeName == "Interrupt Sync" or typeName == "VaultEye" or typeName == "CCPartySync" or typeName == "Party Defensives & Utility" or typeName == "PrepChecker" or typeName == "Move Widget" or typeName == "Level Up Tracker")
             local btnIsOverlay = OverlayTypes[typeName]
             local btnIsDivider = (typeName == "Divider")
             
@@ -898,7 +900,17 @@ function Config:SelectBar(index)
                          newEl.showIcon = true
                          newEl.colorReady = {0.2, 0.8, 1.0, 1}
                          newEl.colorOnCD = {1.0, 0.5, 0.0, 1}
-                    elseif typeName == "VaultEye" then
+                     elseif typeName == "Party Defensives & Utility" then
+                         newEl.barWidth = 220
+                         newEl.barHeight = 30
+                         newEl.iconSize = 30
+                         newEl.spacing = 5
+                         newEl.showIcon = true
+                         newEl.catEXT_DEF = true
+                         newEl.catRAID_DEF = true
+                         newEl.catLUST = true
+                         newEl.catCR = true
+                     elseif typeName == "VaultEye" then
                          newEl.widgetWidth = 250
                          newEl.widgetHeight = 150
                          newEl.trackMythicPlus = true
@@ -962,7 +974,7 @@ function Config:SelectBar(index)
                           newEl.showSessionTime = false
                           newEl.showTimeToLevel = false
                           newEl.showLastLevelUp = true
-                          newEl.playSoundOnLevelUp = true
+
                           newEl.announceInChat = "OFF"
                           newEl.milestoneLevels = "10,20,30,40,50,60,70,80"
                           newEl.xpBarColor = {0.1, 0.7, 1.0, 1}
@@ -1189,6 +1201,11 @@ function Config:SelectBar(index)
              local btnSettings = Skin:CreateButton(item, "Settings", 80, 22)
              btnSettings:SetPoint("RIGHT", dragHandle, "LEFT", -10, 0)
              btnSettings:SetScript("OnClick", function() Config:OpenCCPartySyncSettings(index, i, elem) end)
+        elseif elem.type == "Party Defensives & Utility" then
+             btnCol:Hide()
+             local btnSettings = Skin:CreateButton(item, "Settings", 80, 22)
+             btnSettings:SetPoint("RIGHT", dragHandle, "LEFT", -10, 0)
+             btnSettings:SetScript("OnClick", function() Config:OpenDefUtilSyncSettings(index, i, elem) end)
         elseif elem.type == "PrepChecker" then
              btnCol:Hide()
              local btnSettings = Skin:CreateButton(item, "Settings", 80, 22)
@@ -1633,6 +1650,24 @@ function Config:OpenCCPartySyncSettings(barIndex, elemIndex, elem)
         _G.WidgetForge.CCSync:CreateSettings(panel)
     end
 end
+
+function Config:OpenDefUtilSyncSettings(barIndex, elemIndex, elem)
+    local panel = Config:GetSlidePanel()
+    Config:ToggleSlidePanel(true)
+    panel.header.title:SetText("Defensives & Utility Settings")
+    panel.config = elem
+    panel.barIndex = barIndex
+    local content = panel.content
+    local kids = {content:GetChildren()}
+    for _, k in ipairs(kids) do k:Hide() end
+    local regions = {content:GetRegions()}
+    for _, r in ipairs(regions) do r:Hide() end
+    if panel.builder then if panel.builder.Release then panel.builder:Release() end panel.builder = nil end
+    if _G.WidgetForge and _G.WidgetForge.DefUtilSync and _G.WidgetForge.DefUtilSync.CreateSettings then
+        _G.WidgetForge.DefUtilSync:CreateSettings(panel)
+    end
+end
+
 
 function Config:OpenPrepCheckerSettings(barIndex, elemIndex, elem)
     local panel = Config:GetSlidePanel()

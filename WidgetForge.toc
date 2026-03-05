@@ -7,9 +7,6 @@
 ## SavedVariables: WidgetForgeDB
 
 WidgetConstants.lua
-Libs\LibStub\LibStub.lua
-Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
-Libs\LibSharedMedia-3.0\LibSharedMedia-3.0.lua
 Libs\ForgeSerializer.lua
 WidgetUtils.lua
 Libs\ForgeSkin.lua
@@ -27,5 +24,6 @@ Widgets\WidgetForge_CustomCode.lua
 Widgets\WidgetForge_interruptPartySync.lua
 Widgets\WidgetForge_VaultEye.lua
 Widgets\WidgetForge_CCPartySync.lua
+Widgets\WidgetForge_DefUtilSync.lua
 Widgets\WidgetForge_PrepChecker.lua
 Widgets\WidgetForge_LevelUpTracker.lua
