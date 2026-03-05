@@ -170,7 +170,7 @@ specTrackerFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 specTrackerFrame:SetScript("OnEvent", function(_, event)
     CCSync:LoadClassCC()
     CCSync:ApplyRuntimeCooldownOverrides()
-    CCSync:RefreshPlayerCCCooldownCache()
+    CCSync:QueueWarmupSync()
     -- Re-broadcast on spec change or entering world (dungeon entry)
     if IsInGroup() then
         C_Timer.After(1, function() CCSync:BroadcastSpells() end)
@@ -208,7 +208,6 @@ end
 local DEFAULT_CC_COOLDOWN = 60
 local GCD_SPELL_ID = 61304
 local GCD_EPSILON = 0.15
-local QUICK_RESAMPLE_DELAY = 0.12
 local MIN_VALID_CC_COOLDOWN = 1.0
 
 -- Targeted safety fallbacks for spells that are often misread as GCD in the same frame as cast.
@@ -474,7 +473,6 @@ function CCSync:UpdateGroupTracking()
     -- Always refresh our own spell data first
     self:LoadClassCC()
     self:ApplyRuntimeCooldownOverrides()
-    self:RefreshPlayerCCCooldownCache()
     
     local newSpellsHash = ""
     if myName and self.knownSpells[myName] then
@@ -494,7 +492,6 @@ function CCSync:UpdateGroupTracking()
     self.eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
     self.eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
     self.eventFrame:RegisterEvent("TRAIT_CONFIG_LIST_UPDATED")
-    self.eventFrame:RegisterEvent("ACTIVE_COMBAT_CONFIG_CHANGED")
     
     self.cachedIsValidContext = self:IsValidContext()
     self.eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
@@ -530,6 +527,9 @@ function CCSync:UpdateGroupTracking()
 end
 
 function CCSync:RefreshPlayerCCCooldownCache()
+    if InCombatLockdown and InCombatLockdown() then
+        return
+    end
     if #self.ccIDs == 0 then return end
     local gcd = self:GetCurrentGCD()
     DebugLog(self, string.format("Refresh CC cache: spells=%d gcd=%.2f", #self.ccIDs, gcd))
@@ -678,9 +678,12 @@ if not CCSync.eventFrame then
             CCSync:OnCommReceived(...)
         elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
             CCSync:OnSpellcast(...)
-        elseif event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_TALENT_UPDATE" or event == "TRAIT_CONFIG_UPDATED" or event == "TRAIT_CONFIG_LIST_UPDATED" or event == "ACTIVE_COMBAT_CONFIG_CHANGED" then
+        elseif event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_TALENT_UPDATE" or event == "TRAIT_CONFIG_UPDATED" or event == "TRAIT_CONFIG_LIST_UPDATED" then
             CCSync.cachedIsValidContext = CCSync:IsValidContext()
             CCSync:UpdateGroupTracking()
+            if event == "PLAYER_TALENT_UPDATE" or event == "TRAIT_CONFIG_UPDATED" or event == "TRAIT_CONFIG_LIST_UPDATED" then
+                CCSync:QueueWarmupSync()
+            end
         elseif event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
             CCSync.cachedIsValidContext = CCSync:IsValidContext()
             CCSync:UpdateGroupTracking()
@@ -707,7 +710,6 @@ function CCSync:OnSpellcast(unit, castGUID, spellID)
         duration = DEFAULT_CC_COOLDOWN
     end
     DebugLog(self, string.format("OnSpellcast(player) spell=%d duration=%.2f source=%s", spellID, duration, tostring(source)))
-    self:RememberObservedCooldown(spellID, duration, source)
     
     for _, container in ipairs(self.Instances) do
         self:UpdateBar(container, name, spellID, duration)
@@ -715,23 +717,6 @@ function CCSync:OnSpellcast(unit, castGUID, spellID)
     
     self:SendSync(spellID, duration)
     self:AnnounceCC(spellID, duration)
-    
-    -- Some spells report only GCD/zero in the cast frame; resample shortly after and correct if needed.
-    if source == "fallback" or source == "spell_fallback" then
-        C_Timer.After(QUICK_RESAMPLE_DELAY, function()
-            local refinedDuration, refinedSource = self:ResolveCooldownDuration(spellID)
-            if not refinedDuration or refinedDuration <= 0 then return end
-            if refinedSource == "fallback" or refinedSource == "spell_fallback" then return end
-            if math.abs(refinedDuration - duration) < 0.5 then return end
-            DebugLog(self, string.format("Resample refined spell=%d from=%.2f to=%.2f source=%s", spellID, duration, refinedDuration, tostring(refinedSource)))
-            self:RememberObservedCooldown(spellID, refinedDuration, refinedSource)
-            
-            for _, container in ipairs(self.Instances) do
-                self:UpdateBar(container, name, spellID, refinedDuration)
-            end
-            self:SendSync(spellID, refinedDuration)
-        end)
-    end
 end
 
 function CCSync:SendSync(spellID, duration, timestamp)
@@ -882,6 +867,9 @@ function CCSync:OnCommReceived(prefix, text, channel, sender)
 end
 
 function CCSync:BroadcastActiveCCCooldowns()
+    if InCombatLockdown and InCombatLockdown() then
+        return
+    end
     if not IsInGroup() then return end
     if #self.ccIDs == 0 then return end
 
@@ -911,6 +899,7 @@ function CCSync:QueueWarmupSync()
     local serial = self._warmupSerial
     local function RunIfLatest()
         if serial ~= self._warmupSerial then return end
+        if InCombatLockdown and InCombatLockdown() then return end
         CCSync:LoadClassCC()
         CCSync:ApplyRuntimeCooldownOverrides()
         CCSync:RefreshPlayerCCCooldownCache()
@@ -1385,6 +1374,7 @@ function CCSync:LayoutBars(container)
             bar:ClearAllPoints()
              
             if attachMode then
+                    local stackedInContainer = false
                     -- Find party frame
                     local ownerName = bar.playerName
                     local targetFrame = self:GetUnitFrame(ownerName)
@@ -1404,6 +1394,7 @@ function CCSync:LayoutBars(container)
                                 bar:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, -spacing) 
                             end
                             prev = bar
+                            stackedInContainer = true
                         end
                     end
                     
@@ -1447,7 +1438,7 @@ function CCSync:LayoutBars(container)
                     local step = ((grow == "VERTICAL") and (bar:GetHeight() or (elem.iconSize or 24)) or (bar:GetWidth() or (elem.iconSize or 24))) + spacing
                     bar:SetPoint(point, targetFrame, relPoint, offX + (stack * step * dirX), offY + (stack * step * dirY))
                     ownerStackIndex[ownerName] = stack + 1
-                else
+                elseif not stackedInContainer then
                         -- If frame is not currently resolvable, keep icon visible in container stack
                         -- instead of disappearing completely.
                         if bar:GetParent() ~= container then

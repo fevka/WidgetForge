@@ -1009,6 +1009,22 @@ function Config:SelectBar(index)
     end
     local outlineList = { {text="None", value=""}, {text="Outline", value="OUTLINE"}, {text="Thick", value="THICKOUTLINE"}, {text="Mono", value="MONOCHROME"}, {text="Mono+Out", value="MONOCHROME,OUTLINE"} }
 
+    local settingsOnlyWidgetTypes = {
+        ["Dragonriding"] = true,
+        ["Skill Stream"] = true,
+        ["Target Castbar"] = true,
+        ["Custom Code"] = true,
+        ["Cursor Ring"] = true,
+        ["Retirement Home"] = true,
+        ["Mythic+ Dashboard"] = true,
+        ["Interrupt Sync"] = true,
+        ["VaultEye"] = true,
+        ["CCPartySync"] = true,
+        ["Party Defensives & Utility"] = true,
+        ["PrepChecker"] = true,
+        ["Level Up Tracker"] = true
+    }
+
     Config.ElementRows = {}
     for i, elem in ipairs(bar.elements) do
         local displayType = elem.type
@@ -1022,7 +1038,8 @@ function Config:SelectBar(index)
         local item = CreateFrame("Frame", nil, activeElementsFrame, "BackdropTemplate")
         item:SetSize(610, 32); item:SetPoint("TOPLEFT", 10, -((i-1) * 35))
         Skin:ApplyBackdrop(item, 0.3, 0.5)
-        item.txt = item:CreateFontString(nil, "OVERLAY", "GameFontNormal"); item.txt:SetPoint("LEFT", 8, 0); item.txt:SetText(i..". "..displayType); item.txt:SetFont(Skin.Constants.FONT_NORMAL, 11, ""); item.txt:SetWidth(110); item.txt:SetJustifyH("LEFT")
+        local labelWidth = settingsOnlyWidgetTypes[elem.type] and 300 or 110
+        item.txt = item:CreateFontString(nil, "OVERLAY", "GameFontNormal"); item.txt:SetPoint("LEFT", 8, 0); item.txt:SetText(i..". "..displayType); item.txt:SetFont(Skin.Constants.FONT_NORMAL, 11, ""); item.txt:SetWidth(labelWidth); item.txt:SetJustifyH("LEFT")
 
         local btnRem = CreateFrame("Button", nil, item)
         btnRem:SetSize(20, 20); btnRem:SetPoint("RIGHT", -10, 0)

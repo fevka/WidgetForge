@@ -17,7 +17,6 @@ InterruptSync.DebugMode = false
 local DEFAULT_INTERRUPT_COOLDOWN = 15
 local GCD_SPELL_ID = 61304
 local GCD_EPSILON = 0.15
-local QUICK_RESAMPLE_DELAY = 0.12
 local MIN_VALID_INTERRUPT_COOLDOWN = 1.0
 local SUCCESS_CDR_WINDOW = 2.0
 local SUCCESS_MATCH_WINDOW = 1.0
@@ -350,10 +349,7 @@ specTrackerFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 specTrackerFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 specTrackerFrame:SetScript("OnEvent", function(_, event)
     DebugLog(InterruptSync, "Spec tracker event: " .. tostring(event))
-    InterruptSync:RefreshColdthirstState(event)
-    InterruptSync:LoadClassInterrupt()
-    InterruptSync:ApplyRuntimeCooldownOverrides()
-    InterruptSync:RefreshPlayerInterruptCooldownCache()
+    InterruptSync:RunLearnScan()
 end)
 
 -- Flatten for spell ID lookup
@@ -407,13 +403,9 @@ end
 -- 2. EVENT HANDLING (WoW 12 COMPLIANT)
 -- ============================================================================
 function InterruptSync:UpdateGroupTracking()
-    -- Always refresh our own spell data first
-    self._coldthirstCacheAt = 0
-    self._coldthirstCacheValue = false
-    self:RefreshColdthirstState("UpdateGroupTracking")
+    -- Keep player spell map current for roster/layout updates.
     self:LoadClassInterrupt()
     self:ApplyRuntimeCooldownOverrides()
-    self:RefreshPlayerInterruptCooldownCache()
     
     self.eventFrame:UnregisterAllEvents()
     self.eventFrame:RegisterEvent("CHAT_MSG_ADDON")
@@ -423,8 +415,6 @@ function InterruptSync:UpdateGroupTracking()
     self.eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
     self.eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
     self.eventFrame:RegisterEvent("TRAIT_CONFIG_LIST_UPDATED")
-    self.eventFrame:RegisterEvent("ACTIVE_COMBAT_CONFIG_CHANGED")
-    self.eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
     
     self.cachedIsValidContext = self:IsValidContext()
     
@@ -440,6 +430,9 @@ function InterruptSync:UpdateGroupTracking()
 end
 
 function InterruptSync:RefreshPlayerInterruptCooldownCache()
+    if InCombatLockdown and InCombatLockdown() then
+        return
+    end
     if #self.interruptIDs == 0 then return end
     local gcd = self:GetCurrentGCD()
     DebugLog(self, string.format("Refresh cache: interrupts=%d gcd=%.2f", #self.interruptIDs, gcd))
@@ -607,14 +600,15 @@ if not InterruptSync.eventFrame then
         elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
             -- print("[WF_INT_SYNC] UNIT_SPELLCAST_SUCCEEDED triggered")
             InterruptSync:OnSpellcast(...)
-        elseif event == "PLAYER_REGEN_DISABLED" then
-            InterruptSync:RefreshColdthirstState("PLAYER_REGEN_DISABLED")
         elseif event == "CHAT_MSG_PARTY" or event == "CHAT_MSG_PARTY_LEADER" then
             -- print("[WF_INT_SYNC] CHAT_MSG_PARTY triggered")
             InterruptSync:OnPartyChat(...)
-        elseif event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" or event == "PLAYER_TALENT_UPDATE" or event == "TRAIT_CONFIG_UPDATED" or event == "TRAIT_CONFIG_LIST_UPDATED" or event == "ACTIVE_COMBAT_CONFIG_CHANGED" then
+        elseif event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" or event == "PLAYER_TALENT_UPDATE" or event == "TRAIT_CONFIG_UPDATED" or event == "TRAIT_CONFIG_LIST_UPDATED" then
             InterruptSync.cachedIsValidContext = InterruptSync:IsValidContext()
             InterruptSync:UpdateGroupTracking()
+            if event == "PLAYER_TALENT_UPDATE" or event == "TRAIT_CONFIG_UPDATED" or event == "TRAIT_CONFIG_LIST_UPDATED" then
+                InterruptSync:RunLearnScan()
+            end
         end
     end)
     -- print("[WF_INT_SYNC] Calling initial UpdateGroupTracking")
@@ -639,13 +633,8 @@ function InterruptSync:OnSpellcast(unit, castGUID, spellID)
     end
     
     -- print("[WF_INT_SYNC] Processing player interrupt")
-    if spellID == DK_MIND_FREEZE_SPELL_ID then
-        self:RefreshColdthirstState("OnSpellcast_MindFreeze")
-    end
-    
     local duration, source = self:ResolveInterruptCooldownDuration(spellID)
     if not duration or duration <= 0 then duration = DEFAULT_INTERRUPT_COOLDOWN end
-    self:RememberObservedCooldown(spellID, duration, source)
     
     local name = UnitName(unit)
     if not name then 
@@ -685,20 +674,6 @@ function InterruptSync:OnSpellcast(unit, castGUID, spellID)
     -- Talent/success based CDR can apply after cast; detect by comparing live cooldown to predicted cooldown.
     self:SchedulePostCastCooldownAdjustChecks(spellID, self.lastInterruptCastToken)
 
-    if source == "fallback" or source == "spell_fallback" then
-        C_Timer.After(QUICK_RESAMPLE_DELAY, function()
-            local refinedDuration, refinedSource = self:ResolveInterruptCooldownDuration(spellID)
-            if not refinedDuration or refinedDuration <= 0 then return end
-            if refinedSource == "fallback" or refinedSource == "spell_fallback" then return end
-            if math.abs(refinedDuration - duration) < 0.5 then return end
-            self:RememberObservedCooldown(spellID, refinedDuration, refinedSource)
-
-            for _, container in ipairs(self.Instances) do
-                self:UpdateBar(container, name, spellID, refinedDuration)
-            end
-            self:SendSync(spellID, refinedDuration)
-        end)
-    end
 end
 
 function InterruptSync:SchedulePostCastCooldownAdjustChecks(spellID, castToken)
@@ -1081,6 +1056,9 @@ function InterruptSync:OnCommReceived(prefix, text, channel, sender)
 end
 
 function InterruptSync:BroadcastActiveInterruptCooldown()
+    if InCombatLockdown and InCombatLockdown() then
+        return
+    end
     if not IsInGroup() then return end
     if #self.interruptIDs == 0 then return end
 
@@ -1102,6 +1080,19 @@ function InterruptSync:BroadcastActiveInterruptCooldown()
             end
         end
     end
+end
+
+function InterruptSync:RunLearnScan()
+    if InCombatLockdown and InCombatLockdown() then
+        return
+    end
+    self._coldthirstCacheAt = 0
+    self._coldthirstCacheValue = false
+    self:RefreshColdthirstState("RunLearnScan")
+    self:LoadClassInterrupt()
+    self:ApplyRuntimeCooldownOverrides()
+    self:RefreshPlayerInterruptCooldownCache()
+    self:BroadcastActiveInterruptCooldown()
 end
 
 -- ============================================================================
@@ -1150,10 +1141,7 @@ function InterruptSync:Load(parent, elem)
     -- Scan immediately when widget is added/enabled so it doesn't depend on opening settings.
     C_Timer.After(0.05, function()
         if not container or not container:IsShown() then return end
-        InterruptSync:LoadClassInterrupt()
-        InterruptSync:ApplyRuntimeCooldownOverrides()
-        InterruptSync:RefreshPlayerInterruptCooldownCache()
-        InterruptSync:BroadcastActiveInterruptCooldown()
+        InterruptSync:RunLearnScan()
         DebugLog(InterruptSync, "Initial scan completed on widget load")
     end)
     
@@ -1564,10 +1552,7 @@ function InterruptSync:CreateSettings(parentFrame)
 
     -- Settings panel is a good safe point to refresh and broadcast current interrupt cooldown state.
     C_Timer.After(0.05, function()
-        InterruptSync:LoadClassInterrupt()
-        InterruptSync:ApplyRuntimeCooldownOverrides()
-        InterruptSync:RefreshPlayerInterruptCooldownCache()
-        InterruptSync:BroadcastActiveInterruptCooldown()
+        InterruptSync:RunLearnScan()
     end)
     
     local texItems = {}

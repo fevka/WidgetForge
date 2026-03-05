@@ -101,9 +101,170 @@ end
 local DEFAULT_COOLDOWN = 180
 local GCD_SPELL_ID = 61304
 local GCD_EPSILON = 0.15
+local MIN_VALID_DU_COOLDOWN = 1.0
+local TALENT_RESCAN_DELAY = 0.35
 
-local function SafeNumber(value) local ok, num = pcall(function() return tonumber(value) end); if ok and type(num) == "number" then return num end; return nil end
-local function SafeGreaterThan(v, t) local l = SafeNumber(v); if not l then return false end; local r = SafeNumber(t) or 0; return l > r end
+local DU_COOLDOWN_FALLBACK = {}
+local DU_NAME_COOLDOWN_FALLBACK = {}
+
+local function SafeNumber(value)
+    if value == nil then return nil end
+
+    -- Normalize through string first to avoid carrying secure/tainted number wrappers.
+    local s = tostring(value)
+    local n = tonumber(s)
+    if type(n) == "number" then return n end
+
+    local ok, num = pcall(function() return tonumber(value) end)
+    if ok and type(num) == "number" then
+        return tonumber(tostring(num))
+    end
+    return nil
+end
+local function SafeGreaterThan(v, t)
+    local l = SafeNumber(v)
+    if not l then return false end
+    local r = SafeNumber(t) or 0
+    local ok, result = pcall(function() return l > r end)
+    return ok and result or false
+end
+local function ReadBool(v, defaultValue)
+    if v == nil then return defaultValue end
+    if v == true or v == 1 or v == "1" then return true end
+    if v == false or v == 0 or v == "0" then return false end
+    if type(v) == "string" then
+        local s = string.lower(v)
+        if s == "true" or s == "on" or s == "yes" then return true end
+        if s == "false" or s == "off" or s == "no" then return false end
+    end
+    return v and true or false
+end
+local function RoundTo2(value)
+    local n = SafeNumber(value)
+    if not n then return nil end
+    return math.floor(n * 100 + 0.5) / 100
+end
+local function RegisterDUNameFallbackFromID(id, duration)
+    if not (C_Spell and C_Spell.GetSpellInfo) then return end
+    local info = C_Spell.GetSpellInfo(id)
+    if info and info.name then
+        DU_NAME_COOLDOWN_FALLBACK[info.name] = duration
+    end
+end
+local function ExtractBaseCooldownSeconds(baseCooldownInfo)
+    local n = SafeNumber(baseCooldownInfo)
+    if n and n > 0 then
+        -- Numeric return may be ms or seconds depending on API branch.
+        if n > 1000 then return n / 1000 end
+        return n
+    end
+    if type(baseCooldownInfo) == "table" then
+        local ms = SafeNumber(baseCooldownInfo.baseCooldownMS)
+            or SafeNumber(baseCooldownInfo.cooldownMS)
+            or SafeNumber(baseCooldownInfo.durationMS)
+        if ms and ms > 0 then
+            return ms / 1000
+        end
+        local sec = SafeNumber(baseCooldownInfo.baseCooldown)
+            or SafeNumber(baseCooldownInfo.cooldown)
+            or SafeNumber(baseCooldownInfo.duration)
+        if sec and sec > 0 then
+            if sec > 1000 then return sec / 1000 end
+            return sec
+        end
+    end
+    return nil
+end
+
+function Sync:EnsureRuntimeCooldownDB()
+    if type(_G.WidgetForgeDB) ~= "table" then _G.WidgetForgeDB = {} end
+    if type(_G.WidgetForgeDB.runtimeDefUtilCooldowns) ~= "table" then
+        _G.WidgetForgeDB.runtimeDefUtilCooldowns = {}
+    end
+    return _G.WidgetForgeDB.runtimeDefUtilCooldowns
+end
+
+function Sync:ApplyRuntimeCooldownOverrides()
+    local db = self:EnsureRuntimeCooldownDB()
+    for spellIDStr, duration in pairs(db) do
+        local sid = tonumber(spellIDStr)
+        local dur = RoundTo2(duration)
+        if sid and dur and dur >= MIN_VALID_DU_COOLDOWN then
+            DU_COOLDOWN_FALLBACK[sid] = dur
+            RegisterDUNameFallbackFromID(sid, dur)
+        end
+    end
+end
+
+function Sync:RememberObservedCooldown(spellID, duration, source)
+    if not spellID then return end
+    if source ~= "live" and source ~= "charges" and source ~= "base" then return end
+    local dur = RoundTo2(duration)
+    if not dur or dur < MIN_VALID_DU_COOLDOWN then return end
+    local sid = tonumber(spellID)
+    if not sid then return end
+
+    local prev = DU_COOLDOWN_FALLBACK[sid]
+    DU_COOLDOWN_FALLBACK[sid] = dur
+    RegisterDUNameFallbackFromID(sid, dur)
+
+    local db = self:EnsureRuntimeCooldownDB()
+    if not prev or math.abs(prev - dur) >= 0.01 or not db[tostring(sid)] then
+        db[tostring(sid)] = dur
+    end
+end
+
+function Sync:RefreshPlayerDefUtilCooldownCache()
+    if InCombatLockdown and InCombatLockdown() then return end
+    if #self.mySpellIDs == 0 then return end
+    local gcd = self:GetCurrentGCD()
+    for _, spellID in ipairs(self.mySpellIDs) do
+        local duration, source = self:ResolveCooldownDuration(spellID)
+        if duration and duration > (gcd + GCD_EPSILON) then
+            self:RememberObservedCooldown(spellID, duration, source)
+        end
+    end
+end
+
+function Sync:GetLiveRemainingCooldown(spellID)
+    if not spellID or not C_Spell then return nil end
+    if C_Spell.GetSpellCooldownDuration then
+        local rem = SafeNumber(C_Spell.GetSpellCooldownDuration(spellID))
+        if rem and rem > 0 then return rem end
+    end
+    if C_Spell.GetSpellCooldown then
+        local cdInfo = C_Spell.GetSpellCooldown(spellID)
+        if cdInfo and SafeGreaterThan(cdInfo.duration, 0) then
+            local startTime = SafeNumber(cdInfo.startTime) or 0
+            local duration = SafeNumber(cdInfo.duration) or 0
+            local rem = (startTime + duration) - GetTime()
+            if rem and rem > 0 then return rem end
+        end
+    end
+    return nil
+end
+
+function Sync:ScheduleCooldownCacheRefresh(delaySec)
+    if InCombatLockdown and InCombatLockdown() then return end
+    local delay = SafeNumber(delaySec) or 0
+    self._cacheRefreshSerial = (self._cacheRefreshSerial or 0) + 1
+    local ticket = self._cacheRefreshSerial
+    C_Timer.After(delay, function()
+        if ticket ~= Sync._cacheRefreshSerial then return end
+        if InCombatLockdown and InCombatLockdown() then return end
+        Sync:LoadClassSpells()
+        Sync:ApplyRuntimeCooldownOverrides()
+        Sync:RefreshPlayerDefUtilCooldownCache()
+    end)
+end
+
+function Sync:RunLearnScan()
+    if InCombatLockdown and InCombatLockdown() then return end
+    self:LoadClassSpells()
+    self:ApplyRuntimeCooldownOverrides()
+    self:RefreshPlayerDefUtilCooldownCache()
+    self:ScheduleCooldownCacheRefresh(TALENT_RESCAN_DELAY)
+end
 
 Sync.mySpellIDs = {}
 
@@ -182,11 +343,14 @@ function Sync:ResolveCooldownDuration(spellID)
     end
     if C_Spell and C_Spell.GetSpellBaseCooldown then
         local bInfo = C_Spell.GetSpellBaseCooldown(spellID)
-        local baseMs = SafeNumber(bInfo and (bInfo.baseCooldownMS or bInfo.cooldownMS or bInfo.durationMS))
-        if baseMs and baseMs > 0 then
-            local baseSec = baseMs > 100 and (baseMs / 1000) or baseMs
-            if SafeGreaterThan(baseSec, self:GetCurrentGCD() + GCD_EPSILON) then return baseSec, "base" end
-        end
+        local baseSec = ExtractBaseCooldownSeconds(bInfo)
+        if baseSec and SafeGreaterThan(baseSec, self:GetCurrentGCD() + GCD_EPSILON) then return baseSec, "base" end
+    end
+    if DU_COOLDOWN_FALLBACK[spellID] then return DU_COOLDOWN_FALLBACK[spellID], "spell_fallback" end
+    if C_Spell and C_Spell.GetSpellInfo then
+        local info = C_Spell.GetSpellInfo(spellID)
+        local byName = info and info.name and DU_NAME_COOLDOWN_FALLBACK[info.name]
+        if byName then return byName, "name_fallback" end
     end
     return DEFAULT_COOLDOWN, "fallback"
 end
@@ -194,6 +358,18 @@ end
 local function BuildBarKey(playerName, spellID) return tostring(playerName or "?") .. ":" .. tostring(spellID or 0) end
 local function ShouldHideOwnBar(elem, playerName) return elem and elem.hideOwnBars and playerName == UnitName("player") end
 local function GetCategoryDefaultColor(elem, cat) return (cat and Sync.CATEGORY_INFO[cat]) and Sync.CATEGORY_INFO[cat].color or {0.5, 0.5, 0.5, 1} end
+local function IsDefUtilSettingsPanelOpenForElem(elem)
+    local cfg = _G.ForgeConfig
+    if not cfg then return false end
+    local panel = cfg.SlidePanel
+    if not panel or not panel.isSlideOpen then return false end
+    if panel.config == elem then return true end
+    if panel.header and panel.header.title and panel.header.title.GetText then
+        local t = panel.header.title:GetText()
+        if t == "Defensives & Utility Settings" then return true end
+    end
+    return false
+end
 local function LerpColor(a, b, t)
     local c1 = a or {1, 0.2, 0.2, 1}
     local c2 = b or {1, 0.9, 0.1, 1}
@@ -243,9 +419,9 @@ function Sync:CheckLustAura()
     
     for _, container in ipairs(self.Instances) do
         if fDur and fDur > 0 and container.elem.catLUST ~= false then
-            self:ShowLustCounter(container, fSpell, fExp, fDur)
-        elseif container._lustPreviewActive and container.elem and container.elem.catLUST ~= false then
-            -- Keep preview visible while config is open.
+            self:ShowLustCounter(container, fSpell, fExp, fDur, false)
+        elseif container._lustPreviewActive and container.elem and container.elem.catLUST ~= false and IsDefUtilSettingsPanelOpenForElem(container.elem) then
+            -- Keep preview visible only while this widget's settings panel is open.
         else
             self:HideLustCounter(container)
         end
@@ -275,6 +451,7 @@ function Sync:UpdateGroupTracking()
     self.eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
     self.eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
     self.eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
+    self.eventFrame:RegisterEvent("TRAIT_CONFIG_LIST_UPDATED")
     self.cachedIsValidContext = self:IsValidContext()
     self.eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
     self.eventFrame:RegisterUnitEvent("UNIT_AURA", "player")
@@ -295,7 +472,7 @@ function Sync:OnSpellcast(unit, castGUID, spellID)
     if unit ~= "player" or not self.spellIDLookup[spellID] then return end
     local name = UnitName(unit)
     if not name then return end
-    local duration, source = self:ResolveCooldownDuration(spellID)
+    local duration = self:ResolveCooldownDuration(spellID)
     if not duration or duration <= 0 then duration = DEFAULT_COOLDOWN end
     for _, container in ipairs(self.Instances) do self:UpdateBar(container, name, spellID, duration) end
     self:SendSync(spellID, duration)
@@ -427,8 +604,11 @@ if not Sync.eventFrame then
         elseif event == "UNIT_AURA" then 
             local unit = ...
             if unit == "player" then Sync:CheckLustAura() end
-        elseif event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_TALENT_UPDATE" or event == "TRAIT_CONFIG_UPDATED" then
+        elseif event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_TALENT_UPDATE" or event == "TRAIT_CONFIG_UPDATED" or event == "TRAIT_CONFIG_LIST_UPDATED" then
             Sync.cachedIsValidContext = Sync:IsValidContext()
+            if event == "PLAYER_TALENT_UPDATE" or event == "TRAIT_CONFIG_UPDATED" or event == "TRAIT_CONFIG_LIST_UPDATED" then
+                Sync:RunLearnScan()
+            end
             Sync:UpdateGroupTracking()
         elseif event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
             Sync.cachedIsValidContext = Sync:IsValidContext()
@@ -465,20 +645,25 @@ function Sync:Load(parent, elem)
               self.lustBar:SetAlpha((showRegular or hasLust) and 1 or 0)
           end
          
-         -- Show Lust preview while config is open (without requiring Test Mode).
-         local wantLustPreview = (isUnlocked and not Sync.ForceTest and self.elem and self.elem.catLUST ~= false)
+         -- Show Lust preview only while this widget's settings panel is open.
+         local wantLustPreview = (not Sync.ForceTest and self.elem and self.elem.catLUST ~= false and IsDefUtilSettingsPanelOpenForElem(self.elem))
          if wantLustPreview and not self._lustPreviewActive then
              self._lustPreviewActive = true
-             Sync:ShowLustCounter(self, 57724, GetTime() + 600, 600)
+             Sync:ShowLustCounter(self, 57724, GetTime() + 600, 600, true)
          elseif not wantLustPreview and self._lustPreviewActive then
              self._lustPreviewActive = false
-             Sync:CheckLustAura()
+             if self.lustBar and self.lustBar._wfIsPreview then
+                 Sync:HideLustCounter(self)
+             else
+                 Sync:CheckLustAura()
+             end
          end
          
          if Sync.ForceTest then
-             self.testTimer = (self.testTimer or 0) - elapsed
-             if self.testTimer <= 0 then Sync:Test(self, true); self.testTimer = 10 end
-             self.testActive = true
+             if not self.testActive then
+                 Sync:Test(self, true)
+                 self.testActive = true
+             end
          else
              if self.testActive then Sync:Test(self, false); self.testActive = false; self.testTimer = 0 end
          end
@@ -486,6 +671,7 @@ function Sync:Load(parent, elem)
     
     container:Show()
     table.insert(Sync.Instances, container)
+    self:RunLearnScan()
     self:InitializeGroupBars(container)
     
     self:UpdateGroupTracking()
@@ -540,11 +726,43 @@ function Sync:InitializeGroupBars(container)
     self:RefreshBars(container)
 end
 
-function Sync:ShowLustCounter(container, spellID, expirationTime, duration)
+function Sync:ShowLustCounter(container, spellID, expirationTime, duration, isPreview)
     if not container.lustBar then
         container.lustBar = self:CreateBar(container, "BLOODLUST", true)
     end
     local bar = container.lustBar
+    bar._wfIsPreview = (isPreview == true)
+    local elem = container.elem or {}
+    local baseH = elem.barHeight or 30
+    local baseW = elem.barWidth or 220
+    local lustH = elem.lustBarHeight or (baseH * 1.5)
+    local lustW = elem.lustBarWidth or (baseW * 1.2)
+    local lustISz = elem.lustIconSize or lustH
+    local lustShowIcon = ReadBool(elem.lustShowIcon, true)
+
+    bar:SetSize(lustW, math.max(lustH, lustShowIcon and lustISz or 0))
+    if bar.iconBox then
+        bar.iconBox:SetSize(lustISz, lustISz)
+        bar.iconBox:ClearAllPoints()
+        bar.iconBox:SetPoint("LEFT", 4, 0)
+        if lustShowIcon then bar.iconBox:Show() else bar.iconBox:Hide() end
+    end
+    if bar.icon then
+        if lustShowIcon then bar.icon:Show() else bar.icon:Hide() end
+    end
+    if bar.classStrip then
+        if lustShowIcon then bar.classStrip:Show() else bar.classStrip:Hide() end
+    end
+    if bar.info then
+        bar.info:ClearAllPoints()
+        if lustShowIcon then
+            bar.info:SetPoint("LEFT", bar.iconBox, "RIGHT", elem.iconSpacing or 5, 0)
+        else
+            bar.info:SetPoint("LEFT", 4, 0)
+        end
+        bar.info:SetPoint("RIGHT", 0, 0)
+        bar.info:SetHeight(lustH)
+    end
     
     -- The debuff (Sated/Exhaustion) lasts 10 minutes (600s).
     -- We want to show a 40s countdown from the moment it was applied.
@@ -572,6 +790,9 @@ function Sync:ShowLustCounter(container, spellID, expirationTime, duration)
     
     bar:Show()
     bar:SetScript("OnUpdate", function(f)
+        local showLustIcon = ReadBool(container.elem and container.elem.lustShowIcon, true)
+        if f.iconBox then if showLustIcon then f.iconBox:Show() else f.iconBox:Hide() end end
+        if f.icon then if showLustIcon then f.icon:Show() else f.icon:Hide() end end
         local rem = f.endTime - GetTime()
         if rem <= 0 then
             Sync:HideLustCounter(container)
@@ -590,6 +811,7 @@ end
 
 function Sync:HideLustCounter(container)
     if container.lustBar then
+        container.lustBar._wfIsPreview = false
         container.lustBar:Hide()
         container.lustBar:SetScript("OnUpdate", nil)
         self:LayoutBars(container)
@@ -605,9 +827,9 @@ function Sync:CreateBar(container, name, isLust)
     end
     
     local iSz = isLust and (elem.lustIconSize or h) or (elem.iconSize or h)
-    local showIcon = (elem.showIcon == nil) and true or elem.showIcon
+    local showIcon = ReadBool(elem.showIcon, true)
     if isLust then
-        showIcon = (elem.lustShowIcon == nil) and true or elem.lustShowIcon
+        showIcon = ReadBool(elem.lustShowIcon, true)
     end
     
     local row = CreateFrame("Frame", nil, container, "BackdropTemplate")
@@ -931,6 +1153,7 @@ function Sync:LayoutBars(container)
             bar:ClearAllPoints()
             
             if attachMode then
+                local stackedInContainer = false
                 local ownerName = bar.playerName
                 local targetFrame = self:GetUnitFrame(ownerName)
                 if not targetFrame and self.ForceTest then
@@ -943,6 +1166,7 @@ function Sync:LayoutBars(container)
                         if not prev then bar:SetPoint("TOPLEFT", container, "TOPLEFT", 0, 0)
                         else bar:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, -spacing) end
                         prev = bar
+                        stackedInContainer = true
                     end
                 end
                 if targetFrame then
@@ -972,7 +1196,7 @@ function Sync:LayoutBars(container)
                     local step = ((grow == "VERTICAL") and (bar:GetHeight() or (elem.iconSize or 24)) or (bar:GetWidth() or (elem.iconSize or 24))) + spacing
                     bar:SetPoint(point, targetFrame, relPoint, offX + (stack * step * dirX), offY + (stack * step * dirY))
                     ownerStackIndex[ownerName] = stack + 1
-                else
+                elseif not stackedInContainer then
                     bar:SetParent(container)
                     bar:SetFrameStrata(container:GetFrameStrata() or "MEDIUM")
                     bar:SetFrameLevel((container:GetFrameLevel() or 1) + 1)
@@ -1004,7 +1228,7 @@ function Sync:Test(container, on)
         self:UpdateBar(container, "DpsZug", 97462, 180) 
         if container.elem.catLUST ~= false then
             self:UpdateBar(container, "LustBro", 32182, 300)
-            self:ShowLustCounter(container, 57724, GetTime() + 600, 600)
+            self:ShowLustCounter(container, 57724, GetTime() + 600, 600, true)
         end
     else
         for key, bar in pairs(container.bars) do
@@ -1028,8 +1252,8 @@ function Sync:RefreshBars(container)
     local iconBSize = elem.iconBorderSize or 1
     if iconBSize < 0 then iconBSize = 0 end
     local showIconBorder = (iconBSize > 0)
-    local showIcon = (elem.showIcon == nil) and true or elem.showIcon
-    local lustShowIcon = (elem.lustShowIcon == nil) and true or elem.lustShowIcon
+    local showIcon = ReadBool(elem.showIcon, true)
+    local lustShowIcon = ReadBool(elem.lustShowIcon, true)
     local iconSpacing = elem.iconSpacing or 5
     local iconZoom = elem.iconZoom or 0.08
     local fontPath = _G.ForgeSkin and _G.ForgeSkin.Media and _G.ForgeSkin.Media.Fonts and _G.ForgeSkin.Media.Fonts[elem.font] or "Fonts\\FRIZQT__.TTF"
@@ -1038,7 +1262,12 @@ function Sync:RefreshBars(container)
     local function updateRowStyle(row, isLust)
         local attachMode = elem.attachToParty == true
         local curH, curW, curSz = h, w, iSz
-        local rowShowIcon = isLust and lustShowIcon or showIcon
+        local rowShowIcon
+        if isLust then
+            rowShowIcon = lustShowIcon
+        else
+            rowShowIcon = showIcon
+        end
         if isLust and not attachMode then
             curH = elem.lustBarHeight or (h * 1.5)
             curW = elem.lustBarWidth or (w * 1.2)
@@ -1047,7 +1276,6 @@ function Sync:RefreshBars(container)
         
         if attachMode and not isLust then
             row:SetSize(curSz, curSz); row.info:Hide(); row.classStrip:Hide()
-            if rowShowIcon then row.iconBox:Show() else row.iconBox:Hide() end
         else
             row.info:Show(); row.classStrip:Show()
             row:SetSize(curW, math.max(curH, rowShowIcon and curSz or 0))
@@ -1063,6 +1291,18 @@ function Sync:RefreshBars(container)
             local chosenTexture = (isLust and elem.lustTexture) or elem.texture
             local tex = _G.ForgeSkin and _G.ForgeSkin.Media and _G.ForgeSkin.Media.Textures and _G.ForgeSkin.Media.Textures[chosenTexture] or "Interface\\TargetingFrame\\UI-StatusBar"
             row.timerBar:SetStatusBarTexture(tex)
+        end
+
+        if isLust and not rowShowIcon then
+            row.classStrip:Hide()
+        end
+
+        if rowShowIcon then
+            row.iconBox:Show()
+            row.icon:Show()
+        else
+            row.iconBox:Hide()
+            row.icon:Hide()
         end
         
         row.iconBox:SetSize(curSz, curSz)
@@ -1119,6 +1359,7 @@ end
 function Sync:CreateSettings(parentFrame)
     local f = parentFrame; local elem = f.config
     local Skin = _G.ForgeSkin
+    self:RunLearnScan()
     if elem and elem.catPARTY_DEF == nil and elem.catRAID_DEF ~= nil then
         elem.catPARTY_DEF = elem.catRAID_DEF
     end
@@ -1127,6 +1368,9 @@ function Sync:CreateSettings(parentFrame)
             if inst.elem == elem then
                 Sync:InitializeGroupBars(inst)
                 Sync:RefreshBars(inst)
+                if Sync.ForceTest or parentFrame.isTestingGlobal_DefUtil then
+                    Sync:Test(inst, true)
+                end
             end
         end
     end
@@ -1247,6 +1491,14 @@ function Sync:CreateSettings(parentFrame)
             parentFrame.onCloseWidgetSpecific = function()
                 parentFrame.isTestingGlobal_DefUtil = false
                 Sync.ForceTest = false
+                for _, inst in ipairs(Sync.Instances) do
+                    if inst.elem == elem then
+                        inst._lustPreviewActive = false
+                        if inst.lustBar and inst.lustBar._wfIsPreview then
+                            Sync:HideLustCounter(inst)
+                        end
+                    end
+                end
             end
         end
     elseif parentFrame.testBtnDefUtil then
