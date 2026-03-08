@@ -244,6 +244,30 @@ function Sync:GetLiveRemainingCooldown(spellID)
     return nil
 end
 
+function Sync:BroadcastActiveDefUtilCooldowns()
+    if InCombatLockdown and InCombatLockdown() then return end
+    if #self.mySpellIDs == 0 then return end
+
+    local playerName = UnitName("player")
+    if not playerName then return end
+
+    local timestamp = GetServerTime()
+    for _, spellID in ipairs(self.mySpellIDs) do
+        local duration, source = self:ResolveCooldownDuration(spellID)
+        if duration and duration >= MIN_VALID_DU_COOLDOWN then
+            self:RememberObservedCooldown(spellID, duration, source)
+        end
+
+        local remaining = self:GetLiveRemainingCooldown(spellID)
+        if remaining and remaining > 0.15 then
+            for _, container in ipairs(self.Instances) do
+                self:UpdateBar(container, playerName, spellID, remaining)
+            end
+            self:SendSync(spellID, remaining, timestamp)
+        end
+    end
+end
+
 function Sync:ScheduleCooldownCacheRefresh(delaySec)
     if InCombatLockdown and InCombatLockdown() then return end
     local delay = SafeNumber(delaySec) or 0
@@ -255,6 +279,7 @@ function Sync:ScheduleCooldownCacheRefresh(delaySec)
         Sync:LoadClassSpells()
         Sync:ApplyRuntimeCooldownOverrides()
         Sync:RefreshPlayerDefUtilCooldownCache()
+        Sync:BroadcastActiveDefUtilCooldowns()
     end)
 end
 
@@ -263,7 +288,23 @@ function Sync:RunLearnScan()
     self:LoadClassSpells()
     self:ApplyRuntimeCooldownOverrides()
     self:RefreshPlayerDefUtilCooldownCache()
+    self:BroadcastActiveDefUtilCooldowns()
     self:ScheduleCooldownCacheRefresh(TALENT_RESCAN_DELAY)
+end
+
+function Sync:QueueWarmupSync()
+    self._warmupSerial = (self._warmupSerial or 0) + 1
+    local serial = self._warmupSerial
+    local function RunIfLatest()
+        if serial ~= self._warmupSerial then return end
+        if InCombatLockdown and InCombatLockdown() then return end
+        Sync:LoadClassSpells()
+        Sync:ApplyRuntimeCooldownOverrides()
+        Sync:RefreshPlayerDefUtilCooldownCache()
+        Sync:BroadcastActiveDefUtilCooldowns()
+    end
+    C_Timer.After(0.05, RunIfLatest)
+    C_Timer.After(0.60, RunIfLatest)
 end
 
 Sync.mySpellIDs = {}
@@ -406,19 +447,33 @@ end
 
 function Sync:CheckLustAura()
     local fDur, fExp, fSpell = nil, nil, nil
-    for i = 1, 40 do
-        local auraData = C_UnitAuras.GetAuraDataByIndex("player", i, "HARMFUL")
-        if not auraData then break end
-        if LUST_DEBUFFS[auraData.spellId] then 
-            fDur = auraData.duration
-            fExp = auraData.expirationTime
-            fSpell = auraData.spellId
-            break 
+    -- Combat-safe: avoid indexing with potentially secret aura spell IDs.
+    if C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
+        for spellID in pairs(LUST_DEBUFFS) do
+            local ok, auraData = pcall(C_UnitAuras.GetPlayerAuraBySpellID, spellID)
+            if ok and auraData then
+                fDur = SafeNumber(auraData.duration)
+                fExp = SafeNumber(auraData.expirationTime)
+                fSpell = spellID
+                break
+            end
+        end
+    elseif C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
+        for i = 1, 40 do
+            local ok, auraData = pcall(C_UnitAuras.GetAuraDataByIndex, "player", i, "HARMFUL")
+            if not ok or not auraData then break end
+            local spellID = SafeNumber(auraData.spellId)
+            if spellID and LUST_DEBUFFS[spellID] then
+                fDur = SafeNumber(auraData.duration)
+                fExp = SafeNumber(auraData.expirationTime)
+                fSpell = spellID
+                break
+            end
         end
     end
     
     for _, container in ipairs(self.Instances) do
-        if fDur and fDur > 0 and container.elem.catLUST ~= false then
+        if SafeGreaterThan(fDur, 0) and container.elem.catLUST ~= false then
             self:ShowLustCounter(container, fSpell, fExp, fDur, false)
         elseif container._lustPreviewActive and container.elem and container.elem.catLUST ~= false and IsDefUtilSettingsPanelOpenForElem(container.elem) then
             -- Keep preview visible only while this widget's settings panel is open.
@@ -607,13 +662,14 @@ if not Sync.eventFrame then
         elseif event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_TALENT_UPDATE" or event == "TRAIT_CONFIG_UPDATED" or event == "TRAIT_CONFIG_LIST_UPDATED" then
             Sync.cachedIsValidContext = Sync:IsValidContext()
             if event == "PLAYER_TALENT_UPDATE" or event == "TRAIT_CONFIG_UPDATED" or event == "TRAIT_CONFIG_LIST_UPDATED" then
-                Sync:RunLearnScan()
+                Sync:QueueWarmupSync()
             end
             Sync:UpdateGroupTracking()
         elseif event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
             Sync.cachedIsValidContext = Sync:IsValidContext()
             Sync:UpdateGroupTracking()
             Sync:CheckLustAura()
+            Sync:QueueWarmupSync()
             if IsInGroup() and Sync:IsPartySyncEnabled() then C_Timer.After(2, function() Sync:BroadcastSpells() end) end
         end
     end)
@@ -671,7 +727,7 @@ function Sync:Load(parent, elem)
     
     container:Show()
     table.insert(Sync.Instances, container)
-    self:RunLearnScan()
+    self:QueueWarmupSync()
     self:InitializeGroupBars(container)
     
     self:UpdateGroupTracking()

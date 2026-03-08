@@ -1,0 +1,1153 @@
+local ForgeUI = _G.ForgeUI
+if not ForgeUI then
+    return
+end
+
+local Skin = _G.ForgeSkin
+
+local Module = {
+    panel = nil,
+    tabButton = nil,
+    categoryButtons = {},
+    categoryPages = {},
+    categoryOrder = {},
+    activeCategory = nil,
+    isCategoryAnimating = false,
+}
+
+local function Round(value)
+    return math.floor((tonumber(value) or 0) + 0.5)
+end
+
+local function Round1(value)
+    return tonumber(string.format("%.1f", tonumber(value) or 0)) or 0
+end
+
+local function Round2(value)
+    return tonumber(string.format("%.2f", tonumber(value) or 0)) or 0
+end
+
+local function PulseTypeToValue(v)
+    if v == "autocast" then
+        return 2
+    end
+    if v == "button" then
+        return 3
+    end
+    return 1
+end
+
+local function ValueToPulseType(v)
+    local n = Round(v)
+    if n <= 1 then
+        return "pixel"
+    end
+    if n == 2 then
+        return "autocast"
+    end
+    return "button"
+end
+
+local BAG_SORT_OPTIONS = {
+    { text = "Slot Order (Bag/Slot)", value = "slot" },
+    { text = "Name (A-Z)", value = "name" },
+    { text = "Rarity (High-Low)", value = "rarity" },
+    { text = "Item Level (High-Low)", value = "ilvl" },
+    { text = "Sell Value (High-Low)", value = "value" },
+    { text = "Importance Score", value = "priority" },
+}
+
+local BAR_ORIENTATION_OPTIONS = {
+    { text = "Horizontal", value = "HORIZONTAL" },
+    { text = "Vertical", value = "VERTICAL" },
+}
+
+function Module:ApplyAll()
+    local bars = ForgeUI:GetModule("actionBars")
+    if bars and bars.RequestLayout then
+        bars:RequestLayout()
+    end
+
+    local cds = ForgeUI:GetModule("cooldowns")
+    if cds and cds.RefreshAll then
+        cds:RefreshAll()
+    end
+
+    local bags = ForgeUI:GetModule("bags")
+    if bags and bags.Refresh then
+        bags:Refresh()
+    end
+end
+
+function Module:CreateRightTab()
+    if self.tabButton then
+        return
+    end
+
+    local btn = CreateFrame("Button", "ForgeUI_ConfigTab", UIParent, "BackdropTemplate")
+    btn:SetSize(34, 116)
+    btn:SetPoint("RIGHT", UIParent, "RIGHT", -3, 0)
+    btn:SetFrameStrata("HIGH")
+
+    if Skin and Skin.ApplyBackdrop then
+        Skin:ApplyBackdrop(btn, 0.95, 1)
+    else
+        btn:SetBackdrop({
+            bgFile = "Interface\\Buttons\\WHITE8x8",
+            edgeFile = "Interface\\Buttons\\WHITE8x8",
+            edgeSize = 1,
+            insets = { left = 1, right = 1, top = 1, bottom = 1 },
+        })
+        btn:SetBackdropColor(0.08, 0.08, 0.08, 0.95)
+        btn:SetBackdropBorderColor(0.2, 0.2, 0.2, 1)
+    end
+
+    local label = btn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    label:SetPoint("CENTER")
+    label:SetText("F\nO\nR\nG\nE")
+    btn.label = label
+
+    btn:SetScript("OnEnter", function(self)
+        if self.SetBackdropBorderColor then
+            self:SetBackdropBorderColor(0, 0.7, 1, 1)
+        end
+    end)
+    btn:SetScript("OnLeave", function(self)
+        if self.SetBackdropBorderColor then
+            self:SetBackdropBorderColor(0.2, 0.2, 0.2, 1)
+        end
+    end)
+    btn:SetScript("OnClick", function()
+        Module:TogglePanel()
+    end)
+
+    self.tabButton = btn
+end
+
+function Module:BuildPage(contentParent, applyAfterChange)
+    local page = CreateFrame("Frame", nil, contentParent)
+    page:SetPoint("TOPLEFT", contentParent, "TOPLEFT", 0, 0)
+    page:SetWidth(640)
+    page:SetHeight(1)
+
+    local y = 16
+    local leftX = 20
+    local rightX = 330
+    local rowGap = 10
+    local colWidth = 260
+    local headerWidth = 620
+    local lane = 1
+    local rowHeight = 0
+
+    local builder = {}
+
+    local function PlaceControl(height)
+        local x
+        local yy = y
+        if lane == 1 then
+            x = leftX
+            lane = 2
+        else
+            x = rightX
+            lane = 1
+            y = y + math.max(rowHeight, height) + rowGap
+            rowHeight = 0
+        end
+        rowHeight = math.max(rowHeight, height)
+        return x, yy
+    end
+
+    local function NextFullWidth(height)
+        if lane == 2 then
+            lane = 1
+            y = y + rowHeight + rowGap
+            rowHeight = 0
+        end
+        local yy = y
+        y = y + height + rowGap
+        return yy
+    end
+
+    function builder:AddHeader(text)
+        local h = Skin:CreateSectionHeader(page, text, headerWidth, true)
+        local yy = NextFullWidth(34)
+        h:SetPoint("TOPLEFT", page, "TOPLEFT", leftX, -yy)
+        return h, yy
+    end
+
+    function builder:AddSwitch(label, value, onChanged)
+        local sw = Skin:CreateSwitch(page, label, value, function(v)
+            onChanged(v and true or false)
+            if applyAfterChange then
+                Module:ApplyAll()
+            end
+        end, "ON", "OFF")
+        local x, yy = PlaceControl(48)
+        sw:SetPoint("TOPLEFT", page, "TOPLEFT", x, -(yy + 18))
+        if sw.label then
+            sw.label:SetWidth(colWidth - 36)
+            sw.label:SetJustifyH("LEFT")
+            sw.label:SetWordWrap(false)
+        end
+        return sw
+    end
+
+    function builder:AddSlider(label, minV, maxV, step, value, onChanged)
+        local x, yy = PlaceControl(48)
+        local text = page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        text:SetPoint("TOPLEFT", page, "TOPLEFT", x, -yy)
+        text:SetText(label)
+
+        local slider = Skin:CreateSlider(page, minV, maxV, step, value, function(v)
+            onChanged(v)
+            if applyAfterChange then
+                Module:ApplyAll()
+            end
+        end, colWidth)
+        slider:SetPoint("TOPLEFT", page, "TOPLEFT", x, -(yy + 18))
+        return slider
+    end
+
+    function builder:AddDropdown(label, items, value, onChanged)
+        local x, yy = PlaceControl(48)
+        local text = page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        text:SetPoint("TOPLEFT", page, "TOPLEFT", x, -yy)
+        text:SetText(label)
+
+        local dd = Skin:CreateDropdown(page, colWidth, items or {}, value, function(v)
+            onChanged(v)
+            if applyAfterChange then
+                Module:ApplyAll()
+            end
+        end)
+        dd:SetPoint("TOPLEFT", page, "TOPLEFT", x, -(yy + 18))
+        return dd
+    end
+
+    function builder:AddColorPicker(label, rgba, onChanged)
+        local color = {
+            tonumber(rgba and rgba[1]) or 1,
+            tonumber(rgba and rgba[2]) or 1,
+            tonumber(rgba and rgba[3]) or 1,
+            tonumber(rgba and rgba[4]) or 1,
+        }
+        if Skin and Skin.CreateColorPicker then
+            local cp = Skin:CreateColorPicker(page, label, color, function(c)
+                onChanged(c)
+                if applyAfterChange then
+                    Module:ApplyAll()
+                end
+            end, colWidth)
+            local x, yy = PlaceControl(34)
+            cp:SetPoint("TOPLEFT", page, "TOPLEFT", x, -yy)
+            return cp
+        end
+        return nil
+    end
+
+    function builder:AddButton(label, width, onClick)
+        local btn = Skin:CreateButton(page, label, math.min(width or colWidth, colWidth), 24)
+        local x, yy = PlaceControl(28)
+        btn:SetPoint("TOPLEFT", page, "TOPLEFT", x, -yy)
+        btn:SetScript("OnClick", onClick)
+        return btn
+    end
+
+    function builder:Finish()
+        if lane == 2 then
+            lane = 1
+            y = y + rowHeight + rowGap
+            rowHeight = 0
+        end
+        page:SetHeight(y + 24)
+        return page:GetHeight()
+    end
+
+    return page, builder
+end
+
+function Module:SetActiveCategory(key)
+    if not self.panel or not self.categoryPages[key] then
+        return
+    end
+
+    if self.isCategoryAnimating then
+        return
+    end
+
+    if self.activeCategory == key then
+        return
+    end
+
+    local oldKey = self.activeCategory
+    local oldPage = oldKey and self.categoryPages[oldKey] or nil
+    local newPage = self.categoryPages[key]
+    local host = self.panel and self.panel.pageHost
+
+    local contentWidth = 480
+    if self.panel and self.panel.scroll and self.panel.scroll.GetWidth then
+        contentWidth = math.max(420, (self.panel.scroll:GetWidth() or 0) - 22)
+    end
+    for _, page in pairs(self.categoryPages) do
+        page:SetWidth(contentWidth)
+    end
+
+    self.activeCategory = key
+
+    if self.panel and self.panel.mainPanel and self.panel.mainPanel.SetBackdropBorderColor then
+        local r, g, b = math.random(), math.random(), math.random()
+        self.panel.mainPanel:SetBackdropBorderColor(r, g, b, 0.9)
+    end
+
+    for id, btn in pairs(self.categoryButtons) do
+        if id == key then
+            btn:SetBackdropColor(0.18, 0.46, 0.66, 1)
+            btn:SetBackdropBorderColor(0.3, 0.7, 1, 1)
+        else
+            btn:SetBackdropColor(0.12, 0.12, 0.12, 1)
+            btn:SetBackdropBorderColor(0.25, 0.25, 0.25, 1)
+        end
+    end
+
+    if not oldPage or not host then
+        for id, page in pairs(self.categoryPages) do
+            page:SetShown(id == key)
+            if id == key then
+                page:ClearAllPoints()
+                page:SetPoint("TOPLEFT", host or self.panel.content, "TOPLEFT", 0, 0)
+            end
+        end
+    else
+        local oldIndex = self.categoryOrder[oldKey] or 1
+        local newIndex = self.categoryOrder[key] or 1
+        local dir = (newIndex > oldIndex) and 1 or -1
+        local offset = contentWidth
+
+        oldPage:ClearAllPoints()
+        oldPage:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
+        oldPage:Show()
+
+        newPage:ClearAllPoints()
+        newPage:SetPoint("TOPLEFT", host, "TOPLEFT", dir * offset, 0)
+        newPage:Show()
+
+        self.isCategoryAnimating = true
+        local t = 0
+        local duration = 0.18
+        host:SetScript("OnUpdate", function(_, elapsed)
+            t = t + elapsed
+            local p = t / duration
+            if p >= 1 then
+                p = 1
+            end
+            p = 1 - ((1 - p) * (1 - p))
+
+            local oldX = -dir * offset * p
+            local newX = (dir * offset) * (1 - p)
+
+            oldPage:ClearAllPoints()
+            oldPage:SetPoint("TOPLEFT", host, "TOPLEFT", oldX, 0)
+            newPage:ClearAllPoints()
+            newPage:SetPoint("TOPLEFT", host, "TOPLEFT", newX, 0)
+
+            if t >= duration then
+                host:SetScript("OnUpdate", nil)
+                oldPage:Hide()
+                newPage:ClearAllPoints()
+                newPage:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
+                self.isCategoryAnimating = false
+            end
+        end)
+    end
+
+    local page = newPage
+    self.panel.pageHost:SetHeight(page:GetHeight())
+    self.panel.content:SetHeight(page:GetHeight())
+    self.panel.scroll:SetVerticalScroll(0)
+end
+
+function Module:CreatePanel()
+    if self.panel or not Skin then
+        return
+    end
+
+    local panel = CreateFrame("Frame", "ForgeUI_ConfigFrame", UIParent, "BackdropTemplate")
+    panel:SetSize(870, 620)
+    panel:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+    panel:SetFrameStrata("HIGH")
+    panel:SetResizable(true)
+    panel:SetResizeBounds(870, 620)
+    Skin:ApplyBackdrop(panel, 0.95, 1)
+    panel:Hide()
+    panel.isSlideOpen = false
+    if not tContains(UISpecialFrames, "ForgeUI_ConfigFrame") then
+        table.insert(UISpecialFrames, "ForgeUI_ConfigFrame")
+    end
+
+    self.panel = panel
+    local topBar = Skin:CreateTitleBar(panel, "ForgeUI | Settings", function()
+        Module:SetPanelOpen(false)
+    end)
+    panel.topBar = topBar
+
+    local db = ForgeUI.db
+    if not db then
+        ForgeUI:InitDB()
+        db = ForgeUI.db
+    end
+
+    local sidebar = CreateFrame("Frame", nil, panel, "BackdropTemplate")
+    sidebar:SetPoint("TOPLEFT", panel, "TOPLEFT", 10, -40)
+    sidebar:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 10, 50)
+    sidebar:SetWidth(180)
+    Skin:ApplyBackdrop(sidebar, 0.4, 0.8)
+    panel.sidebar = sidebar
+
+    local mainPanel = CreateFrame("Frame", nil, panel, "BackdropTemplate")
+    mainPanel:SetPoint("TOPLEFT", sidebar, "TOPRIGHT", 10, 0)
+    mainPanel:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -10, 50)
+    Skin:ApplyBackdrop(mainPanel, 0.2, 0.55)
+    panel.mainPanel = mainPanel
+
+    local scroll, content = Skin:CreateScrollFrame(mainPanel, 640, 520)
+    scroll:SetPoint("TOPLEFT", mainPanel, "TOPLEFT", 8, -8)
+    scroll:SetPoint("BOTTOMRIGHT", mainPanel, "BOTTOMRIGHT", -8, 8)
+    if scroll.scrollBar then
+        scroll.scrollBar:ClearAllPoints()
+        scroll.scrollBar:SetPoint("TOPRIGHT", mainPanel, "TOPRIGHT", -4, -8)
+        scroll.scrollBar:SetPoint("BOTTOMRIGHT", mainPanel, "BOTTOMRIGHT", -4, 8)
+    end
+    panel.scroll = scroll
+    panel.content = content
+
+    local resizeBtn = CreateFrame("Button", nil, panel)
+    resizeBtn:SetSize(13, 13)
+    resizeBtn:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -2, 2)
+    resizeBtn:SetFrameLevel(panel:GetFrameLevel() + 20)
+    local resizeTex = resizeBtn:CreateTexture(nil, "OVERLAY")
+    resizeTex:SetAllPoints(resizeBtn)
+    resizeTex:SetTexture("Interface\\AddOns\\Forgeui\\media\\resize.tga")
+    resizeTex:SetAlpha(0.7)
+    resizeBtn:SetScript("OnEnter", function()
+        resizeTex:SetAlpha(1)
+    end)
+    resizeBtn:SetScript("OnLeave", function()
+        resizeTex:SetAlpha(0.7)
+    end)
+    resizeBtn:SetScript("OnMouseDown", function(_, btn)
+        if btn == "LeftButton" then
+            panel:StartSizing("BOTTOMRIGHT")
+        end
+    end)
+    resizeBtn:SetScript("OnMouseUp", function()
+        panel:StopMovingOrSizing()
+    end)
+
+    panel:SetScript("OnSizeChanged", function(self, w, h)
+        resizeBtn:ClearAllPoints()
+        resizeBtn:SetPoint("BOTTOMRIGHT", self, "BOTTOMRIGHT", -2, 2)
+        local contentWidth = math.max(420, (self.scroll:GetWidth() or 0) - 22)
+        for _, page in pairs(Module.categoryPages) do
+            page:SetWidth(contentWidth)
+        end
+        local activePage = Module.activeCategory and Module.categoryPages[Module.activeCategory]
+        if activePage then
+            self.pageHost:SetHeight(activePage:GetHeight())
+            self.content:SetHeight(activePage:GetHeight())
+        end
+    end)
+
+    local pageHost = CreateFrame("Frame", nil, panel.content)
+    pageHost:SetPoint("TOPLEFT", panel.content, "TOPLEFT", 0, 0)
+    pageHost:SetPoint("TOPRIGHT", panel.content, "TOPRIGHT", 0, 0)
+    pageHost:SetHeight(1)
+    if pageHost.SetClipsChildren then
+        pageHost:SetClipsChildren(true)
+    end
+    panel.pageHost = pageHost
+
+    local sidebarTitle = sidebar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    sidebarTitle:SetPoint("TOPLEFT", sidebar, "TOPLEFT", 10, -10)
+    sidebarTitle:SetText("Categories")
+
+    local function AddCategoryButton(index, key, label)
+        local btn = Skin:CreateButton(sidebar, label, 160, 26)
+        btn:SetPoint("TOPLEFT", sidebar, "TOPLEFT", 10, -(28 + ((index - 1) * 30)))
+        btn:SetScript("OnClick", function()
+            Module:SetActiveCategory(key)
+        end)
+        self.categoryButtons[key] = btn
+        self.categoryOrder[key] = index
+    end
+
+    AddCategoryButton(1, "general", "General")
+    AddCategoryButton(2, "bags", "Bag Settings")
+    AddCategoryButton(3, "action", "Action Bar")
+    AddCategoryButton(4, "interface", "Interface")
+    AddCategoryButton(5, "cooldowns", "Cooldown Manager")
+
+    do
+        local page, ui = self:BuildPage(panel.pageHost, true)
+        ui:AddHeader("General Settings")
+        ui:AddSwitch("Enable Action Bars Module", db.actionBars.enabled, function(v)
+            db.actionBars.enabled = v
+        end)
+        ui:AddSwitch("Enable Bag Module", db.bags.enabled, function(v)
+            db.bags.enabled = v
+        end)
+        ui:AddSwitch("Enable Cooldown Manager", db.cooldowns.enabled, function(v)
+            db.cooldowns.enabled = v
+        end)
+        ui:AddHeader("Quick Actions")
+        ui:AddButton("Apply Layout Now", 180, function()
+            Module:ApplyAll()
+            ForgeUI:Print("Layout applied.")
+        end)
+        ui:AddButton("Reload UI", 180, function()
+            ReloadUI()
+        end)
+        ui:Finish()
+        self.categoryPages.general = page
+    end
+
+    do
+        local page, ui = self:BuildPage(panel.pageHost, true)
+        local header, headerY = ui:AddHeader("Bag Settings")
+        local enableSw = Skin:CreateSwitch(page, "", db.bags.enabled, function(v)
+            db.bags.enabled = v and true or false
+            Module:ApplyAll()
+        end, "ON", "OFF")
+        enableSw:SetSize(54, 24)
+        enableSw:ClearAllPoints()
+        enableSw:SetPoint("RIGHT", header, "RIGHT", -11, 0)
+        if enableSw.label then
+            enableSw.label:SetWidth(1)
+            enableSw.label:SetText("")
+            enableSw.label:SetJustifyH("RIGHT")
+        end
+
+        ui:AddHeader("Window Layout")
+        ui:AddSlider("Bag Panel X", -800, 800, 1, db.bags.x, function(v)
+            db.bags.x = Round(v)
+        end)
+        ui:AddSlider("Bag Panel Y", -500, 500, 1, db.bags.y, function(v)
+            db.bags.y = Round(v)
+        end)
+        ui:AddSlider("Big Bag X", -800, 800, 1, db.bags.windowX, function(v)
+            db.bags.windowX = Round(v)
+        end)
+        ui:AddSlider("Big Bag Y", -500, 500, 1, db.bags.windowY, function(v)
+            db.bags.windowY = Round(v)
+        end)
+        ui:AddSlider("Bag Columns", 4, 16, 1, db.bags.columns, function(v)
+            db.bags.columns = Round(v)
+        end)
+        ui:AddSlider("Bag Icon Size", 24, 48, 1, db.bags.iconSize, function(v)
+            db.bags.iconSize = Round(v)
+        end)
+        ui:AddSlider("Icon Spacing", 0, 16, 1, db.bags.iconSpacing, function(v)
+            db.bags.iconSpacing = Round(v)
+        end)
+
+        ui:AddHeader("Grouping")
+        ui:AddSwitch("Group Items by Bag", db.bags.groupByBag, function(v)
+            db.bags.groupByBag = v
+        end)
+        ui:AddSwitch("Different Color per Bag", db.bags.useBagSectionColors, function(v)
+            db.bags.useBagSectionColors = v
+        end)
+        ui:AddSwitch("Smart Categories", db.bags.smartCategories, function(v)
+            db.bags.smartCategories = v
+        end)
+        ui:AddSlider("Smart Category Columns", 1, 3, 1, db.bags.smartCategoryColumns, function(v)
+            db.bags.smartCategoryColumns = Round(v)
+        end)
+        ui:AddSlider("Merge Small Categories (<N)", 0, 12, 1, db.bags.smartCategoryMinMerge, function(v)
+            db.bags.smartCategoryMinMerge = Round(v)
+        end)
+        ui:AddSwitch("Merge Small to Misc", db.bags.smartCategoryMergeMisc, function(v)
+            db.bags.smartCategoryMergeMisc = v
+        end)
+        ui:AddSlider("Bag Section Gap", 0, 28, 1, db.bags.bagSectionGap, function(v)
+            db.bags.bagSectionGap = Round(v)
+        end)
+        ui:AddSlider("Bag Color Alpha", 0.05, 0.8, 0.05, db.bags.bagColorAlpha, function(v)
+            db.bags.bagColorAlpha = Round2(v)
+        end)
+        ui:AddSwitch("Show Empty Bag Space", db.bags.showEmptyBagSections, function(v)
+            db.bags.showEmptyBagSections = v
+        end)
+
+        ui:AddHeader("Search and Filter")
+        ui:AddSwitch("Enable Search Box", db.bags.enableSearch, function(v)
+            db.bags.enableSearch = v
+        end)
+        ui:AddSwitch("Search Narrow (Hide Non-Match)", db.bags.searchNarrow, function(v)
+            db.bags.searchNarrow = v
+        end)
+        ui:AddDropdown("Sort Mode", BAG_SORT_OPTIONS, db.bags.sortMode or "slot", function(v)
+            db.bags.sortMode = tostring(v or "slot")
+        end)
+        ui:AddSlider("Minimum Quality (0-6)", 0, 6, 1, db.bags.minQuality, function(v)
+            db.bags.minQuality = Round(v)
+        end)
+        ui:AddSlider("Minimum Item Level", 0, 750, 5, db.bags.minItemLevel, function(v)
+            db.bags.minItemLevel = Round(v)
+        end)
+
+        ui:AddHeader("Sort and Borders")
+        ui:AddSwitch("Override Sort: Importance", db.bags.sortByPriority, function(v)
+            db.bags.sortByPriority = v
+        end)
+        ui:AddSwitch("Priority Border Colors", db.bags.priorityBorders, function(v)
+            db.bags.priorityBorders = v
+        end)
+        ui:AddSlider("High iLvl Threshold", 450, 750, 5, db.bags.highItemLevelThreshold, function(v)
+            db.bags.highItemLevelThreshold = Round(v)
+        end)
+
+        ui:AddHeader("Tooltip and Auto")
+        ui:AddSwitch("Show Bank Count in Tooltip", db.bags.showBankCount, function(v)
+            db.bags.showBankCount = v
+        end)
+        ui:AddSwitch("Show Alt Count in Tooltip", db.bags.showAltCountInTooltip, function(v)
+            db.bags.showAltCountInTooltip = v
+        end)
+        ui:AddSwitch("Auto Sell Junk at Vendor", db.bags.autoSellJunk, function(v)
+            db.bags.autoSellJunk = v
+        end)
+        ui:AddHeader("Bag Status Bar")
+        ui:AddSwitch("Show Money", db.bags.showMoney, function(v)
+            db.bags.showMoney = v
+        end)
+        ui:AddSwitch("Show Free Slots", db.bags.showFreeSlots, function(v)
+            db.bags.showFreeSlots = v
+        end)
+        ui:AddSwitch("Show Used Slots", db.bags.showUsedSlots, function(v)
+            db.bags.showUsedSlots = v
+        end)
+        ui:AddSwitch("Show Total Slots", db.bags.showTotalSlots, function(v)
+            db.bags.showTotalSlots = v
+        end)
+        ui:Finish()
+        self.categoryPages.bags = page
+    end
+
+    do
+        local page, ui = self:BuildPage(panel.pageHost, true)
+        db.actionBars.bars = db.actionBars.bars or {}
+        db.actionBars.bars.main = db.actionBars.bars.main or {}
+        db.actionBars.bars.bottomLeft = db.actionBars.bars.bottomLeft or {}
+        db.actionBars.bars.bottomRight = db.actionBars.bars.bottomRight or {}
+        db.actionBars.bars.right = db.actionBars.bars.right or {}
+        db.actionBars.bars.left = db.actionBars.bars.left or {}
+        db.actionBars.bars.bar6 = db.actionBars.bars.bar6 or {}
+        db.actionBars.bars.pet = db.actionBars.bars.pet or {}
+        db.actionBars.bars.stance = db.actionBars.bars.stance or {}
+        db.actionBars.bars.possess = db.actionBars.bars.possess or {}
+        db.actionBars.bars.extra = db.actionBars.bars.extra or {}
+
+        local function EnsureBarVisualDefaults(b)
+            if b.borderR == nil then b.borderR = 0.22 end
+            if b.borderG == nil then b.borderG = 0.22 end
+            if b.borderB == nil then b.borderB = 0.22 end
+            if b.borderA == nil then b.borderA = 1 end
+            if b.hoverBorderR == nil then b.hoverBorderR = 0 end
+            if b.hoverBorderG == nil then b.hoverBorderG = 0.85 end
+            if b.hoverBorderB == nil then b.hoverBorderB = 1 end
+            if b.hoverBorderA == nil then b.hoverBorderA = 1 end
+            if b.rows == nil then b.rows = 1 end
+            if b.orientation == nil then b.orientation = "HORIZONTAL" end
+            if b.buttonsPerLine == nil then
+                b.buttonsPerLine = b.columns or 12
+            end
+            if b.visibleButtons == nil then
+                b.visibleButtons = b.buttonsPerLine or b.columns or 12
+            end
+            if b.snapEnabled == nil then
+                b.snapEnabled = true
+            end
+            if b.snapGap == nil then
+                b.snapGap = 5
+            end
+        end
+        EnsureBarVisualDefaults(db.actionBars.bars.main)
+        EnsureBarVisualDefaults(db.actionBars.bars.bottomLeft)
+        EnsureBarVisualDefaults(db.actionBars.bars.bottomRight)
+        EnsureBarVisualDefaults(db.actionBars.bars.right)
+        EnsureBarVisualDefaults(db.actionBars.bars.left)
+        EnsureBarVisualDefaults(db.actionBars.bars.bar6)
+        EnsureBarVisualDefaults(db.actionBars.bars.pet)
+        EnsureBarVisualDefaults(db.actionBars.bars.stance)
+        EnsureBarVisualDefaults(db.actionBars.bars.possess)
+        EnsureBarVisualDefaults(db.actionBars.bars.extra)
+
+        ui:AddHeader("Action Bar Settings")
+        ui:AddSwitch("Enable Action Bars", db.actionBars.enabled, function(v)
+            db.actionBars.enabled = v
+        end)
+        ui:AddSwitch("Hide Blizzard Main Menu Art", db.actionBars.hideMainMenuArt, function(v)
+            db.actionBars.hideMainMenuArt = v
+        end)
+        ui:AddSwitch("Unlock Move Mode", db.actionBars.unlockMode, function(v)
+            db.actionBars.unlockMode = v
+        end)
+        ui:AddButton("Toggle Keybind Mode", 220, function()
+            local bars = ForgeUI:GetModule("actionBars")
+            if bars and bars.StartKeybindMode then
+                bars:StartKeybindMode()
+            end
+        end)
+        ui:AddButton("Apply Recommended 1-6 Layout", 220, function()
+            local b = db.actionBars.bars
+            b.main.enabled, b.main.point, b.main.x, b.main.y, b.main.orientation, b.main.buttonsPerLine, b.main.showInCombatOnly, b.main.mouseover, b.main.alpha = true, "BOTTOM", 0, 36, "HORIZONTAL", 12, false, false, 1
+            b.bottomLeft.enabled, b.bottomLeft.point, b.bottomLeft.x, b.bottomLeft.y, b.bottomLeft.orientation, b.bottomLeft.buttonsPerLine, b.bottomLeft.showInCombatOnly, b.bottomLeft.mouseover, b.bottomLeft.alpha = true, "BOTTOM", 0, 76, "HORIZONTAL", 12, false, false, 1
+            b.right.enabled, b.right.point, b.right.x, b.right.y, b.right.orientation, b.right.buttonsPerLine, b.right.showInCombatOnly, b.right.mouseover, b.right.alpha = true, "BOTTOM", 286, 82, "VERTICAL", 12, false, false, 1
+            b.left.enabled, b.left.point, b.left.x, b.left.y, b.left.orientation, b.left.buttonsPerLine, b.left.showInCombatOnly, b.left.mouseover, b.left.alpha = true, "BOTTOM", -286, 82, "VERTICAL", 12, false, false, 1
+            b.bottomRight.enabled, b.bottomRight.point, b.bottomRight.x, b.bottomRight.y, b.bottomRight.orientation, b.bottomRight.buttonsPerLine, b.bottomRight.showInCombatOnly, b.bottomRight.mouseover, b.bottomRight.alpha = true, "RIGHT", -30, 0, "VERTICAL", 12, false, false, 1
+            b.bar6.enabled, b.bar6.point, b.bar6.x, b.bar6.y, b.bar6.orientation, b.bar6.buttonsPerLine, b.bar6.showInCombatOnly, b.bar6.mouseover, b.bar6.alpha = false, "BOTTOM", 0, 116, "HORIZONTAL", 12, false, false, 1
+            b.main.columns, b.main.rows = b.main.buttonsPerLine, 1
+            b.bottomLeft.columns, b.bottomLeft.rows = b.bottomLeft.buttonsPerLine, 1
+            b.right.columns, b.right.rows = 1, b.right.buttonsPerLine
+            b.left.columns, b.left.rows = 1, b.left.buttonsPerLine
+            b.bottomRight.columns, b.bottomRight.rows = 1, b.bottomRight.buttonsPerLine
+            b.bar6.columns, b.bar6.rows = b.bar6.buttonsPerLine, 1
+            b.pet.enabled, b.stance.enabled, b.possess.enabled, b.extra.enabled = false, false, false, false
+            Module:ApplyAll()
+        end)
+
+        local baseHeight = ui:Finish()
+        local accordions = {}
+
+        local function RelayoutAccordions()
+            local y = baseHeight + 8
+            for i = 1, #accordions do
+                local acc = accordions[i]
+                acc:ClearAllPoints()
+                acc:SetPoint("TOPLEFT", page, "TOPLEFT", 20, -y)
+                y = y + (acc:GetHeight() or 30) + 10
+            end
+            page:SetHeight(y + 20)
+            panel.pageHost:SetHeight(page:GetHeight())
+            panel.content:SetHeight(page:GetHeight())
+        end
+
+        local function BuildBarAccordion(title, bar, maxButtons)
+            local acc
+            acc = Skin:CreateAccordion(page, title, 320, function()
+                if not acc then
+                    return
+                end
+                if acc.expanded then
+                    for i = 1, #accordions do
+                        local other = accordions[i]
+                        if other ~= acc and other.expanded then
+                            other:SetExpanded(false)
+                        end
+                    end
+                end
+                C_Timer.After(0, RelayoutAccordions)
+            end, 610)
+            acc.onAnimUpdate = RelayoutAccordions
+            table.insert(accordions, acc)
+
+            local content = acc.content
+            local y = 10
+            local lane = 1
+            local rowHeight = 0
+            local leftX, rightX = 12, 322
+            local colW = 280
+
+            local function Place(h)
+                local x, yy
+                if lane == 1 then
+                    x, yy = leftX, y
+                    lane = 2
+                else
+                    x, yy = rightX, y
+                    lane = 1
+                    y = y + math.max(rowHeight, h) + 10
+                    rowHeight = 0
+                end
+                rowHeight = math.max(rowHeight, h)
+                return x, yy
+            end
+
+            local function AddSwitch(label, value, setter)
+                local sw = Skin:CreateSwitch(content, label, value, function(v)
+                    setter(v and true or false)
+                    Module:ApplyAll()
+                end, "ON", "OFF")
+                local x, yy = Place(48)
+                sw:SetPoint("TOPLEFT", content, "TOPLEFT", x, -(yy + 18))
+                if sw.label then
+                    sw.label:SetWidth(colW - 36)
+                    sw.label:SetWordWrap(false)
+                end
+            end
+
+            local function AddSlider(label, minV, maxV, step, value, setter)
+                local x, yy = Place(48)
+                local t = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+                t:SetPoint("TOPLEFT", content, "TOPLEFT", x, -yy)
+                t:SetText(label)
+                local s = Skin:CreateSlider(content, minV, maxV, step, value, function(v)
+                    setter(v)
+                    Module:ApplyAll()
+                end, colW)
+                s:SetPoint("TOPLEFT", content, "TOPLEFT", x, -(yy + 18))
+            end
+
+            local function AddColor(label, rgba, setter)
+                local cp = Skin:CreateColorPicker(content, label, rgba, function(c)
+                    setter(c)
+                    Module:ApplyAll()
+                end, colW)
+                local x, yy = Place(34)
+                cp:SetPoint("TOPLEFT", content, "TOPLEFT", x, -yy)
+            end
+
+            local function AddDropdown(label, items, value, setter)
+                local x, yy = Place(48)
+                local t = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+                t:SetPoint("TOPLEFT", content, "TOPLEFT", x, -yy)
+                t:SetText(label)
+                local dd = Skin:CreateDropdown(content, colW, items, value, function(v)
+                    setter(v)
+                    Module:ApplyAll()
+                end)
+                dd:SetPoint("TOPLEFT", content, "TOPLEFT", x, -(yy + 18))
+            end
+
+            AddSwitch("Enable", bar.enabled, function(v) bar.enabled = v end)
+            AddSlider("Button Size", 20, 56, 1, bar.size or 34, function(v) bar.size = Round(v) end)
+            AddSlider("Button Spacing", 0, 16, 1, bar.spacing or 4, function(v) bar.spacing = Round(v) end)
+            AddDropdown("Orientation", BAR_ORIENTATION_OPTIONS, bar.orientation or "HORIZONTAL", function(v)
+                bar.orientation = v
+                if v == "VERTICAL" then
+                    bar.rows = bar.buttonsPerLine or bar.rows or 12
+                    bar.columns = 1
+                else
+                    bar.columns = bar.buttonsPerLine or bar.columns or 12
+                    bar.rows = 1
+                end
+            end)
+            AddSlider("Icons Per Line", 1, maxButtons or 12, 1, bar.buttonsPerLine or bar.columns or maxButtons or 12, function(v)
+                local n = Round(v)
+                bar.buttonsPerLine = n
+                if (bar.orientation or "HORIZONTAL") == "VERTICAL" then
+                    bar.rows = n
+                    bar.columns = 1
+                else
+                    bar.columns = n
+                    bar.rows = 1
+                end
+            end)
+            AddSlider("Visible Buttons", 1, maxButtons or 12, 1, bar.visibleButtons or bar.buttonsPerLine or maxButtons or 12, function(v)
+                bar.visibleButtons = Round(v)
+            end)
+            AddSlider("Scale", 0.6, 1.8, 0.05, bar.scale or 1, function(v) bar.scale = Round2(v) end)
+            AddSlider("Opacity", 0.1, 1, 0.05, bar.alpha or 1, function(v) bar.alpha = Round2(v) end)
+            AddSwitch("Mouseover Fade", bar.mouseover, function(v) bar.mouseover = v end)
+            AddSwitch("Show Only In Combat", bar.showInCombatOnly, function(v) bar.showInCombatOnly = v end)
+            AddSwitch("Snap to Nearby Bars", bar.snapEnabled, function(v) bar.snapEnabled = v end)
+            AddSlider("Snap Gap", 0, 20, 1, bar.snapGap or 5, function(v) bar.snapGap = Round(v) end)
+            AddColor("Border Color", { bar.borderR, bar.borderG, bar.borderB, bar.borderA }, function(c)
+                bar.borderR, bar.borderG, bar.borderB, bar.borderA = c[1], c[2], c[3], c[4]
+            end)
+            AddColor("Hover Border Color", { bar.hoverBorderR, bar.hoverBorderG, bar.hoverBorderB, bar.hoverBorderA }, function(c)
+                bar.hoverBorderR, bar.hoverBorderG, bar.hoverBorderB, bar.hoverBorderA = c[1], c[2], c[3], c[4]
+            end)
+
+            if lane == 2 then
+                y = y + rowHeight + 10
+            end
+            acc:SetContentHeight(y + 8)
+            return acc
+        end
+
+        local a1 = BuildBarAccordion("Bar 1", db.actionBars.bars.main, 12)
+        BuildBarAccordion("Bar 2", db.actionBars.bars.bottomLeft, 12)
+        BuildBarAccordion("Bar 3", db.actionBars.bars.right, 12)
+        BuildBarAccordion("Bar 4", db.actionBars.bars.left, 12)
+        BuildBarAccordion("Bar 5", db.actionBars.bars.bottomRight, 12)
+        BuildBarAccordion("Bar 6", db.actionBars.bars.bar6, 12)
+        BuildBarAccordion("Pet Bar", db.actionBars.bars.pet, 10)
+        BuildBarAccordion("Stance Bar", db.actionBars.bars.stance, 10)
+        BuildBarAccordion("Possess Bar", db.actionBars.bars.possess, 2)
+        BuildBarAccordion("Extra Bar", db.actionBars.bars.extra, 1)
+        if a1 then
+            a1:SetExpanded(true)
+        end
+        RelayoutAccordions()
+        self.categoryPages.action = page
+    end
+
+    do
+        local page, ui = self:BuildPage(panel.pageHost, true)
+        ui:AddHeader("Interface Settings")
+        ui:AddSwitch("Unlock Cooldown Icons", db.cooldowns.unlockIcons, function(v)
+            db.cooldowns.unlockIcons = v
+        end)
+        ui:AddSwitch("Prefer Native Bars", db.cooldowns.preferNativeBars, function(v)
+            db.cooldowns.preferNativeBars = v
+        end)
+        ui:AddSwitch("Hide Original Numbers in Split View", db.cooldowns.hideOriginalNumbersWhenSplit, function(v)
+            db.cooldowns.hideOriginalNumbersWhenSplit = v
+        end)
+        ui:AddHeader("Utilities")
+        ui:AddButton("Reset Cooldown Icon Positions", 220, function()
+            local cds = ForgeUI:GetModule("cooldowns")
+            if cds and cds.ResetPositions then
+                cds:ResetPositions()
+            else
+                ForgeUI:Print("Cooldown module not available.")
+            end
+        end)
+        ui:AddButton("Toggle Cooldown Unlock", 220, function()
+            local cds = ForgeUI:GetModule("cooldowns")
+            if cds and cds.ToggleUnlock then
+                cds:ToggleUnlock()
+            else
+                db.cooldowns.unlockIcons = not db.cooldowns.unlockIcons
+                Module:ApplyAll()
+            end
+        end)
+        ui:Finish()
+        self.categoryPages.interface = page
+    end
+
+    do
+        local page, ui = self:BuildPage(panel.pageHost, true)
+
+        ui:AddHeader("Cooldown Split")
+        ui:AddSwitch("Enable Cooldown Split", db.cooldowns.splitEnabled, function(v)
+            db.cooldowns.splitEnabled = v
+        end)
+        ui:AddSwitch("Full Injection", db.cooldowns.fullInject, function(v)
+            db.cooldowns.fullInject = v
+        end)
+        ui:AddSwitch("Icon by Icon Split", db.cooldowns.splitPerIcon, function(v)
+            db.cooldowns.splitPerIcon = v
+        end)
+        ui:AddSwitch("Hide Original Numbers", db.cooldowns.hideOriginalNumbersWhenSplit, function(v)
+            db.cooldowns.hideOriginalNumbersWhenSplit = v
+        end)
+        ui:AddSlider("Minimum Duration", 0, 10, 0.5, db.cooldowns.minDuration, function(v)
+            db.cooldowns.minDuration = Round1(v)
+        end)
+        ui:AddSlider("Split Columns", 1, 12, 1, db.cooldowns.splitColumns, function(v)
+            db.cooldowns.splitColumns = Round(v)
+        end)
+        ui:AddSlider("Split Icon Size", 20, 52, 1, db.cooldowns.splitIconSize, function(v)
+            db.cooldowns.splitIconSize = Round(v)
+        end)
+        ui:AddSlider("Split X", -800, 800, 1, db.cooldowns.splitX, function(v)
+            db.cooldowns.splitX = Round(v)
+        end)
+        ui:AddSlider("Split Y", -500, 500, 1, db.cooldowns.splitY, function(v)
+            db.cooldowns.splitY = Round(v)
+        end)
+
+        ui:AddHeader("Icon Style")
+        ui:AddSwitch("Show Cooldown Numbers", db.cooldowns.iconStyle.showCooldownNumbers, function(v)
+            db.cooldowns.iconStyle.showCooldownNumbers = v
+        end)
+        ui:AddSwitch("Show Stack Numbers", db.cooldowns.iconStyle.showStackNumbers, function(v)
+            db.cooldowns.iconStyle.showStackNumbers = v
+        end)
+        ui:AddSwitch("Desaturate Inactive Icons", db.cooldowns.iconStyle.desaturateInactive, function(v)
+            db.cooldowns.iconStyle.desaturateInactive = v
+        end)
+        ui:AddSwitch("Active Border Pulse", db.cooldowns.iconStyle.activeBorderPulse, function(v)
+            db.cooldowns.iconStyle.activeBorderPulse = v
+        end)
+        ui:AddSwitch("Pulse on Running Cooldowns", db.cooldowns.iconStyle.pulseOnCooldowns, function(v)
+            db.cooldowns.iconStyle.pulseOnCooldowns = v
+        end)
+        ui:AddSwitch("Ignore GCD for Pulse", db.cooldowns.iconStyle.ignoreGCDPulse, function(v)
+            db.cooldowns.iconStyle.ignoreGCDPulse = v
+        end)
+        ui:AddSlider("Icon Size Multiplier", 0.6, 1.8, 0.05, db.cooldowns.iconStyle.sizeMultiplier, function(v)
+            db.cooldowns.iconStyle.sizeMultiplier = Round2(v)
+        end)
+        ui:AddSlider("Icon Zoom (Crop)", 0.00, 0.20, 0.01, db.cooldowns.iconStyle.iconZoom, function(v)
+            db.cooldowns.iconStyle.iconZoom = Round2(v)
+        end)
+        ui:AddSlider("Icon Active Alpha", 0.2, 1.0, 0.05, db.cooldowns.iconStyle.activeAlpha, function(v)
+            db.cooldowns.iconStyle.activeAlpha = Round2(v)
+        end)
+        ui:AddSlider("Icon Inactive Alpha", 0.1, 1.0, 0.05, db.cooldowns.iconStyle.inactiveAlpha, function(v)
+            db.cooldowns.iconStyle.inactiveAlpha = Round2(v)
+        end)
+        ui:AddSlider("Pulse Speed", 0.5, 8.0, 0.1, db.cooldowns.iconStyle.pulseSpeed, function(v)
+            db.cooldowns.iconStyle.pulseSpeed = Round1(v)
+        end)
+        ui:AddSlider("GCD Threshold (sec)", 0.8, 2.0, 0.1, db.cooldowns.iconStyle.gcdThreshold, function(v)
+            db.cooldowns.iconStyle.gcdThreshold = Round1(v)
+        end)
+        ui:AddSlider("Buff Pulse Type (1-3)", 1, 3, 1, PulseTypeToValue(db.cooldowns.iconStyle.buffPulseType), function(v)
+            db.cooldowns.iconStyle.buffPulseType = ValueToPulseType(v)
+        end)
+        ui:AddSlider("CD Pulse Type (1-3)", 1, 3, 1, PulseTypeToValue(db.cooldowns.iconStyle.cooldownPulseType), function(v)
+            db.cooldowns.iconStyle.cooldownPulseType = ValueToPulseType(v)
+        end)
+        ui:AddSlider("Buff Pulse Speed", 0.5, 8.0, 0.1, db.cooldowns.iconStyle.buffPulseSpeed, function(v)
+            db.cooldowns.iconStyle.buffPulseSpeed = Round1(v)
+        end)
+        ui:AddSlider("CD Pulse Speed", 0.5, 8.0, 0.1, db.cooldowns.iconStyle.cooldownPulseSpeed, function(v)
+            db.cooldowns.iconStyle.cooldownPulseSpeed = Round1(v)
+        end)
+        ui:AddColorPicker("Icon Border Normal", {
+            db.cooldowns.iconStyle.borderNormalR,
+            db.cooldowns.iconStyle.borderNormalG,
+            db.cooldowns.iconStyle.borderNormalB,
+            db.cooldowns.iconStyle.borderNormalA,
+        }, function(c)
+            db.cooldowns.iconStyle.borderNormalR = c[1] or 0.18
+            db.cooldowns.iconStyle.borderNormalG = c[2] or 0.18
+            db.cooldowns.iconStyle.borderNormalB = c[3] or 0.18
+            db.cooldowns.iconStyle.borderNormalA = c[4] or 1
+        end)
+        ui:AddColorPicker("Icon Border Active", {
+            db.cooldowns.iconStyle.borderActiveR,
+            db.cooldowns.iconStyle.borderActiveG,
+            db.cooldowns.iconStyle.borderActiveB,
+            db.cooldowns.iconStyle.borderActiveA,
+        }, function(c)
+            db.cooldowns.iconStyle.borderActiveR = c[1] or 0
+            db.cooldowns.iconStyle.borderActiveG = c[2] or 0.75
+            db.cooldowns.iconStyle.borderActiveB = c[3] or 1
+            db.cooldowns.iconStyle.borderActiveA = c[4] or 1
+        end)
+        ui:AddColorPicker("Buff Pulse Color", {
+            db.cooldowns.iconStyle.buffPulseR,
+            db.cooldowns.iconStyle.buffPulseG,
+            db.cooldowns.iconStyle.buffPulseB,
+            db.cooldowns.iconStyle.buffPulseA,
+        }, function(c)
+            db.cooldowns.iconStyle.buffPulseR = c[1] or 0
+            db.cooldowns.iconStyle.buffPulseG = c[2] or 0.75
+            db.cooldowns.iconStyle.buffPulseB = c[3] or 1
+            db.cooldowns.iconStyle.buffPulseA = c[4] or 1
+        end)
+        ui:AddColorPicker("CD Pulse Color", {
+            db.cooldowns.iconStyle.cooldownPulseR,
+            db.cooldowns.iconStyle.cooldownPulseG,
+            db.cooldowns.iconStyle.cooldownPulseB,
+            db.cooldowns.iconStyle.cooldownPulseA,
+        }, function(c)
+            db.cooldowns.iconStyle.cooldownPulseR = c[1] or 1
+            db.cooldowns.iconStyle.cooldownPulseG = c[2] or 0.82
+            db.cooldowns.iconStyle.cooldownPulseB = c[3] or 0.18
+            db.cooldowns.iconStyle.cooldownPulseA = c[4] or 1
+        end)
+
+        ui:AddHeader("Bar Style")
+        ui:AddSwitch("Prefer Native Bars", db.cooldowns.preferNativeBars, function(v)
+            db.cooldowns.preferNativeBars = v
+        end)
+        ui:AddSwitch("Bar Label Visible", db.cooldowns.barStyle.showLabel, function(v)
+            db.cooldowns.barStyle.showLabel = v
+        end)
+        ui:AddSwitch("Bar Icon Visible", db.cooldowns.barStyle.showIcon, function(v)
+            db.cooldowns.barStyle.showIcon = v
+        end)
+        ui:AddSwitch("Use Source Bar Color", db.cooldowns.barStyle.useSourceColor, function(v)
+            db.cooldowns.barStyle.useSourceColor = v
+        end)
+        ui:AddSlider("Bar Width Multiplier", 2.0, 8.0, 0.1, db.cooldowns.barStyle.widthMultiplier, function(v)
+            db.cooldowns.barStyle.widthMultiplier = Round1(v)
+        end)
+        ui:AddSlider("Bar Min Width", 80, 400, 1, db.cooldowns.barStyle.minWidth, function(v)
+            db.cooldowns.barStyle.minWidth = Round(v)
+        end)
+        ui:AddSlider("Bar Height Multiplier", 0.6, 2.0, 0.05, db.cooldowns.barStyle.heightMultiplier, function(v)
+            db.cooldowns.barStyle.heightMultiplier = Round2(v)
+        end)
+        ui:AddSlider("Bar Text Size", 8, 22, 1, db.cooldowns.barStyle.textSize, function(v)
+            db.cooldowns.barStyle.textSize = Round(v)
+        end)
+        ui:AddSlider("Bar Active Alpha", 0.2, 1.0, 0.05, db.cooldowns.barStyle.activeAlpha, function(v)
+            db.cooldowns.barStyle.activeAlpha = Round2(v)
+        end)
+        ui:AddSlider("Bar Inactive Alpha", 0.1, 1.0, 0.05, db.cooldowns.barStyle.inactiveAlpha, function(v)
+            db.cooldowns.barStyle.inactiveAlpha = Round2(v)
+        end)
+        ui:AddColorPicker("Bar Background Color", {
+            db.cooldowns.barStyle.bgR,
+            db.cooldowns.barStyle.bgG,
+            db.cooldowns.barStyle.bgB,
+            db.cooldowns.barStyle.bgA,
+        }, function(c)
+            db.cooldowns.barStyle.bgR = c[1] or 0.08
+            db.cooldowns.barStyle.bgG = c[2] or 0.08
+            db.cooldowns.barStyle.bgB = c[3] or 0.08
+            db.cooldowns.barStyle.bgA = c[4] or 0.8
+        end)
+        ui:AddColorPicker("Bar Fill Color", {
+            db.cooldowns.barStyle.fillR,
+            db.cooldowns.barStyle.fillG,
+            db.cooldowns.barStyle.fillB,
+            db.cooldowns.barStyle.fillA,
+        }, function(c)
+            db.cooldowns.barStyle.fillR = c[1] or 0.85
+            db.cooldowns.barStyle.fillG = c[2] or 0.72
+            db.cooldowns.barStyle.fillB = c[3] or 0.2
+            db.cooldowns.barStyle.fillA = c[4] or 0.95
+        end)
+
+        ui:Finish()
+        self.categoryPages.cooldowns = page
+    end
+
+    self:SetActiveCategory("general")
+end
+
+function Module:SetPanelOpen(show)
+    if not self.panel then
+        return
+    end
+
+    local panel = self.panel
+
+    if show then
+        if panel.isSlideOpen then
+            return
+        end
+        panel:ClearAllPoints()
+        panel:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+        panel.isSlideOpen = true
+        panel:Show()
+        return
+    end
+
+    if not panel.isSlideOpen then
+        return
+    end
+    panel.isSlideOpen = false
+    panel:Hide()
+end
+
+function Module:TogglePanel()
+    if not Skin then
+        ForgeUI:Print("ForgeSkin not found.")
+        return
+    end
+
+    if not self.panel then
+        self:CreatePanel()
+    end
+    if not self.panel then
+        return
+    end
+
+    self:SetPanelOpen(not self.panel.isSlideOpen)
+end
+
+function Module:Initialize()
+    self:CreateRightTab()
+    self:CreatePanel()
+end
+
+ForgeUI:RegisterModule("configUI", Module)

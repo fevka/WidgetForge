@@ -681,12 +681,11 @@ if not CCSync.eventFrame then
         elseif event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_TALENT_UPDATE" or event == "TRAIT_CONFIG_UPDATED" or event == "TRAIT_CONFIG_LIST_UPDATED" then
             CCSync.cachedIsValidContext = CCSync:IsValidContext()
             CCSync:UpdateGroupTracking()
-            if event == "PLAYER_TALENT_UPDATE" or event == "TRAIT_CONFIG_UPDATED" or event == "TRAIT_CONFIG_LIST_UPDATED" then
-                CCSync:QueueWarmupSync()
-            end
+            CCSync:QueueWarmupSync()
         elseif event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
             CCSync.cachedIsValidContext = CCSync:IsValidContext()
             CCSync:UpdateGroupTracking()
+            CCSync:QueueWarmupSync()
             -- Dungeon/zone entry → broadcast spells
             if IsInGroup() then
                 C_Timer.After(2, function()
@@ -870,10 +869,11 @@ function CCSync:BroadcastActiveCCCooldowns()
     if InCombatLockdown and InCombatLockdown() then
         return
     end
-    if not IsInGroup() then return end
     if #self.ccIDs == 0 then return end
 
     local now = GetTime()
+    local playerName = UnitName("player")
+    if not playerName then return end
     for _, spellID in ipairs(self.ccIDs) do
         local duration, source = self:ResolveCooldownDuration(spellID)
         if duration and duration >= MIN_VALID_CC_COOLDOWN then
@@ -887,7 +887,10 @@ function CCSync:BroadcastActiveCCCooldowns()
                 local remaining = (startTime + duration) - now
                 if duration > 0 and remaining > 0.15 then
                     DebugLog(self, string.format("Broadcast active CC spell=%d duration=%.2f remaining=%.2f source=%s", spellID, duration, remaining, tostring(source)))
-                    self:SendSync(spellID, duration, GetServerTime())
+                    for _, container in ipairs(self.Instances) do
+                        self:UpdateBar(container, playerName, spellID, remaining)
+                    end
+                    self:SendSync(spellID, remaining, GetServerTime())
                 end
             end
         end
