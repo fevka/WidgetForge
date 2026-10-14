@@ -1,50 +1,173 @@
--- =========================================================================
---  WidgetForge - Crowd Control (CC) Party Sync Module
---  [WoW 12 Compliant - Midnight API] - Persistent Bars Edition
--- =========================================================================
-
 local addonName, addonTable = ...
-
+local L = WFL
 if not _G.WidgetForge then _G.WidgetForge = {} end
 if not _G.WidgetForge.CCSync then _G.WidgetForge.CCSync = {} end
-
 local CCSync = _G.WidgetForge.CCSync
 addonTable.CCSync = CCSync
-
 CCSync.Instances = {}
 CCSync.commPrefix = "WF_CC_SYNC"
-CCSync.knownSpells = {}      -- knownSpells["PlayerName"] = {853, 119381, ...}
+CCSync.knownSpells = {}      
 CCSync.ccIDLookup = {}
 CCSync.lastPartySize = 0
 CCSync.hasBroadcasted = false
--- ============================================================================
--- 1. CC DATA (Dynamic CD Detection)
--- ============================================================================
-local CC_DATA = {
-    WARRIOR = { DEFAULT = {ids = {107570, 5246, 132168}, spellName = "Storm Bolt / Intimidating Shout / Shockwave", names = {"Storm Bolt", "Intimidating Shout", "Shockwave"}} },
-    ROGUE   = { DEFAULT = {ids = {408, 2094, 1833, 1776, 207736}, spellName = "Kidney Shot / Blind / Cheap Shot / Gouge", names = {"Kidney Shot", "Blind", "Cheap Shot", "Gouge", "Shadowstrike"}} },
-    MAGE    = { DEFAULT = {ids = {122, 118, 31661, 157997, 113724}, spellName = "Frost Nova / Polymorph / Dragon's Breath / Ice Nova / Ring of Frost", names = {"Frost Nova", "Polymorph", "Dragon's Breath", "Ice Nova", "Ring of Frost"}} },
-    DEATHKNIGHT = { DEFAULT = {ids = {221562, 108194, 207167, 108199}, spellName = "Asphyxiate / Blinding Sleet / Gorefiend's Grasp", names = {"Asphyxiate", "Blinding Sleet", "Gorefiend's Grasp"}} },
-    PALADIN = { DEFAULT = {ids = {853, 20066, 115750}, spellName = "Hammer of Justice / Repentance / Blinding Light", names = {"Hammer of Justice", "Repentance", "Blinding Light"}} },
-    MONK    = { DEFAULT = {ids = {119381, 115078, 116844, 122470}, spellName = "Leg Sweep / Paralysis / Ring of Peace / Touch of Karma", names = {"Leg Sweep", "Paralysis", "Ring of Peace", "Touch of Karma"}} },
-    DEMONHUNTER = { DEFAULT = {ids = {179057, 211881, 207684, 218352}, spellName = "Chaos Nova / Fel Eruption / Sigil of Misery / Imprison", names = {"Chaos Nova", "Fel Eruption", "Sigil of Misery", "Imprison"}} },
-    EVOKER  = { DEFAULT = {ids = {372048, 357214, 360806, 358385}, spellName = "Oppressing Roar / Deep Breath / Sleep Walk / Landslide", names = {"Oppressing Roar", "Deep Breath", "Sleep Walk", "Landslide"}} },
-    WARLOCK = { DEFAULT = {ids = {30283, 89766, 6789, 5484, 118699, 710}, spellName = "Shadowfury / Axe Toss / Mortal Coil / Howl of Terror / Fear / Banish", names = {"Shadowfury", "Axe Toss", "Mortal Coil", "Howl of Terror", "Fear", "Banish"}} },
-    SHAMAN  = { DEFAULT = {ids = {51514, 192058, 605, 51490, 51485, 360936}, spellName = "Hex / Capacitor Totem / Mind Control / Thunderstorm / Earthgrab / Lasso", names = {"Hex", "Capacitor Totem", "Mind Control", "Thunderstorm", "Earthgrab Totem", "Lightning Lasso"}} },
-    PRIEST  = { DEFAULT = {ids = {8122, 64044, 205369, 88625, 9484, 115163, 605}, spellName = "Psychic Scream / Psychic Horror / Mind Bomb / Chastise / Shackle / Mind Control", names = {"Psychic Scream", "Psychic Horror", "Mind Bomb", "Chastise", "Shackle Undead", "Mind Control"}} },
-    HUNTER  = { DEFAULT = {ids = {3355, 24394, 109248, 19577, 202933, 162480, 213691}, spellName = "Freezing Trap / Intimidation / Binding Shot", names = {"Freezing Trap", "Intimidation", "Binding Shot", "Spider Sting", "Steel Trap", "Scatter Shot"}} },
-    DRUID   = { DEFAULT = {ids = {5211, 33786, 102359, 339, 99, 102793}, spellName = "Mighty Bash / Cyclone / Mass Entanglement / Roots / Roar / Vortex", names = {"Mighty Bash", "Cyclone", "Mass Entanglement", "Entangling Roots", "Incapacitating Roar", "Ursol's Vortex"}} },
+function CCSync:HasActiveInstances()
+    return self.Instances and #self.Instances > 0
+end
+function CCSync:UpdateSpecTracker()
+    if not self.specTrackerFrame then return end
+    self.specTrackerFrame:UnregisterAllEvents()
+    if not self:HasActiveInstances() then return end
+    self.specTrackerFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+    self.specTrackerFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+end
+function CCSync:RefreshRuntimeState()
+    self:UpdateSpecTracker()
+    self:UpdateGroupTracking()
+end
+local function CopyArray(values)
+    if type(values) ~= "table" then return nil end
+    local copy = {}
+    for i, value in ipairs(values) do
+        copy[i] = value
+    end
+    return copy
+end
+local function CopyMap(values)
+    if type(values) ~= "table" then return nil end
+    local copy = {}
+    for key, value in pairs(values) do
+        copy[key] = value
+    end
+    return copy
+end
+local function CopyModifiers(modifiers)
+    if type(modifiers) ~= "table" then return nil end
+    local copy = {}
+    for index, modifier in ipairs(modifiers) do
+        copy[index] = {
+            talent = modifier.talent,
+            reduction = modifier.reduction,
+            reductionBySpec = CopyMap(modifier.reductionBySpec),
+            ranks = modifier.ranks and CopyArray(modifier.ranks) or nil,
+        }
+    end
+    return copy
+end
+local CC_SPELL_REGISTRY = {
+    { id = 107570, name = "Storm Bolt",           class = "WARRIOR" },
+    { id = 5246,   name = "Intimidating Shout",   class = "WARRIOR" },
+    { id = 132168, name = "Shockwave",            class = "WARRIOR" },
+    { id = 408,    name = "Kidney Shot",          class = "ROGUE" },
+    { id = 2094,   name = "Blind",                class = "ROGUE" },
+    { id = 1833,   name = "Cheap Shot",           class = "ROGUE" },
+    { id = 1776,   name = "Gouge",                class = "ROGUE" },
+    { id = 207736, name = "Shadowstrike",         class = "ROGUE" },
+    { id = 122,    name = "Frost Nova",           class = "MAGE" },
+    { id = 118,    name = "Polymorph",            class = "MAGE" },
+    { id = 31661,  name = "Dragon's Breath",      class = "MAGE" },
+    { id = 157997, name = "Ice Nova",             class = "MAGE" },
+    { id = 113724, name = "Ring of Frost",        class = "MAGE" },
+    { id = 221562, name = "Asphyxiate",           class = "DEATHKNIGHT", fallbackCooldown = 45 },
+    { id = 108194, name = "Asphyxiate",           class = "DEATHKNIGHT", fallbackCooldown = 45 },
+    { id = 207167, name = "Blinding Sleet",       class = "DEATHKNIGHT" },
+    { id = 108199, name = "Gorefiend's Grasp",    class = "DEATHKNIGHT" },
+    { id = 853,    name = "Hammer of Justice",    class = "PALADIN", cdModifiers = { { talent = 234299, reduction = 15 } } },
+    { id = 20066,  name = "Repentance",           class = "PALADIN" },
+    { id = 115750, name = "Blinding Light",       class = "PALADIN", cdModifiers = { { talent = 469325, reduction = 15 } } },
+    { id = 119381, name = "Leg Sweep",            class = "MONK", cdModifiers = { { talent = 344359, reduction = 10 } } },
+    { id = 115078, name = "Paralysis",            class = "MONK" },
+    { id = 116844, name = "Ring of Peace",        class = "MONK" },
+    { id = 122470, name = "Touch of Karma",       class = "MONK" },
+    { id = 179057, name = "Chaos Nova",           class = "DEMONHUNTER" },
+    { id = 211881, name = "Fel Eruption",         class = "DEMONHUNTER" },
+    { id = 207684, name = "Sigil of Misery",      class = "DEMONHUNTER" },
+    { id = 218352, name = "Imprison",             class = "DEMONHUNTER" },
+    { id = 372048, name = "Oppressing Roar",      class = "EVOKER" },
+    { id = 357214, name = "Deep Breath",          class = "EVOKER" },
+    { id = 360806, name = "Sleep Walk",           class = "EVOKER" },
+    { id = 358385, name = "Landslide",            class = "EVOKER" },
+    { id = 30283,  name = "Shadowfury",           class = "WARLOCK", cdModifiers = { { talent = 1270255, reduction = 15 } } },
+    { id = 89766,  name = "Axe Toss",             class = "WARLOCK" },
+    { id = 6789,   name = "Mortal Coil",          class = "WARLOCK" },
+    { id = 5484,   name = "Howl of Terror",       class = "WARLOCK" },
+    { id = 118699, name = "Fear",                 class = "WARLOCK" },
+    { id = 710,    name = "Banish",               class = "WARLOCK" },
+    { id = 51514,  name = "Hex",                  class = "SHAMAN", fallbackCooldown = 30 },
+    { id = 192058, name = "Capacitor Totem",      class = "SHAMAN", fallbackCooldown = 60, cdModifiers = { { talent = 265046, reduction = 15 } } },
+    { id = 605,    name = "Mind Control",         class = "SHAMAN" },
+    { id = 51490,  name = "Thunderstorm",         class = "SHAMAN" },
+    { id = 51485,  name = "Earthgrab Totem",      class = "SHAMAN" },
+    { id = 360936, name = "Lightning Lasso",      class = "SHAMAN" },
+    { id = 8122,   name = "Psychic Scream",       class = "PRIEST", cdModifiers = { { talent = 196704, reduction = 10 } } },
+    { id = 64044,  name = "Psychic Horror",       class = "PRIEST" },
+    { id = 205369, name = "Mind Bomb",            class = "PRIEST" },
+    { id = 88625,  name = "Chastise",             class = "PRIEST" },
+    { id = 9484,   name = "Shackle Undead",       class = "PRIEST" },
+    { id = 115163, name = "Mind Control",         class = "PRIEST" },
+    { id = 605,    name = "Mind Control",         class = "PRIEST" },
+    { id = 3355,   name = "Freezing Trap",        class = "HUNTER" },
+    { id = 24394,  name = "Intimidation",         class = "HUNTER" },
+    { id = 109248, name = "Binding Shot",         class = "HUNTER" },
+    { id = 19577,  name = "Spider Sting",         class = "HUNTER" },
+    { id = 202933, name = "Steel Trap",           class = "HUNTER" },
+    { id = 162480, name = "Scatter Shot",         class = "HUNTER" },
+    { id = 213691, name = "Scatter Shot",         class = "HUNTER" },
+    { id = 5211,   name = "Mighty Bash",          class = "DRUID" },
+    { id = 33786,  name = "Cyclone",              class = "DRUID" },
+    { id = 102359, name = "Mass Entanglement",    class = "DRUID" },
+    { id = 339,    name = "Entangling Roots",     class = "DRUID" },
+    { id = 99,     name = "Incapacitating Roar",  class = "DRUID" },
+    { id = 102793, name = "Ursol's Vortex",       class = "DRUID" },
+    { id = 46968,  name = "Shockwave",            class = "WARRIOR",      track = false },
+    { id = 91800,  name = "Gnaw",                 class = "DEATHKNIGHT",  track = false },
+    { id = 199804, name = "Between the Eyes",     class = "ROGUE",        track = false },
+    { id = 200166, name = "Repentance",           class = "PALADIN",      track = false },
+    { id = 105421, name = "Blinding Light",       class = "PALADIN",      track = false, cdModifiers = { { talent = 469325, reduction = 15 } } },
+    { id = 389831, name = "Landslide",            class = "EVOKER",       track = false },
+    { id = 100,    name = "Charge",               class = "WARRIOR",      track = false },
+    { id = 132469, name = "Typhoon",              class = "DRUID",        track = false },
+    { id = 22570,  name = "Maim",                 class = "DRUID",        track = false },
+    { id = 187650, name = "Freezing Trap",        class = "HUNTER",       track = false },
+    { id = 217832, name = "Imprison",             class = "DEMONHUNTER",  track = false },
+    { id = 202137, name = "Sigil of Silence",     class = "DEMONHUNTER",  track = false },
 }
-
+local CC_DATA = {}
+local CC_COOLDOWN_RULES = {}
+local CC_COOLDOWN_FALLBACK = {}
+local CC_NAME_COOLDOWN_FALLBACK = {}
+for _, entry in ipairs(CC_SPELL_REGISTRY) do
+    if entry.track ~= false and entry.class then
+        local classData = CC_DATA[entry.class]
+        if not classData then
+            classData = {}
+            CC_DATA[entry.class] = classData
+        end
+        local bucketKey = entry.specIndex or "DEFAULT"
+        local bucket = classData[bucketKey]
+        if not bucket then
+            bucket = { ids = {}, names = {} }
+            classData[bucketKey] = bucket
+        end
+        table.insert(bucket.ids, entry.id)
+        table.insert(bucket.names, entry.name)
+        bucket.spellName = bucket.spellName or entry.name
+    end
+    if entry.fallbackCooldown then
+        CC_COOLDOWN_FALLBACK[entry.id] = entry.fallbackCooldown
+    end
+    if entry.cooldownBySpec or entry.cdModifiers then
+        CC_COOLDOWN_RULES[entry.id] = {
+            cooldownBySpec = CopyMap(entry.cooldownBySpec),
+            cdModifiers = CopyModifiers(entry.cdModifiers),
+        }
+    end
+end
 local function AddUniqueID(dest, seen, id)
     id = tonumber(id)
     if not id or id <= 0 or seen[id] then return end
     seen[id] = true
     table.insert(dest, id)
 end
-
--- Normalize hardcoded IDs by resolving the paired spell name when possible.
--- This self-heals stale IDs (e.g. spellID changes between expansions/patches).
 local function NormalizeCCDataSpellIDs()
     if not C_Spell or not C_Spell.GetSpellInfo then return end
     for _, classData in pairs(CC_DATA) do
@@ -53,7 +176,6 @@ local function NormalizeCCDataSpellIDs()
                 local normalized = {}
                 local seen = {}
                 local names = type(specData.names) == "table" and specData.names or nil
-
                 for index, id in ipairs(specData.ids) do
                     local resolvedID = nil
                     if names and names[index] then
@@ -62,12 +184,9 @@ local function NormalizeCCDataSpellIDs()
                             resolvedID = info.spellID
                         end
                     end
-                    -- Keep the hardcoded ID and also add the resolved runtime ID.
-                    -- Some spells can surface alternate IDs in cast events depending on spec/override.
                     AddUniqueID(normalized, seen, id)
                     AddUniqueID(normalized, seen, resolvedID)
                 end
-
                 if names then
                     for _, spellName in ipairs(names) do
                         local info = C_Spell.GetSpellInfo(spellName)
@@ -76,7 +195,6 @@ local function NormalizeCCDataSpellIDs()
                         end
                     end
                 end
-
                 if #normalized > 0 then
                     specData.ids = normalized
                 end
@@ -84,12 +202,8 @@ local function NormalizeCCDataSpellIDs()
         end
     end
 end
-
 NormalizeCCDataSpellIDs()
-
--- Player's CC spell IDs (filtered by IsPlayerSpell)
 CCSync.ccIDs = {}
-
 function CCSync:LoadClassCC()
     local class = select(2, UnitClass("player"))
     local data = CC_DATA[class]
@@ -97,50 +211,38 @@ function CCSync:LoadClassCC()
     local specIndex = GetSpecialization() or 0
     local specData = data[specIndex] or data.DEFAULT
     self.ccIDs = {}
-    
     if specData and specData.ids then
-        -- Pass 1: Try all hardcoded IDs
         for _, id in ipairs(specData.ids) do
             local known = false
             if IsPlayerSpell and IsPlayerSpell(id) then known = true end
             if not known and IsSpellKnownOrOverridesKnown and IsSpellKnownOrOverridesKnown(id) then known = true end
             if not known and IsSpellKnown and IsSpellKnown(id) then known = true end
-            
-            -- Fallback for talented spells that might not trigger IsPlayerSpell correctly in all states
             if not known and FindSpellBookSlotBySpellID then
                 local slot = FindSpellBookSlotBySpellID(id)
                 if slot and slot > 0 then known = true end
             end
-            
             if known then
                 table.insert(self.ccIDs, id)
             end
         end
-        
-        -- Pass 2: If we didn't find all expected spells, try name-based lookup for missing ones
         if specData.names then
             for _, spellName in ipairs(specData.names) do
                 local info = C_Spell.GetSpellInfo(spellName)
                 if info and info.spellID then
                     local id = info.spellID
-                    
-                    -- Check if we already found this ID in Pass 1
                     local alreadyFound = false
                     for _, existingID in ipairs(self.ccIDs) do
                         if existingID == id then alreadyFound = true break end
                     end
-                    
                     if not alreadyFound then
                         local known = false
                         if IsPlayerSpell and IsPlayerSpell(id) then known = true end
                         if not known and IsSpellKnownOrOverridesKnown and IsSpellKnownOrOverridesKnown(id) then known = true end
                         if not known and IsSpellKnown and IsSpellKnown(id) then known = true end
-                        
                         if not known and FindSpellBookSlotBySpellID then
                             local slot = FindSpellBookSlotBySpellID(id)
                             if slot and slot > 0 then known = true end
                         end
-                        
                         if known then
                             table.insert(self.ccIDs, id)
                         end
@@ -149,41 +251,32 @@ function CCSync:LoadClassCC()
             end
         end
     end
-    
-    -- Store own spells in knownSpells table
     local myName = UnitName("player")
     if myName then
         self.knownSpells[myName] = self.ccIDs
     end
-
     self.ccIDLookup = {}
     for _, id in ipairs(self.ccIDs) do
         self.ccIDLookup[id] = true
     end
 end
-
 CCSync:LoadClassCC()
-
 local specTrackerFrame = CreateFrame("Frame")
-specTrackerFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-specTrackerFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+CCSync.specTrackerFrame = specTrackerFrame
 specTrackerFrame:SetScript("OnEvent", function(_, event)
+    if not CCSync:HasActiveInstances() then return end
     CCSync:LoadClassCC()
     CCSync:ApplyRuntimeCooldownOverrides()
     CCSync:QueueWarmupSync()
-    -- Re-broadcast on spec change or entering world (dungeon entry)
     if IsInGroup() then
         C_Timer.After(1, function() CCSync:BroadcastSpells() end)
     end
 end)
-
--- ============================================================================
--- SPELL BROADCAST & HANDSHAKE
--- ============================================================================
+CCSync:UpdateSpecTracker()
 function CCSync:BroadcastSpells()
+    if not self:HasActiveInstances() then return end
     if not IsInGroup() then return end
     if #self.ccIDs == 0 then return end
-    
     local spellList = {}
     for _, id in ipairs(self.ccIDs) do
         table.insert(spellList, tostring(id))
@@ -192,33 +285,21 @@ function CCSync:BroadcastSpells()
     local channel = IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and "INSTANCE_CHAT" or (IsInRaid() and "RAID" or "PARTY")
     C_ChatInfo.SendAddonMessage(self.commPrefix, msg, channel)
 end
-
 function CCSync:SendHello()
+    if not self:HasActiveInstances() then return end
     if not IsInGroup() then return end
     local channel = IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and "INSTANCE_CHAT" or (IsInRaid() and "RAID" or "PARTY")
     C_ChatInfo.SendAddonMessage(self.commPrefix, "HELLO", channel)
 end
-
 function CCSync:GetPartySize()
     if not IsInGroup() then return 0 end
     if IsInRaid() then return GetNumGroupMembers() end
-    return GetNumGroupMembers() -- includes player in party
+    return GetNumGroupMembers() 
 end
-
 local DEFAULT_CC_COOLDOWN = 60
 local GCD_SPELL_ID = 61304
 local GCD_EPSILON = 0.15
 local MIN_VALID_CC_COOLDOWN = 1.0
-
--- Targeted safety fallbacks for spells that are often misread as GCD in the same frame as cast.
-local CC_COOLDOWN_FALLBACK = {
-    [221562] = 45, -- Asphyxiate
-    [108194] = 45, -- Asphyxiate (alternate/legacy ID used by some specs/overrides)
-    [51514] = 30,  -- Hex
-    [192058] = 60, -- Capacitor Totem
-}
-local CC_NAME_COOLDOWN_FALLBACK = {}
-
 local function RegisterNameFallbackFromID(id, duration)
     if not (C_Spell and C_Spell.GetSpellInfo) then return end
     local info = C_Spell.GetSpellInfo(id)
@@ -226,17 +307,25 @@ local function RegisterNameFallbackFromID(id, duration)
         CC_NAME_COOLDOWN_FALLBACK[info.name] = duration
     end
 end
-
+local function ClearNameFallbackFromID(id)
+    if not (C_Spell and C_Spell.GetSpellInfo) then return end
+    local info = C_Spell.GetSpellInfo(id)
+    if info and info.name then
+        CC_NAME_COOLDOWN_FALLBACK[info.name] = nil
+    end
+end
 for spellID, duration in pairs(CC_COOLDOWN_FALLBACK) do
     RegisterNameFallbackFromID(spellID, duration)
 end
-
 local function SafeNumber(value)
+    if value == nil then return nil end
+    local s = tostring(value)
+    local n = tonumber(s)
+    if type(n) == "number" then return n end
     local ok, num = pcall(function() return tonumber(value) end)
-    if ok and type(num) == "number" then return num end
+    if ok and type(num) == "number" then return tonumber(tostring(num)) end
     return nil
 end
-
 local function SafeGreaterThan(value, threshold)
     local left = SafeNumber(value)
     if not left then return false end
@@ -244,42 +333,39 @@ local function SafeGreaterThan(value, threshold)
     local ok, result = pcall(function() return left > right end)
     return ok and result or false
 end
-
 local function RoundTo2(value)
     local n = SafeNumber(value)
     if not n then return nil end
     return math.floor(n * 100 + 0.5) / 100
 end
-
 local function ExtractBaseCooldownSeconds(baseCooldownInfo)
     local n = SafeNumber(baseCooldownInfo)
     if n and n > 0 then
-        return n / 1000
+        if n > 1000 then return n / 1000 end
+        return n
     end
     if type(baseCooldownInfo) == "table" then
         local ms = SafeNumber(baseCooldownInfo.baseCooldownMS)
             or SafeNumber(baseCooldownInfo.cooldownMS)
-            or SafeNumber(baseCooldownInfo.baseCooldown)
-            or SafeNumber(baseCooldownInfo.cooldown)
             or SafeNumber(baseCooldownInfo.durationMS)
-            or SafeNumber(baseCooldownInfo.duration)
         if ms and ms > 0 then
-            -- API variants may already be seconds; normalize only when value looks like ms.
-            if ms > 100 then
-                return ms / 1000
-            end
-            return ms
+            return ms / 1000
+        end
+        local sec = SafeNumber(baseCooldownInfo.baseCooldown)
+            or SafeNumber(baseCooldownInfo.cooldown)
+            or SafeNumber(baseCooldownInfo.duration)
+        if sec and sec > 0 then
+            if sec > 1000 then return sec / 1000 end
+            return sec
         end
     end
     return nil
 end
-
 local function DebugLog(self, msg)
     if self and self.DebugMode then
         print("[WF_CC_SYNC DEBUG] " .. tostring(msg))
     end
 end
-
 function CCSync:EnsureRuntimeCooldownDB()
     if type(_G.WidgetForgeDB) ~= "table" then _G.WidgetForgeDB = {} end
     if type(_G.WidgetForgeDB.runtimeCCCooldowns) ~= "table" then
@@ -287,7 +373,86 @@ function CCSync:EnsureRuntimeCooldownDB()
     end
     return _G.WidgetForgeDB.runtimeCCCooldowns
 end
-
+function CCSync:GetPlayerSpecID()
+    local specIndex = GetSpecialization()
+    if not specIndex then return nil end
+    return GetSpecializationInfo(specIndex)
+end
+function CCSync:HasTalentSpell(talentSpellID)
+    if not talentSpellID then return false end
+    local now = GetTime()
+    self._talentCacheAt = self._talentCacheAt or {}
+    self._talentCacheValue = self._talentCacheValue or {}
+    local cachedAt = self._talentCacheAt[talentSpellID] or 0
+    if (now - cachedAt) < 0.2 then
+        return self._talentCacheValue[talentSpellID] and true or false
+    end
+    local known = false
+    if IsPlayerSpell and IsPlayerSpell(talentSpellID) then known = true end
+    if not known and IsSpellKnownOrOverridesKnown and IsSpellKnownOrOverridesKnown(talentSpellID) then known = true end
+    if not known and IsSpellKnown and IsSpellKnown(talentSpellID) then known = true end
+    self._talentCacheAt[talentSpellID] = now
+    self._talentCacheValue[talentSpellID] = known and true or false
+    DebugLog(self, string.format("Talent check: spellID=%s active=%s", tostring(talentSpellID), tostring(self._talentCacheValue[talentSpellID])))
+    return self._talentCacheValue[talentSpellID]
+end
+function CCSync:GetBaseCooldownDuration(spellID)
+    if not spellID then return nil end
+    local function ProbeBaseCooldown(fetcher)
+        if type(fetcher) ~= "function" then return nil end
+        local ok, raw = pcall(fetcher, spellID)
+        if not ok then return nil end
+        local seconds = ExtractBaseCooldownSeconds(raw)
+        if seconds and SafeGreaterThan(seconds, self:GetCurrentGCD() + GCD_EPSILON) then
+            return RoundTo2(seconds) or seconds
+        end
+        return nil
+    end
+    local base = ProbeBaseCooldown(GetSpellBaseCooldown)
+    if base then return base end
+    if C_Spell and C_Spell.GetSpellBaseCooldown then
+        base = ProbeBaseCooldown(C_Spell.GetSpellBaseCooldown)
+        if base then return base end
+    end
+    return nil
+end
+function CCSync:GetAdjustedBaseCooldownDuration(spellID)
+    local base = self:GetBaseCooldownDuration(spellID)
+    if not base then return nil, nil, nil end
+    local adjusted = base
+    local source = "base"
+    local rule = CC_COOLDOWN_RULES[spellID]
+    local specID = self:GetPlayerSpecID()
+    if rule and rule.cooldownBySpec and specID and rule.cooldownBySpec[specID] then
+        adjusted = SafeNumber(rule.cooldownBySpec[specID]) or adjusted
+        source = "base_spec"
+    end
+    if rule and type(rule.cdModifiers) == "table" then
+        for _, modifier in ipairs(rule.cdModifiers) do
+            local reduction = nil
+            if modifier.talent and self:HasTalentSpell(modifier.talent) then
+                reduction = (modifier.reductionBySpec and specID and modifier.reductionBySpec[specID]) or modifier.reduction
+            elseif type(modifier.ranks) == "table" then
+                for _, rank in ipairs(modifier.ranks) do
+                    if rank.talent and self:HasTalentSpell(rank.talent) then
+                        reduction = rank.reduction
+                        break
+                    end
+                end
+            end
+            reduction = SafeNumber(reduction)
+            if reduction and reduction > 0 then
+                adjusted = math.max(MIN_VALID_CC_COOLDOWN, adjusted - reduction)
+                source = (source == "base_spec") and "base_spec_talent" or "base_talent"
+            end
+        end
+    end
+    adjusted = RoundTo2(adjusted) or adjusted
+    if adjusted and SafeGreaterThan(adjusted, self:GetCurrentGCD() + GCD_EPSILON) then
+        return adjusted, source, base
+    end
+    return nil, nil, base
+end
 function CCSync:ApplyRuntimeCooldownOverrides()
     local db = self:EnsureRuntimeCooldownDB()
     local applied = 0
@@ -295,29 +460,31 @@ function CCSync:ApplyRuntimeCooldownOverrides()
         local sid = tonumber(spellIDStr)
         local dur = RoundTo2(duration)
         if sid and dur and dur >= MIN_VALID_CC_COOLDOWN then
-            CC_COOLDOWN_FALLBACK[sid] = dur
-            RegisterNameFallbackFromID(sid, dur)
-            applied = applied + 1
+            local trustedBase = select(1, self:GetAdjustedBaseCooldownDuration(sid))
+            if trustedBase and math.abs(dur - trustedBase) > 0.01 then
+                db[spellIDStr] = nil
+                CC_COOLDOWN_FALLBACK[sid] = nil
+                ClearNameFallbackFromID(sid)
+            else
+                CC_COOLDOWN_FALLBACK[sid] = dur
+                RegisterNameFallbackFromID(sid, dur)
+                applied = applied + 1
+            end
         end
     end
     DebugLog(self, string.format("Runtime CC overrides applied: %d", applied))
 end
-
 function CCSync:RememberObservedCooldown(spellID, duration, source)
     if not spellID then return end
-    if source ~= "live" and source ~= "charges" and source ~= "base" then return end
-
+    if source ~= "base" and source ~= "base_spec" and source ~= "base_talent" and source ~= "base_spec_talent" then return end
     local dur = RoundTo2(duration)
     if not dur or dur < MIN_VALID_CC_COOLDOWN then return end
-
     local sid = tonumber(spellID)
     if not sid then return end
-
     local prev = CC_COOLDOWN_FALLBACK[sid]
     local db = self:EnsureRuntimeCooldownDB()
     local existingPersisted = SafeNumber(db[tostring(sid)])
     if prev and math.abs(prev - dur) < 0.01 then
-        -- Persist baseline once so next sessions can confirm runtime overrides were loaded.
         if not existingPersisted then
             db[tostring(sid)] = dur
             DebugLog(self, string.format("Persisted baseline CC cooldown spell=%d value=%.2f source=%s", sid, dur, tostring(source)))
@@ -326,18 +493,13 @@ function CCSync:RememberObservedCooldown(spellID, duration, source)
         end
         return
     end
-
     CC_COOLDOWN_FALLBACK[sid] = dur
     RegisterNameFallbackFromID(sid, dur)
-
     db[tostring(sid)] = dur
     DebugLog(self, string.format("Learned CC cooldown spell=%d old=%s new=%.2f source=%s (saved to WidgetForgeDB.runtimeCCCooldowns)", sid, tostring(prev), dur, tostring(source)))
 end
-
 function CCSync:ResolveCooldownDuration(spellID)
     if not spellID then return DEFAULT_CC_COOLDOWN, "fallback" end
-
-    -- Preferred: read the live cooldown state right after SPELLCAST_SUCCEEDED.
     if C_Spell and C_Spell.GetSpellCooldown then
         local cdInfo = C_Spell.GetSpellCooldown(spellID)
         if cdInfo and SafeGreaterThan(cdInfo.duration, 0) then
@@ -348,8 +510,6 @@ function CCSync:ResolveCooldownDuration(spellID)
             end
         end
     end
-
-    -- Charge-based spells: use charge cooldown when a charge is consumed.
     if C_Spell and C_Spell.GetSpellCharges then
         local chargeInfo = C_Spell.GetSpellCharges(spellID)
         if chargeInfo then
@@ -367,24 +527,13 @@ function CCSync:ResolveCooldownDuration(spellID)
             end
         end
     end
-
-    -- Fallback: use static spell base cooldown (milliseconds -> seconds).
-    if C_Spell and C_Spell.GetSpellBaseCooldown then
-        local baseCooldownInfo = C_Spell.GetSpellBaseCooldown(spellID)
-        local baseSec = ExtractBaseCooldownSeconds(baseCooldownInfo)
-        if baseSec and SafeGreaterThan(baseSec, 0) then
-            local gcd = self:GetCurrentGCD()
-            if SafeGreaterThan(baseSec, gcd + GCD_EPSILON) then
-                return baseSec, "base"
-            end
-        end
+    local adjustedBase, adjustedSource = self:GetAdjustedBaseCooldownDuration(spellID)
+    if adjustedBase then
+        return adjustedBase, adjustedSource
     end
-
     if CC_COOLDOWN_FALLBACK[spellID] then
         return CC_COOLDOWN_FALLBACK[spellID], "spell_fallback"
     end
-
-    -- Final fallback by localized spell name to catch alternate runtime spellIDs.
     if C_Spell and C_Spell.GetSpellInfo then
         local info = C_Spell.GetSpellInfo(spellID)
         local byName = info and info.name and CC_NAME_COOLDOWN_FALLBACK[info.name]
@@ -392,10 +541,23 @@ function CCSync:ResolveCooldownDuration(spellID)
             return byName, "name_fallback"
         end
     end
-    
     return DEFAULT_CC_COOLDOWN, "fallback"
 end
-
+function CCSync:GetCachedCooldownDuration(spellID)
+    if not spellID then return DEFAULT_CC_COOLDOWN, "fallback" end
+    local cached = SafeNumber(CC_COOLDOWN_FALLBACK[spellID])
+    if cached and cached >= MIN_VALID_CC_COOLDOWN then
+        return cached, "spell_fallback"
+    end
+    if C_Spell and C_Spell.GetSpellInfo then
+        local info = C_Spell.GetSpellInfo(spellID)
+        local byName = info and info.name and SafeNumber(CC_NAME_COOLDOWN_FALLBACK[info.name])
+        if byName and byName >= MIN_VALID_CC_COOLDOWN then
+            return byName, "name_fallback"
+        end
+    end
+    return DEFAULT_CC_COOLDOWN, "fallback"
+end
 function CCSync:GetCurrentGCD()
     local gcd = 1.5
     if C_Spell and C_Spell.GetSpellCooldown then
@@ -406,26 +568,19 @@ function CCSync:GetCurrentGCD()
     end
     return gcd
 end
-
 local function BuildBarKey(playerName, spellID)
     return tostring(playerName or "?") .. ":" .. tostring(spellID or 0)
 end
-
 local function ShouldHideOwnBar(elem, playerName)
     if not elem or not elem.hideOwnCC then return false end
     local myName = UnitName("player")
     return myName and playerName and playerName == myName
 end
-
 local function GetSpellListFor(classToken, knownList)
     local data = classToken and CC_DATA[classToken]
     local defaults = (data and data.DEFAULT and type(data.DEFAULT.ids) == "table") and data.DEFAULT.ids or {}
-
     local merged = {}
     local seen = {}
-    
-    -- If knownList is explicitly passed as a table (even empty), it means we successfully scanned their talents.
-    -- If they have no known CCs, we return empty so the UI hides the bar.
     if type(knownList) == "table" then
         if #knownList > 0 then
             for _, id in ipairs(knownList) do
@@ -437,19 +592,11 @@ local function GetSpellListFor(classToken, knownList)
         end
         return merged
     end
-    
-    -- Otherwise (e.g. data hasn't loaded or isn't available for this member), fallback to the most common default spell
     if defaults and #defaults > 0 then
         table.insert(merged, defaults[1])
     end
-    
     return merged
 end
-
--- ============================================================================
--- INSTANCE & GROUP VALIDATION
--- ============================================================================
-
 function CCSync:IsValidContext()
     local isInInstance, instanceType = IsInInstance()
     if not isInInstance or (instanceType ~= "party" and instanceType ~= "scenario") then
@@ -458,33 +605,28 @@ function CCSync:IsValidContext()
     if IsInRaid() then return false end
     return true
 end
-
--- ============================================================================
--- 2. EVENT HANDLING
--- ============================================================================
 function CCSync:UpdateGroupTracking()
-    -- Detect if our spells changed during this update
+    self.eventFrame:UnregisterAllEvents()
+    if not self:HasActiveInstances() then
+        self.cachedIsValidContext = false
+        return
+    end
+    self._talentCacheAt = {}
+    self._talentCacheValue = {}
     local myName = UnitName("player")
     local oldSpellsHash = ""
     if myName and self.knownSpells[myName] then
         oldSpellsHash = table.concat(self.knownSpells[myName], ",")
     end
-    
-    -- Always refresh our own spell data first
     self:LoadClassCC()
     self:ApplyRuntimeCooldownOverrides()
-    
     local newSpellsHash = ""
     if myName and self.knownSpells[myName] then
         newSpellsHash = table.concat(self.knownSpells[myName], ",")
     end
-    
-    -- If we are in a group and our talents/cc spells actually changed, broadcast them
     if oldSpellsHash ~= "" and oldSpellsHash ~= newSpellsHash and IsInGroup() then
         C_Timer.After(0.5, function() CCSync:BroadcastSpells() end)
     end
-    
-    self.eventFrame:UnregisterAllEvents()
     self.eventFrame:RegisterEvent("CHAT_MSG_ADDON")
     self.eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
     self.eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -492,30 +634,23 @@ function CCSync:UpdateGroupTracking()
     self.eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
     self.eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
     self.eventFrame:RegisterEvent("TRAIT_CONFIG_LIST_UPDATED")
-    
     self.cachedIsValidContext = self:IsValidContext()
     self.eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
-
     for _, container in ipairs(self.Instances) do
         self:InitializeGroupBars(container)
     end
-    
-    -- Check party size changes for broadcast triggers
     local currentSize = self:GetPartySize()
     if IsInGroup() then
-        -- New player joined → say hello + share our spells
         if currentSize > self.lastPartySize then
             C_Timer.After(0.5, function()
                 CCSync:SendHello()
                 CCSync:BroadcastSpells()
             end)
         end
-        -- Party reached 5 → broadcast again
         if currentSize >= 5 and self.lastPartySize < 5 then
             C_Timer.After(1, function() CCSync:BroadcastSpells() end)
         end
     else
-        -- Left group → clear known spells from others
         local myName = UnitName("player")
         for name, _ in pairs(self.knownSpells) do
             if name ~= myName then
@@ -525,7 +660,6 @@ function CCSync:UpdateGroupTracking()
     end
     self.lastPartySize = currentSize
 end
-
 function CCSync:RefreshPlayerCCCooldownCache()
     if InCombatLockdown and InCombatLockdown() then
         return
@@ -534,18 +668,15 @@ function CCSync:RefreshPlayerCCCooldownCache()
     local gcd = self:GetCurrentGCD()
     DebugLog(self, string.format("Refresh CC cache: spells=%d gcd=%.2f", #self.ccIDs, gcd))
     for _, spellID in ipairs(self.ccIDs) do
-        local duration, source = self:ResolveCooldownDuration(spellID)
+        local duration, source = self:GetAdjustedBaseCooldownDuration(spellID)
         DebugLog(self, string.format("Cache probe spell=%d duration=%s source=%s", spellID, tostring(duration), tostring(source)))
         if duration and duration > (gcd + GCD_EPSILON) then
             self:RememberObservedCooldown(spellID, duration, source)
         end
     end
 end
-
 function CCSync:InitializeGroupBars(container)
     local activeKeys = {}
-    
-    -- Self: one row per known/default CC spell
     local myName = UnitName("player")
     if myName and not ShouldHideOwnBar(container and container.elem, myName) then
         local myClass = select(2, UnitClass("player"))
@@ -555,8 +686,6 @@ function CCSync:InitializeGroupBars(container)
             activeKeys[BuildBarKey(myName, sid)] = true
         end
     end
-    
-    -- Party members: one row per shared CC spell
     if IsInGroup() then
         local prefix = IsInRaid() and "raid" or "party"
         local num = IsInRaid() and 40 or 4
@@ -575,8 +704,6 @@ function CCSync:InitializeGroupBars(container)
             end
         end
     end
-
-    -- Remove bars that are no longer active
     if container.bars then
         for key, bar in pairs(container.bars) do
             if not activeKeys[key] then
@@ -585,19 +712,11 @@ function CCSync:InitializeGroupBars(container)
             end
         end
     end
-
-    -- No hard fallback: if the player doesn't have any CC spells talented, the widget should be empty/hidden.
-
     self:RefreshBars(container)
 end
-
 function CCSync:EnsureBarIsReady(container, name, class, spellID)
     if not name or not class then return end
-    
-    -- Use provided spell if available
     local resolvedSpellID = tonumber(spellID) or 0
-    
-    -- If no valid spell is provided, fallback to default (ONLY if we literally have NOT provided a spellID to track)
     if resolvedSpellID <= 0 then
         if self.knownSpells[name] and #self.knownSpells[name] > 0 then
             resolvedSpellID = self.knownSpells[name][1]
@@ -606,40 +725,31 @@ function CCSync:EnsureBarIsReady(container, name, class, spellID)
             resolvedSpellID = specData.ids and specData.ids[1] or 0
         end
     end
-
     local key = BuildBarKey(name, resolvedSpellID)
-    
     if not container.bars[key] then
         local row = self:CreateBar(container, name)
         row.ccSpellID = resolvedSpellID
         container.bars[key] = row
         self:SetBarReady(container, row, resolvedSpellID)
     end
-    
-    -- Restore active cooldown from memory to survive zone/loading screens without API taint
     self.activeCooldowns = self.activeCooldowns or {}
     local mem = self.activeCooldowns[key]
     if mem and mem.endTime and mem.endTime > GetTime() then
         local bar = container.bars[key]
-        -- if it's currently showing ready (no OnUpdate), restore the cooldown visually
         if bar and not bar:GetScript("OnUpdate") then
             bar.endTime = mem.endTime
             bar.duration = mem.duration
             bar.currentSpellID = mem.spellID
-            
             local spellInfo = C_Spell.GetSpellInfo(mem.spellID)
             bar.icon:SetTexture(spellInfo and spellInfo.iconID or 136116)
             bar.icon:SetDesaturated(true)
-            
             if spellInfo and spellInfo.name then
-                bar.nameText:SetText((bar.playerName or "Unknown") .. " - " .. spellInfo.name)
+                bar.nameText:SetText((bar.playerName or L("LABEL_UNKNOWN")) .. " - " .. spellInfo.name)
             else
-                bar.nameText:SetText(bar.playerName or "Unknown")
+                bar.nameText:SetText(bar.playerName or L("LABEL_UNKNOWN"))
             end
-            
             local c = container.elem.colorOnCD or {1.0, 0.5, 0.0, 1}
             bar.timerBar:SetStatusBarColor(c[1], c[2], c[3], c[4] or 1)
-            
             bar:Show()
             if bar.cooldown then
                 if container.elem.attachToParty then
@@ -649,7 +759,6 @@ function CCSync:EnsureBarIsReady(container, name, class, spellID)
                     bar.cooldown:Hide()
                 end
             end
-            
             bar:SetScript("OnUpdate", function(f)
                 local rem = f.endTime - GetTime()
                 if rem <= 0 then
@@ -668,11 +777,9 @@ function CCSync:EnsureBarIsReady(container, name, class, spellID)
         end
     end
 end
-
 if not CCSync.eventFrame then
     CCSync.eventFrame = CreateFrame("Frame")
     C_ChatInfo.RegisterAddonMessagePrefix(CCSync.commPrefix)
-    
     CCSync.eventFrame:SetScript("OnEvent", function(_, event, ...)
         if event == "CHAT_MSG_ADDON" then
             CCSync:OnCommReceived(...)
@@ -686,7 +793,6 @@ if not CCSync.eventFrame then
             CCSync.cachedIsValidContext = CCSync:IsValidContext()
             CCSync:UpdateGroupTracking()
             CCSync:QueueWarmupSync()
-            -- Dungeon/zone entry → broadcast spells
             if IsInGroup() then
                 C_Timer.After(2, function()
                     CCSync:BroadcastSpells()
@@ -694,52 +800,42 @@ if not CCSync.eventFrame then
             end
         end
     end)
-    CCSync:UpdateGroupTracking()
+    CCSync:RefreshRuntimeState()
 end
-
 function CCSync:OnSpellcast(unit, castGUID, spellID)
     if unit ~= "player" then return end
     if not self.ccIDLookup[spellID] then return end
-    
     local name = UnitName(unit)
     if not name then return end
-    
-    local duration, source = self:ResolveCooldownDuration(spellID)
+    local duration, source = self:GetCachedCooldownDuration(spellID)
     if not duration or duration <= 0 then
         duration = DEFAULT_CC_COOLDOWN
     end
     DebugLog(self, string.format("OnSpellcast(player) spell=%d duration=%.2f source=%s", spellID, duration, tostring(source)))
-    
     for _, container in ipairs(self.Instances) do
         self:UpdateBar(container, name, spellID, duration)
     end
-    
     self:SendSync(spellID, duration)
     self:AnnounceCC(spellID, duration)
 end
-
 function CCSync:SendSync(spellID, duration, timestamp)
     if not IsInGroup() then return end
     if not duration or duration <= 0 then return end
-    
     local ts = timestamp or GetServerTime()
     local msg = string.format("CC:%d:%.2f:%d", spellID, duration, ts)
     local channel = IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and "INSTANCE_CHAT" or (IsInRaid() and "RAID" or "PARTY")
     DebugLog(self, string.format("Sending sync: %s to %s", msg, channel))
     C_ChatInfo.SendAddonMessage(self.commPrefix, msg, channel)
 end
-
 function CCSync:GetAnnouncementElement()
     return self.Instances[1] and self.Instances[1].elem
 end
-
 function CCSync:IsPartySyncEnabled()
     local elem = self:GetAnnouncementElement()
     if not elem then return true end
     if elem.partySync == nil then return true end
     return elem.partySync == true
 end
-
 function CCSync:GetAnnouncementChannel(elem)
     local channel = (elem and elem.announceChannel) or "PARTY"
     if channel == "INSTANCE" then channel = "INSTANCE_CHAT" end
@@ -755,7 +851,6 @@ function CCSync:GetAnnouncementChannel(elem)
     end
     return channel
 end
-
 function CCSync:FormatCCAnnouncement(spellID, duration, includeDuration)
     local spellInfo = C_Spell.GetSpellInfo(spellID)
     local spellName = (spellInfo and spellInfo.name) or "CC"
@@ -764,7 +859,6 @@ function CCSync:FormatCCAnnouncement(spellID, duration, includeDuration)
     end
     return string.format("Used %s", spellName)
 end
-
 function CCSync:RenderLocalAnnouncement(senderName, spellID, duration, channel, includeDuration)
     local msg = self:FormatCCAnnouncement(spellID, duration, includeDuration)
     local channelName = (channel == "INSTANCE_CHAT") and "Instance" or "Party"
@@ -776,7 +870,6 @@ function CCSync:RenderLocalAnnouncement(senderName, spellID, duration, channel, 
         print(msg)
     end
 end
-
 function CCSync:SendAnnouncementSync(spellID, duration, channel, includeDuration)
     if not IsInGroup() then return end
     local ts = GetServerTime()
@@ -787,67 +880,51 @@ function CCSync:SendAnnouncementSync(spellID, duration, channel, includeDuration
     local syncChannel = IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and "INSTANCE_CHAT" or (IsInRaid() and "RAID" or "PARTY")
     C_ChatInfo.SendAddonMessage(self.commPrefix, msg, syncChannel)
 end
-
 function CCSync:AnnounceCC(spellID, duration)
     local elem = self:GetAnnouncementElement()
     if not elem or not elem.announceCCs then return end
     if not IsInGroup() then return end
-
     local channel = self:GetAnnouncementChannel(elem)
     if not channel then return end
-
     local senderName = UnitName("player") or "Unknown"
-    -- Always virtual: render locally + sync to party so everyone renders client-side.
     self:RenderLocalAnnouncement(senderName, spellID, duration, channel, true)
     self:SendAnnouncementSync(spellID, duration, channel, true)
 end
-
 function CCSync:RenderSyncedCCAnnouncement(sender, spellID, duration, channel, includeDuration)
     local elem = self:GetAnnouncementElement()
     if not elem or not elem.announceCCs then return end
     if not IsInGroup() then return end
     self:RenderLocalAnnouncement(sender, spellID, duration, channel, includeDuration)
 end
-
 function CCSync:OnCommReceived(prefix, text, channel, sender)
     if prefix ~= self.commPrefix then return end
     if not self:IsPartySyncEnabled() then return end
     sender = Ambiguate(sender, "none")
-    
     if sender == UnitName("player") then return end
     DebugLog(self, string.format("Received addon msg from %s via %s: %s", tostring(sender), tostring(channel), tostring(text)))
-    
     local parts = {strsplit(":", text)}
     local cmd = parts[1]
-    
     if cmd == "HELLO" then
-        -- Someone said hello → respond with our spells
         C_Timer.After(0.3, function() CCSync:BroadcastSpells() end)
-        
     elseif cmd == "SPELLS" then
-        -- Someone shared their spell list
         local spells = {}
         for i = 2, #parts do
             local id = tonumber(parts[i])
             if id then table.insert(spells, id) end
         end
         self.knownSpells[sender] = spells
-        -- Rebuild bars to show this player
         for _, container in ipairs(self.Instances) do
             self:InitializeGroupBars(container)
         end
-        
     elseif cmd == "CC" then
         local spellID = tonumber(parts[2])
         local incDuration = tonumber(parts[3])
         local timestamp = tonumber(parts[4])
-        
         if spellID then
-            local duration = incDuration or 60
+            local duration = incDuration or select(1, self:GetCachedCooldownDuration(spellID)) or 60
             local lag = math.max(0, GetServerTime() - (timestamp or 0))
             local adjDur = duration - lag
             DebugLog(self, string.format("Incoming CC sync sender=%s spell=%d duration=%.2f lag=%.2f adjusted=%.2f", tostring(sender), spellID, duration, lag, adjDur))
-            
             if adjDur > 0 then
                 for _, container in ipairs(self.Instances) do
                     self:UpdateBar(container, sender, spellID, adjDur)
@@ -864,18 +941,17 @@ function CCSync:OnCommReceived(prefix, text, channel, sender)
         end
     end
 end
-
 function CCSync:BroadcastActiveCCCooldowns()
+    if not self:HasActiveInstances() then return end
     if InCombatLockdown and InCombatLockdown() then
         return
     end
     if #self.ccIDs == 0 then return end
-
     local now = GetTime()
     local playerName = UnitName("player")
     if not playerName then return end
     for _, spellID in ipairs(self.ccIDs) do
-        local duration, source = self:ResolveCooldownDuration(spellID)
+        local duration, source = self:GetAdjustedBaseCooldownDuration(spellID)
         if duration and duration >= MIN_VALID_CC_COOLDOWN then
             self:RememberObservedCooldown(spellID, duration, source)
         end
@@ -896,12 +972,13 @@ function CCSync:BroadcastActiveCCCooldowns()
         end
     end
 end
-
 function CCSync:QueueWarmupSync()
     self._warmupSerial = (self._warmupSerial or 0) + 1
+    if not self:HasActiveInstances() then return end
     local serial = self._warmupSerial
     local function RunIfLatest()
         if serial ~= self._warmupSerial then return end
+        if not CCSync:HasActiveInstances() then return end
         if InCombatLockdown and InCombatLockdown() then return end
         CCSync:LoadClassCC()
         CCSync:ApplyRuntimeCooldownOverrides()
@@ -912,27 +989,19 @@ function CCSync:QueueWarmupSync()
     C_Timer.After(0.05, RunIfLatest)
     C_Timer.After(0.60, RunIfLatest)
 end
-
--- ============================================================================
--- 3. VISUALS & WIDGETFORGE INTEGRATION
--- ============================================================================
-
 function CCSync:Load(parent, elem)
     local container = CreateFrame("Frame", nil, parent)
     container:SetAllPoints(parent)
     container.elem = elem
     container.bars = {}
-    
     container:SetScript("OnUpdate", function(self, elapsed)
          local isUnlocked = (_G.WidgetForge and _G.WidgetForge.BarsLocked == false) or (_G.EsrefConfigFrame and _G.EsrefConfigFrame:IsShown())
          local isValidContext = CCSync.cachedIsValidContext
-         
          if not isValidContext and not isUnlocked and not CCSync.ForceTest then
              self:Hide()
          else
              self:Show()
          end
-         
          if self.bars then
              for _, bar in pairs(self.bars) do
                  if bar:GetParent() ~= self then
@@ -942,7 +1011,6 @@ function CCSync:Load(parent, elem)
                  end
              end
          end
-         
          if CCSync.ForceTest then
              self.testTimer = (self.testTimer or 0) - elapsed
              if self.testTimer <= 0 then
@@ -958,20 +1026,16 @@ function CCSync:Load(parent, elem)
              end
          end
     end)
-    
     container:Show()
     table.insert(CCSync.Instances, container)
-    self:InitializeGroupBars(container)
-    
-    -- Scan immediately when widget is added/enabled so it doesn't depend on opening settings.
+    self:RefreshRuntimeState()
     CCSync:QueueWarmupSync()
-    
     container:SetScript("OnHide", function(self)
         for i, inst in ipairs(CCSync.Instances) do
             if inst == self then table.remove(CCSync.Instances, i); break end
         end
+        CCSync:RefreshRuntimeState()
     end)
-    
     function container:Unload()
         if self.bars then
             for name, bar in pairs(self.bars) do
@@ -985,10 +1049,8 @@ function CCSync:Load(parent, elem)
         self:Hide()
         self:SetScript("OnUpdate", nil)
     end
-    
     return container
 end
-
 function CCSync:CreateBar(container, name)
     local elem = container.elem
     local h = elem.barHeight or 30
@@ -1001,19 +1063,15 @@ function CCSync:CreateBar(container, name)
     local barBSize = elem.barBorderSize or 1
     if barBSize < 0 then barBSize = 0 end
     local showBarBorder = (barBSize > 0)
-    
     local rowHeight = math.max(h, showIcon and iSz or 0)
     local row = CreateFrame("Frame", nil, container, "BackdropTemplate")
     row:SetSize(w, rowHeight)
-    
     row.iconBox = CreateFrame("Frame", nil, row, "BackdropTemplate")
     row.iconBox:SetSize(iSz, iSz)
     row.iconBox:SetPoint("LEFT", 4, 0)
-    
     local iconBSize = elem.iconBorderSize or 1
     if iconBSize < 0 then iconBSize = 0 end
     local showIconBorder = (iconBSize > 0)
-    
     local Skin = _G.ForgeSkin
     if Skin then Skin:ApplyBackdrop(row.iconBox) end
     row.iconBox:SetBackdrop({bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", tile = false, tileSize = 0, edgeSize = showIconBorder and iconBSize or 1, insets = {left = 0, right = 0, top = 0, bottom = 0}})
@@ -1023,16 +1081,12 @@ function CCSync:CreateBar(container, name)
     else
         row.iconBox:SetBackdropBorderColor(0, 0, 0, 0)
     end
-    
     if not showIcon then row.iconBox:Hide() end
-    
     local iconPad = showIconBorder and iconBSize or 0
     local iconMargin = iconPad + 1
     row.icon = row.iconBox:CreateTexture(nil, "ARTWORK"); row.icon:SetPoint("TOPLEFT", row.iconBox, "TOPLEFT", iconMargin, -iconMargin); row.icon:SetPoint("BOTTOMRIGHT", row.iconBox, "BOTTOMRIGHT", -iconMargin, iconMargin)
-    
     local z = elem.iconZoom or 0.08
     row.icon:SetTexCoord(z, 1 - z, z, 1 - z)
-    
     row.info = CreateFrame("Frame", nil, row); 
     if showIcon then
         row.info:SetPoint("LEFT", row.iconBox, "RIGHT", iconSpacing, 0)
@@ -1040,7 +1094,6 @@ function CCSync:CreateBar(container, name)
         row.info:SetPoint("LEFT", 4, 0)
     end
     row.info:SetPoint("RIGHT", 0, 0); row.info:SetHeight(h)
-    
     row.classStrip = row:CreateTexture(nil, "BORDER"); row.classStrip:SetWidth(4)
     if showIcon then
         row.classStrip:SetPoint("TOPRIGHT", row.iconBox, "TOPLEFT", -1, 0)
@@ -1050,17 +1103,13 @@ function CCSync:CreateBar(container, name)
         row.classStrip:SetPoint("BOTTOMRIGHT", row.info, "BOTTOMLEFT", -1, 0)
     end
     row.classStrip:SetColorTexture(1, 1, 1, 1)
-    
     local splitH = h / 2
     row.nameBar = CreateFrame("Frame", nil, row.info); row.nameBar:SetPoint("TOPLEFT", 0, 0); row.nameBar:SetPoint("TOPRIGHT", 0, 0); row.nameBar:SetHeight(splitH)
-    
     local fontPath = "Fonts\\FRIZQT__.TTF"
     if _G.ForgeSkin and _G.ForgeSkin.Media and _G.ForgeSkin.Media.Fonts and elem.font then fontPath = _G.ForgeSkin.Media.Fonts[elem.font] or fontPath end
     local textColor = elem.textColor or {1, 1, 1, 1}
     local fontSize = elem.fontSize or 12
-    
     row.timerBarBg = CreateFrame("Frame", nil, row.info, "BackdropTemplate"); row.timerBarBg:SetPoint("TOPLEFT", row.nameBar, "BOTTOMLEFT", 0, 0); row.timerBarBg:SetPoint("BOTTOMRIGHT", 0, 0); row.timerBarBg:SetHeight(splitH)
-    
     local Skin = _G.ForgeSkin
     if Skin then Skin:ApplyBackdrop(row.timerBarBg) end
     row.timerBarBg:SetBackdrop({bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", tile = false, tileSize = 0, edgeSize = showBarBorder and barBSize or 1, insets = {left = 0, right = 0, top = 0, bottom = 0}})
@@ -1070,75 +1119,59 @@ function CCSync:CreateBar(container, name)
     else
         row.timerBarBg:SetBackdropBorderColor(0, 0, 0, 0)
     end
-    
     row.timerBar = CreateFrame("StatusBar", nil, row.timerBarBg)
     local barPad = showBarBorder and barBSize or 0
     local barMargin = barPad + 1
     row.timerBar:SetPoint("TOPLEFT", row.timerBarBg, "TOPLEFT", barMargin, -barMargin)
     row.timerBar:SetPoint("BOTTOMRIGHT", row.timerBarBg, "BOTTOMRIGHT", -barMargin, barMargin)
-    
     local tex = "Interface\\TargetingFrame\\UI-StatusBar"
     if _G.ForgeSkin and _G.ForgeSkin.Media and _G.ForgeSkin.Media.Textures then tex = _G.ForgeSkin.Media.Textures[elem.texture] or tex end
     row.timerBar:SetStatusBarTexture(tex)
-    
     local c = elem.colorOnCD or {1.0, 0.2, 0.2, 1}
     row.timerBar:SetStatusBarColor(c[1], c[2], c[3], c[4] or 1)
     row.timerBar:SetMinMaxValues(0, 1); row.timerBar:SetValue(1)
-    
     row.textFrame = CreateFrame("Frame", nil, row.info)
     row.textFrame:SetAllPoints(row.info)
     row.textFrame:SetFrameLevel(row.timerBar:GetFrameLevel() + 5)
-    
     row.nameText = row.textFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     row.nameText:SetPoint("LEFT", row.nameBar, "LEFT", 2, 0); row.nameText:SetText(name); row.nameText:SetTextColor(unpack(textColor))
     row.nameText:SetFont(fontPath, fontSize, out)
     row.playerName = name
-    
     row.timerText = row.textFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     row.timerText:SetPoint("RIGHT", row.timerBarBg, "RIGHT", -2, 0); row.timerText:SetFont(fontPath, fontSize, out)
     row.timerText:SetTextColor(unpack(textColor))
-    
     row.timerBg = row.timerBar:CreateTexture(nil, "BACKGROUND"); row.timerBg:SetAllPoints(); row.timerBg:SetColorTexture(0.1, 0.1, 0.1, barBgAlpha)
-    
-    -- Icon overlay timer (for when attachToParty hides the main bar)
     row.iconTimerText = row.iconBox:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     row.iconTimerText:SetPoint("CENTER", row.iconBox, "CENTER", 0, 0)
     row.iconTimerText:SetFont(fontPath, fontSize * 1.2, "OUTLINE")
     row.iconTimerText:SetTextColor(1, 1, 1, 1)
-
-    -- Icon overlay cooldown swipe
     row.cooldown = CreateFrame("Cooldown", nil, row.iconBox, "CooldownFrameTemplate")
     row.cooldown:SetAllPoints(row.iconBox)
     row.cooldown:SetDrawEdge(false)
     row.cooldown:SetDrawBling(false)
     row.cooldown:SetHideCountdownNumbers(true)
     row.cooldown:SetReverse(false)
-    
     return row
 end
-
 function CCSync:SetBarReady(container, bar, spellID)
     local elem = container.elem
     local spellInfo = C_Spell.GetSpellInfo(spellID)
-    bar.icon:SetTexture(spellInfo and spellInfo.iconID or 136116) -- Default to a generic CC icon
-    bar.icon:SetDesaturated(false) -- Siyah beyazlığı kaldır
-    
+    bar.icon:SetTexture(spellInfo and spellInfo.iconID or 136116) 
+    bar.icon:SetDesaturated(false) 
     if spellInfo and spellInfo.name then
-        bar.nameText:SetText((bar.playerName or "Unknown") .. " - " .. spellInfo.name)
+        bar.nameText:SetText((bar.playerName or L("LABEL_UNKNOWN")) .. " - " .. spellInfo.name)
     else
-        bar.nameText:SetText(bar.playerName or "Unknown")
+        bar.nameText:SetText(bar.playerName or L("LABEL_UNKNOWN"))
     end
-    
-    local c = elem.colorReady or {0.2, 0.8, 1.0, 1} -- Default Light Blue/Cyan for CC Ready
+    local c = elem.colorReady or {0.2, 0.8, 1.0, 1} 
     bar.timerBar:SetStatusBarColor(c[1], c[2], c[3], c[4] or 1)
     bar.timerBar:SetMinMaxValues(0, 1); bar.timerBar:SetValue(1)
-    bar.timerText:SetText("READY")
+    bar.timerText:SetText(L("LABEL_READY"))
     if bar.iconTimerText then bar.iconTimerText:SetText("") end
     if bar.cooldown then
         bar.cooldown:Clear()
         bar.cooldown:Hide()
     end
-    
     local classColor = {r=0.5, g=0.5, b=0.5}
     local unit = nil
     local senderName = bar.playerName
@@ -1154,14 +1187,11 @@ function CCSync:SetBarReady(container, bar, spellID)
         if cls and RAID_CLASS_COLORS[cls] then classColor = RAID_CLASS_COLORS[cls] end
     end
     bar.classStrip:SetColorTexture(classColor.r, classColor.g, classColor.b, 1)
-    
     bar:SetScript("OnUpdate", nil)
     bar:Show()
 end
-
 function CCSync:UpdateBar(container, senderName, spellID, duration)
     if ShouldHideOwnBar(container and container.elem, senderName) then return end
-
     local key = BuildBarKey(senderName, spellID)
     if not container.bars[key] then 
         local unitClass = nil
@@ -1177,32 +1207,25 @@ function CCSync:UpdateBar(container, senderName, spellID, duration)
         end
         if unitClass then self:EnsureBarIsReady(container, senderName, unitClass, spellID) end
     end
-    
     local bar = container.bars[key]
     if not bar then return end
-    
     local elem = container.elem
     local spellInfo = C_Spell.GetSpellInfo(spellID)
     bar.icon:SetTexture(spellInfo and spellInfo.iconID or 136116)
-    bar.icon:SetDesaturated(true) -- Bekleme süresindeyken siyah beyaz (gri) yap
-    
+    bar.icon:SetDesaturated(true) 
     if spellInfo and spellInfo.name then
-        bar.nameText:SetText((bar.playerName or "Unknown") .. " - " .. spellInfo.name)
+        bar.nameText:SetText((bar.playerName or L("LABEL_UNKNOWN")) .. " - " .. spellInfo.name)
     else
-        bar.nameText:SetText(bar.playerName or "Unknown")
+        bar.nameText:SetText(bar.playerName or L("LABEL_UNKNOWN"))
     end
-    
-    local c = elem.colorOnCD or {1.0, 0.5, 0.0, 1} -- Default Orange for CC on cooldown
+    local c = elem.colorOnCD or {1.0, 0.5, 0.0, 1} 
     bar.timerBar:SetStatusBarColor(c[1], c[2], c[3], c[4] or 1)
-    
     bar.endTime = GetTime() + duration
     bar.duration = duration
     bar.currentSpellID = spellID
     bar.ccSpellID = spellID
-    
     self.activeCooldowns = self.activeCooldowns or {}
     self.activeCooldowns[key] = { spellID = spellID, endTime = bar.endTime, duration = duration }
-    
     bar:Show()
     if bar.cooldown then
         if container.elem.attachToParty then
@@ -1212,7 +1235,6 @@ function CCSync:UpdateBar(container, senderName, spellID, duration)
             bar.cooldown:Hide()
         end
     end
-    
     bar:SetScript("OnUpdate", function(f)
         local rem = f.endTime - GetTime()
         if rem <= 0 then
@@ -1230,7 +1252,6 @@ function CCSync:UpdateBar(container, senderName, spellID, duration)
     end)
     self:LayoutBars(container)
 end
-
 local function FrameMatchesUnit(frame, unitId)
     if not frame or not unitId then return false end
     local unit = frame.unit
@@ -1240,7 +1261,6 @@ local function FrameMatchesUnit(frame, unitId)
     local displayed = frame.displayedUnit
     return unit == unitId or displayed == unitId
 end
-
 local function FindDescendantFrameByUnit(root, unitId, requireVisible)
     if not root then return nil end
     local queue = {root}
@@ -1250,12 +1270,10 @@ local function FindDescendantFrameByUnit(root, unitId, requireVisible)
         local frame = queue[index]
         index = index + 1
         scanned = scanned + 1
-
         local visibleOK = (not requireVisible) or (frame.IsVisible and frame:IsVisible())
         if visibleOK and FrameMatchesUnit(frame, unitId) then
             return frame
         end
-
         if frame.GetChildren then
             local children = {frame:GetChildren()}
             for i = 1, #children do
@@ -1265,12 +1283,9 @@ local function FindDescendantFrameByUnit(root, unitId, requireVisible)
     end
     return nil
 end
-
 function CCSync:GetUnitFrame(unitName)
     if not unitName then return nil end
     local isPlayer = (unitName == UnitName("player"))
-
-    -- Find which unitId corresponds to this name
     local unitId = nil
     if IsInGroup() then
         local prefix = IsInRaid() and "raid" or "party"
@@ -1283,52 +1298,36 @@ function CCSync:GetUnitFrame(unitName)
             end
         end
     end
-
     if not unitId and isPlayer then
         unitId = "player"
     end
-    
     if not unitId then return nil end
-    
-    -- ElvUI Party/Raid Frames
     if _G.ElvUF then
-        -- Default group is PartyGroup1UnitButton1 etc
         for g = 1, 8 do
             for b = 1, 5 do
                 local f = _G["ElvUF_PartyGroup"..g.."UnitButton"..b]
                 if f and f:IsVisible() and f.unit == unitId then return f end
-                
                 f = _G["ElvUF_RaidGroup"..g.."UnitButton"..b]
                 if f and f:IsVisible() and f.unit == unitId then return f end
-                
                 f = _G["ElvUF_Raid1Group"..g.."UnitButton"..b]
                 if f and f:IsVisible() and f.unit == unitId then return f end
-                
                 f = _G["ElvUF_Raid2Group"..g.."UnitButton"..b]
                 if f and f:IsVisible() and f.unit == unitId then return f end
-                
                 f = _G["ElvUF_Raid3Group"..g.."UnitButton"..b]
                 if f and f:IsVisible() and f.unit == unitId then return f end
             end
         end
     end
-    
-    -- Blizzard Compact Party/Raid Frames
     for i = 1, 40 do
         local f = _G["CompactPartyFrameMember"..i]
         if f and f:IsVisible() and (f.unit == unitId or f.displayedUnit == unitId) then return f end
-        
         f = _G["CompactRaidFrame"..i]
         if f and f:IsVisible() and (f.unit == unitId or f.displayedUnit == unitId) then return f end
     end
-    
-    -- Classic Blizzard Party Frames
     for i = 1, 4 do
         local f = _G["PartyMemberFrame"..i]
         if f and f:IsVisible() and f.unit == unitId then return f end
     end
-
-    -- Dynamic Blizzard fallback: retail layouts can nest/rename party member frames.
     local roots = {
         _G.CompactPartyFrame,
         _G.CompactRaidFrameContainer,
@@ -1339,8 +1338,6 @@ function CCSync:GetUnitFrame(unitName)
         local f = FindDescendantFrameByUnit(roots[i], unitId, true)
         if f then return f end
     end
-
-    -- Fallback for player when no party/raid unit frame matched.
     if isPlayer then
         if ElvUF_Player and ElvUF_Player:IsVisible() then return ElvUF_Player end
         if PlayerFrame and PlayerFrame:IsVisible() then return PlayerFrame end
@@ -1348,10 +1345,8 @@ function CCSync:GetUnitFrame(unitName)
             return PlayerFrame or UIParent
         end
     end
-    
     return nil
 end
-
 function CCSync:LayoutBars(container)
     local elem = container.elem
     local prev = nil
@@ -1359,12 +1354,9 @@ function CCSync:LayoutBars(container)
     local sortedKeys = {}
     local attachMode = elem.attachToParty == true
     local ownerStackIndex = {}
-    
     for key, _ in pairs(container.bars) do table.insert(sortedKeys, key) end
     table.sort(sortedKeys)
-    
     local yOffset = 0
-    
     for _, key in ipairs(sortedKeys) do
         local bar = container.bars[key]
         if ShouldHideOwnBar(elem, bar.playerName) then
@@ -1373,21 +1365,15 @@ function CCSync:LayoutBars(container)
             if not bar:IsShown() then
                 bar:Show()
             end
-
             bar:ClearAllPoints()
-             
             if attachMode then
                     local stackedInContainer = false
-                    -- Find party frame
                     local ownerName = bar.playerName
                     local targetFrame = self:GetUnitFrame(ownerName)
-                    
-                    -- If testing and frame not found, fallback to anchoring to UIParent center or stack locally
                     if not targetFrame and self.ForceTest then
                         if ownerName == UnitName("player") then
                             targetFrame = PlayerFrame or UIParent
                         else
-                            -- For dummy test targets, just stack them temporarily so they are visible
                             bar:SetParent(container)
                             bar:SetFrameStrata(container:GetFrameStrata() or "MEDIUM")
                             bar:SetFrameLevel((container:GetFrameLevel() or 1) + 1)
@@ -1400,20 +1386,17 @@ function CCSync:LayoutBars(container)
                             stackedInContainer = true
                         end
                     end
-                    
                     if targetFrame and not (self.ForceTest and not targetFrame and ownerName ~= UnitName("player")) then
                         if bar:GetParent() ~= targetFrame then
                             bar:SetParent(targetFrame)
                         end
                         bar:SetFrameStrata(targetFrame:GetFrameStrata() or "MEDIUM")
                         bar:SetFrameLevel((targetFrame:GetFrameLevel() or 1) + 10)
-                        
                     local offX = elem.partyOffsetX or 5
                     local offY = elem.partyOffsetY or 0
-                    local side = elem.partyAttachSide or "RIGHT"      -- RIGHT / LEFT / TOP / BOTTOM
-                    local grow = elem.partyGrowDirection or "HORIZONTAL" -- HORIZONTAL / VERTICAL
+                    local side = elem.partyAttachSide or "RIGHT"      
+                    local grow = elem.partyGrowDirection or "HORIZONTAL" 
                     local stack = ownerStackIndex[ownerName] or 0
-
                     local point, relPoint = "LEFT", "RIGHT"
                     local dirX, dirY = 1, 0
                     if side == "LEFT" then
@@ -1426,7 +1409,6 @@ function CCSync:LayoutBars(container)
                         point, relPoint = "TOP", "BOTTOM"
                         dirX, dirY = 1, 0
                     end
-
                     if grow == "VERTICAL" then
                         dirX = 0
                         if side == "TOP" then
@@ -1437,13 +1419,10 @@ function CCSync:LayoutBars(container)
                     else
                         dirY = 0
                     end
-
                     local step = ((grow == "VERTICAL") and (bar:GetHeight() or (elem.iconSize or 24)) or (bar:GetWidth() or (elem.iconSize or 24))) + spacing
                     bar:SetPoint(point, targetFrame, relPoint, offX + (stack * step * dirX), offY + (stack * step * dirY))
                     ownerStackIndex[ownerName] = stack + 1
                 elseif not stackedInContainer then
-                        -- If frame is not currently resolvable, keep icon visible in container stack
-                        -- instead of disappearing completely.
                         if bar:GetParent() ~= container then
                             bar:SetParent(container)
                         end
@@ -1456,11 +1435,8 @@ function CCSync:LayoutBars(container)
                         end
                         prev = bar
                     end
-                    
-                    -- Disable clicks so it doesn't block party frame interaction
                     bar:EnableMouse(false)
             else
-                -- Classic Bar Stack layout
                 if bar:GetParent() ~= container then
                     bar:SetParent(container)
                 end
@@ -1476,9 +1452,8 @@ function CCSync:LayoutBars(container)
             end
         end
     end
-    
     if attachMode then
-        container:SetSize(1, 1) -- Hide virtual container
+        container:SetSize(1, 1) 
     else
         if prev then
             local height = select(4, prev:GetPoint())
@@ -1488,12 +1463,11 @@ function CCSync:LayoutBars(container)
         end
     end
 end
-
 function CCSync:Test(container, on)
     if on then
-        self:UpdateBar(container, "StunBoi", 853, 60) -- HoJ
-        self:UpdateBar(container, "FreezeGal", 122, 30) -- Frost Nova
-        self:UpdateBar(container, "SweepMaster", 119381, 60) -- Leg Sweep
+        self:UpdateBar(container, "StunBoi", 853, 60) 
+        self:UpdateBar(container, "FreezeGal", 122, 30) 
+        self:UpdateBar(container, "SweepMaster", 119381, 60) 
     else
         for key, bar in pairs(container.bars) do
             if bar.playerName == "StunBoi" or bar.playerName == "FreezeGal" or bar.playerName == "SweepMaster" then
@@ -1504,7 +1478,6 @@ function CCSync:Test(container, on)
         self:InitializeGroupBars(container)
     end
 end
-
 function CCSync:RefreshBars(container)
     local elem = container.elem
     local height = elem.barHeight or 30
@@ -1526,10 +1499,8 @@ function CCSync:RefreshBars(container)
     local fontSize = elem.fontSize or 12
     local iconZoom = elem.iconZoom or 0.08
     local count = 0
-    
     for _, row in pairs(container.bars) do
         local attachMode = elem.attachToParty == true
-        
         if attachMode then
             local iconPad = showIconBorder and iconBSize or 0
             row:SetSize(iconSize + (iconPad*2), iconSize + (iconPad*2))
@@ -1541,7 +1512,6 @@ function CCSync:RefreshBars(container)
             row.classStrip:Show()
             local rowHeight = math.max(height, showIcon and iconSize or 0)
             row:SetSize(width, rowHeight)
-            
             if showIcon then
                 row.info:SetPoint("LEFT", row.iconBox, "RIGHT", iconSpacing, 0)
                 row.classStrip:ClearAllPoints()
@@ -1553,17 +1523,14 @@ function CCSync:RefreshBars(container)
                 row.classStrip:SetPoint("TOPRIGHT", row.info, "TOPLEFT", -1, 0)
                 row.classStrip:SetPoint("BOTTOMRIGHT", row.info, "BOTTOMLEFT", -1, 0)
             end
-            
             row.info:SetHeight(height)
             local splitH = height / 2
             row.nameBar:SetHeight(splitH)
             row.timerBarBg:SetHeight(splitH)
-            
             row.nameText:SetFont(fontPath, fontSize, outline)
             row.nameText:SetTextColor(unpack(textColor))
             row.timerText:SetFont(fontPath, fontSize, outline)
             row.timerText:SetTextColor(unpack(textColor))
-            
             local Skin = _G.ForgeSkin
             if Skin then Skin:ApplyBackdrop(row.timerBarBg) end
             row.timerBarBg:SetBackdrop({bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", tile = false, tileSize = 0, edgeSize = showBarBorder and barBSize or 1, insets = {left = 0, right = 0, top = 0, bottom = 0}})
@@ -1573,13 +1540,11 @@ function CCSync:RefreshBars(container)
             else
                 row.timerBarBg:SetBackdropBorderColor(0, 0, 0, 0)
             end
-            
             local barPad = showBarBorder and barBSize or 0
             local barMargin = barPad + 1
             row.timerBar:ClearAllPoints()
             row.timerBar:SetPoint("TOPLEFT", row.timerBarBg, "TOPLEFT", barMargin, -barMargin)
             row.timerBar:SetPoint("BOTTOMRIGHT", row.timerBarBg, "BOTTOMRIGHT", -barMargin, barMargin)
-            
             local tex = "Interface\\TargetingFrame\\UI-StatusBar"
             if _G.ForgeSkin and _G.ForgeSkin.Media and _G.ForgeSkin.Media.Textures then 
                 tex = _G.ForgeSkin.Media.Textures[elem.texture] or tex 
@@ -1587,11 +1552,9 @@ function CCSync:RefreshBars(container)
             row.timerBar:SetStatusBarTexture(tex)
             row.timerBg:SetColorTexture(0.1, 0.1, 0.1, barBgAlpha)
         end
-        
         row.iconBox:SetSize(iconSize, iconSize)
         row.iconBox:ClearAllPoints()
         row.iconBox:SetPoint("LEFT", attachMode and 0 or 4, 0)
-        
         local Skin = _G.ForgeSkin
         if Skin then Skin:ApplyBackdrop(row.iconBox) end
         row.iconBox:SetBackdrop({bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", tile = false, tileSize = 0, edgeSize = showIconBorder and iconBSize or 1, insets = {left = 0, right = 0, top = 0, bottom = 0}})
@@ -1601,14 +1564,12 @@ function CCSync:RefreshBars(container)
         else
             row.iconBox:SetBackdropBorderColor(0, 0, 0, 0)
         end
-        
         local iconPad = showIconBorder and iconBSize or 0
         local iconMargin = iconPad + 1
         row.icon:ClearAllPoints()
         row.icon:SetPoint("TOPLEFT", row.iconBox, "TOPLEFT", iconMargin, -iconMargin)
         row.icon:SetPoint("BOTTOMRIGHT", row.iconBox, "BOTTOMRIGHT", -iconMargin, iconMargin)
         row.icon:SetTexCoord(iconZoom, 1 - iconZoom, iconZoom, 1 - iconZoom)
-        
         if row:GetScript("OnUpdate") then
              local c = elem.colorOnCD or {1.0, 0.5, 0.0, 1}
              row.timerBar:SetStatusBarColor(c[1], c[2], c[3], c[4] or 1)
@@ -1628,7 +1589,6 @@ function CCSync:RefreshBars(container)
         end
         count = count + 1
     end
-    
     local maxH = math.max(height, showIcon and iconSize or 0)
     local spacing = elem.spacing or 5
     if not elem.attachToParty then
@@ -1636,14 +1596,11 @@ function CCSync:RefreshBars(container)
     end
     self:LayoutBars(container)
 end
-
 function CCSync:CreateSettings(parentFrame)
     local f = parentFrame
     local elem = f.config
     local Skin = _G.ForgeSkin
-    
     parentFrame.isTestingGlobal_CCSync = parentFrame.isTestingGlobal_CCSync or false
-    
     local function RefreshLive()
         for _, inst in ipairs(CCSync.Instances) do
              if inst.elem == elem then
@@ -1661,87 +1618,71 @@ function CCSync:CreateSettings(parentFrame)
              end
         end
     end
-
     if not _G.WidgetForgeUtils or not _G.WidgetForgeUtils.CreateSettingsBuilder then return end
     local sb = f.builder or _G.WidgetForgeUtils:CreateSettingsBuilder(f.content)
     f.builder = sb
-
-    -- Entering widget settings is a safe point to refresh and sync current CC cooldown state.
     CCSync:QueueWarmupSync()
-    
     local texItems = {}
     if Skin and Skin.Media and Skin.Media.Textures then 
         for k, _ in pairs(Skin.Media.Textures) do table.insert(texItems, {text=tostring(k), value=k}) end 
     end
     if #texItems == 0 then texItems = {{text="Default", value="Smooth"}} 
     else table.sort(texItems, function(a,b) return a.text < b.text end) end
-
     local fontItems = {}
     if Skin and Skin.Media and Skin.Media.Fonts then 
         for k, _ in pairs(Skin.Media.Fonts) do table.insert(fontItems, {text=tostring(k), value=k}) end 
     end
-    if #fontItems == 0 then fontItems = {{text="Default", value="Fonts\\FRIZQT__.TTF"}} 
+    if #fontItems == 0 then fontItems = {{text=L("DEFAULT_OPTION"), value="Fonts\\FRIZQT__.TTF"}} 
     else table.sort(fontItems, function(a,b) return a.text < b.text end) end
-
-    sb:AddHeader("Bar Settings")
-    sb:AddSlider("barHeight", "Bar Height", 10, 60, 1, 30, elem, RefreshLive)
-    sb:AddSlider("barWidth", "Bar Width", 50, 600, 5, 220, elem, RefreshLive)
-    sb:AddSlider("spacing", "Spacing Between Bars", 0, 50, 1, 5, elem, RefreshLive)
-    sb:AddSlider("barBgAlpha", "Background Alpha (%)", 0, 100, 5, 80, elem, RefreshLive)
-    sb:AddDropdown("texture", "Bar Texture", texItems, "Smooth", elem, RefreshLive)
-    sb:AddColor("barBorderColor", "Bar Border Color", {0.3, 0.3, 0.3, 1}, elem, RefreshLive)
-    sb:AddSlider("barBorderSize", "Border Thickness (0 to Disable)", 0, 5, 1, 1, elem, RefreshLive)
-    
-    sb:AddHeader("Text Settings")
-    sb:AddSlider("fontSize", "Font Size", 8, 36, 1, 12, elem, RefreshLive)
-    sb:AddDropdown("font", "Font Style", fontItems, "Friz Quadrata", elem, RefreshLive)
-    sb:AddDropdown("fontOutline", "Font Outline", { {text="None", value=""}, {text="Outline", value="OUTLINE"}, {text="Thick Outline", value="THICKOUTLINE"} }, "OUTLINE", elem, RefreshLive)
-    sb:AddColor("textColor", "Text Color", {1, 1, 1, 1}, elem, RefreshLive)
-
-    sb:AddHeader("Icon Settings")
-    sb:AddSwitch("showIcon", "Show Spell Icon", true, elem, RefreshLive)
-    sb:AddSlider("iconSpacing", "Spacing from Bar", 0, 50, 1, 5, elem, RefreshLive)
-    sb:AddSlider("iconSize", "Icon Size", 10, 100, 1, 30, elem, RefreshLive)
-    sb:AddSlider("iconZoom", "Icon Zoom (Crop Border)", 0, 0.20, 0.01, 0.08, elem, RefreshLive)
-    sb:AddColor("iconBorderColor", "Icon Border Color", {0.3, 0.3, 0.3, 1}, elem, RefreshLive)
-    sb:AddSlider("iconBorderSize", "Border Thickness (0 to Disable)", 0, 5, 1, 1, elem, RefreshLive)
-
-    sb:AddHeader("Status Colors")
-    sb:AddColor("colorReady", "Available Color (Ready)", {0.2, 0.8, 1.0, 1}, elem, RefreshLive)
-    sb:AddColor("colorOnCD", "Cooldown Color (Busy)", {1.0, 0.5, 0.0, 1}, elem, RefreshLive)
-
-
+    sb:AddHeader(L("HEADER_BAR_SETTINGS"))
+    sb:AddSlider("barHeight", L("LABEL_BAR_HEIGHT"), 10, 60, 1, 30, elem, RefreshLive)
+    sb:AddSlider("barWidth", L("LABEL_BAR_WIDTH"), 50, 600, 5, 220, elem, RefreshLive)
+    sb:AddSlider("spacing", L("LABEL_SPACING_BETWEEN_BARS"), 0, 50, 1, 5, elem, RefreshLive)
+    sb:AddSlider("barBgAlpha", L("LABEL_BACKGROUND_ALPHA"), 0, 100, 5, 80, elem, RefreshLive)
+    sb:AddDropdown("texture", L("LABEL_BAR_TEXTURE"), texItems, "Smooth", elem, RefreshLive)
+    sb:AddColor("barBorderColor", L("LABEL_BAR_BORDER_COLOR"), {0.3, 0.3, 0.3, 1}, elem, RefreshLive)
+    sb:AddSlider("barBorderSize", L("LABEL_BORDER_THICKNESS_DISABLE"), 0, 5, 1, 1, elem, RefreshLive)
+    sb:AddHeader(L("HEADER_TEXT_SETTINGS"))
+    sb:AddSlider("fontSize", L("LABEL_FONT_SIZE"), 8, 36, 1, 12, elem, RefreshLive)
+    sb:AddDropdown("font", L("LABEL_FONT_STYLE"), fontItems, "Friz Quadrata", elem, RefreshLive)
+    sb:AddDropdown("fontOutline", L("LABEL_FONT_OUTLINE"), { {text=L("OUTLINE_NONE"), value=""}, {text=L("OUTLINE_OUTLINE"), value="OUTLINE"}, {text=L("OUTLINE_THICK_OUTLINE"), value="THICKOUTLINE"} }, "OUTLINE", elem, RefreshLive)
+    sb:AddColor("textColor", L("LABEL_TEXT_COLOR"), {1, 1, 1, 1}, elem, RefreshLive)
+    sb:AddHeader(L("HEADER_ICON_SETTINGS"))
+    sb:AddSwitch("showIcon", L("LABEL_SHOW_SPELL_ICON"), true, elem, RefreshLive)
+    sb:AddSlider("iconSpacing", L("LABEL_ICON_SPACING_FROM_BAR"), 0, 50, 1, 5, elem, RefreshLive)
+    sb:AddSlider("iconSize", L("LABEL_ICON_SIZE"), 10, 100, 1, 30, elem, RefreshLive)
+    sb:AddSlider("iconZoom", L("LABEL_ICON_ZOOM_CROP"), 0, 0.20, 0.01, 0.08, elem, RefreshLive)
+    sb:AddColor("iconBorderColor", L("LABEL_ICON_BORDER_COLOR"), {0.3, 0.3, 0.3, 1}, elem, RefreshLive)
+    sb:AddSlider("iconBorderSize", L("LABEL_BORDER_THICKNESS_DISABLE"), 0, 5, 1, 1, elem, RefreshLive)
+    sb:AddHeader(L("HEADER_STATUS_COLORS"))
+    sb:AddColor("colorReady", L("LABEL_COLOR_READY"), {0.2, 0.8, 1.0, 1}, elem, RefreshLive)
+    sb:AddColor("colorOnCD", L("LABEL_COLOR_BUSY"), {1.0, 0.5, 0.0, 1}, elem, RefreshLive)
     if not parentFrame.testBtnCCSync then
-        local btnTest = Skin:CreateButton(f.content, "Test Mode: OFF", 130, 22)
+        local btnTest = Skin:CreateButton(f.content, L("LABEL_TEST_MODE_OFF"), 130, 22)
         btnTest:SetPoint("TOPRIGHT", f.content, "TOPRIGHT", -15, -10)
         parentFrame.testBtnCCSync = btnTest
-        
         local function UpdateTestButtonVisuals()
             if parentFrame.isTestingGlobal_CCSync then 
                 btnTest:SetBackdropColor(0, 0.8, 0, 1)
-                btnTest.text:SetText("Test Mode: ON")
+                btnTest.text:SetText(L("LABEL_TEST_MODE_ON"))
             else 
                 btnTest:SetBackdropColor(unpack(Skin.Colors.button))
-                btnTest.text:SetText("Test Mode: OFF") 
+                btnTest.text:SetText(L("LABEL_TEST_MODE_OFF")) 
             end
         end
-        
         UpdateTestButtonVisuals()
         btnTest:Show()
-        
         btnTest:SetScript("OnEnter", function()
             if parentFrame.isTestingGlobal_CCSync then btnTest:SetBackdropColor(0, 1, 0, 1) 
             else btnTest:SetBackdropColor(unpack(Skin.Colors.buttonHover)) end
         end)
         btnTest:SetScript("OnLeave", function() UpdateTestButtonVisuals() end)
-        
         btnTest:SetScript("OnClick", function()
             parentFrame.isTestingGlobal_CCSync = not parentFrame.isTestingGlobal_CCSync
             UpdateTestButtonVisuals()
             CCSync.ForceTest = parentFrame.isTestingGlobal_CCSync
             RefreshLive()
         end)
-        
         parentFrame.onCloseWidgetSpecific = function() 
             parentFrame.isTestingGlobal_CCSync = false
             CCSync.ForceTest = false
@@ -1751,55 +1692,43 @@ function CCSync:CreateSettings(parentFrame)
             parentFrame.testBtnCCSync:Show()
         end
     end
-
-    sb:AddHeader("Party Frame Integration")
-    sb:AddSwitch("attachToParty", "Attach Icons to Party Frames\n(Disables standalone bar layout)", false, elem, RefreshLive)
-    sb:AddDropdown("partyAttachSide", "Attach Side", {
-        {text = "Right", value = "RIGHT"},
-        {text = "Left", value = "LEFT"},
-        {text = "Top", value = "TOP"},
-        {text = "Bottom", value = "BOTTOM"},
+    sb:AddHeader(L("HEADER_PARTY_FRAME_INTEGRATION"))
+    sb:AddSwitch("attachToParty", L("LABEL_ATTACH_TO_PARTY"), false, elem, RefreshLive)
+    sb:AddDropdown("partyAttachSide", L("LABEL_ATTACH_SIDE"), {
+        {text = L("OPTION_RIGHT"), value = "RIGHT"},
+        {text = L("OPTION_LEFT"), value = "LEFT"},
+        {text = L("OPTION_TOP"), value = "TOP"},
+        {text = L("OPTION_BOTTOM"), value = "BOTTOM"},
     }, "RIGHT", elem, RefreshLive)
-    sb:AddDropdown("partyGrowDirection", "Icon Flow Direction", {
-        {text = "Horizontal", value = "HORIZONTAL"},
-        {text = "Vertical", value = "VERTICAL"},
+    sb:AddDropdown("partyGrowDirection", L("LABEL_ICON_FLOW_DIRECTION"), {
+        {text = L("OPTION_HORIZONTAL"), value = "HORIZONTAL"},
+        {text = L("OPTION_VERTICAL"), value = "VERTICAL"},
     }, "HORIZONTAL", elem, RefreshLive)
-    sb:AddSlider("partyOffsetX", "X Offset", -100, 100, 1, 5, elem, RefreshLive)
-    sb:AddSlider("partyOffsetY", "Y Offset", -100, 100, 1, 0, elem, RefreshLive)
-
-    sb:AddHeader("Announcements")
-    sb:AddSwitch("announceCCs", "Announce my CC casts", false, elem, RefreshLive)
-    sb:AddDropdown("announceChannel", "Announce Channel", {
-        {text = "Party", value = "PARTY"},
-        {text = "Instance", value = "INSTANCE_CHAT"}
+    sb:AddSlider("partyOffsetX", L("LABEL_X_OFFSET"), -100, 100, 1, 5, elem, RefreshLive)
+    sb:AddSlider("partyOffsetY", L("LABEL_Y_OFFSET"), -100, 100, 1, 0, elem, RefreshLive)
+    sb:AddHeader(L("HEADER_ANNOUNCEMENTS"))
+    sb:AddSwitch("announceCCs", L("LABEL_ANNOUNCE_CC_CASTS"), false, elem, RefreshLive)
+    sb:AddDropdown("announceChannel", L("LABEL_ANNOUNCE_CHANNEL"), {
+        {text = L("OPTION_PARTY"), value = "PARTY"},
+        {text = L("OPTION_INSTANCE"), value = "INSTANCE_CHAT"}
     }, "PARTY", elem, RefreshLive)
-
-    sb:AddHeader("Party Sync")
-    sb:AddSwitch("hideOwnCC", "Hide My Own CC Bars", false, elem, RefreshLive)
-    sb:AddSwitch("partySync", "Listen to party CC abilities", true, elem, RefreshLive)
-    
+    sb:AddHeader(L("HEADER_PARTY_SYNC"))
+    sb:AddSwitch("hideOwnCC", L("LABEL_HIDE_MY_OWN_CC_BARS"), false, elem, RefreshLive)
+    sb:AddSwitch("partySync", L("LABEL_PARTY_SYNC_CC"), true, elem, RefreshLive)
     local txtHelp = f.content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     txtHelp:SetWordWrap(true)
     txtHelp:SetWidth(600)
     txtHelp:SetJustifyH("LEFT")
     txtHelp:SetTextColor(1, 0.82, 0)
-    txtHelp:SetText("Note: For the Party Sync to function correctly and track your group members' CC abilities, all players in the party MUST have the WidgetForge addon installed.")
-    
+    txtHelp:SetText(L("NOTE_PARTY_SYNC_CC"))
     sb.y = sb.y - 0
     txtHelp:SetPoint("TOPLEFT", sb.canvas, "TOPLEFT", 12, sb.y)
-    
     sb.y = sb.y - 0
-    
     sb:Finish()
 end
-
 function CCSync:TogglePreview(state)
     CCSync.ForceTest = state
 end
-
--- ============================================================================
--- 4. REGISTER WIDGET WITH CORE
--- ============================================================================
 local fLoad = CreateFrame("Frame")
 fLoad:RegisterEvent("ADDON_LOADED")
 fLoad:SetScript("OnEvent", function(self, event, arg1)
@@ -1807,8 +1736,8 @@ fLoad:SetScript("OnEvent", function(self, event, arg1)
         if _G.WidgetForge and _G.WidgetForge.RegisterWidgetType then
             _G.WidgetForge:RegisterWidgetType({
                 typeID = "ccsync",
-                name = "Crowd Control Sync (Group CCs)",
-                description = "Automatically tracks and syncs Party Crowd Control abilities just like the interrupt tracker.",
+                name = WFL_WIDGET("ccsync", "Crowd Control Sync (Group CCs)"),
+                description = WFL_WIDGET_DESC("ccsync", "Automatically tracks and syncs Party Crowd Control abilities just like the interrupt tracker."),
                 Load = function(_, parent, elem) return CCSync:Load(parent, elem) end,
                 CreateSettings = function(_, parentFrame) CCSync:CreateSettings(parentFrame) end,
                 TogglePreview = function(_, state) CCSync:TogglePreview(state) end,

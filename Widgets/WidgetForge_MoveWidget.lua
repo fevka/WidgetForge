@@ -22,7 +22,9 @@ local EXTRA_PANEL_NAMES = {
     "CollectionsJournal",
     "QuestLogFrame",
     "CharacterFrame",
+    "PlayerSpellsFrame",
     "SpellBookFrame",
+    "ProfessionsFrame",
     "AchievementFrame",
     "WorldMapFrame",
 }
@@ -218,6 +220,16 @@ function MoveWidget:HookFrame(frame)
     self.ManagedFrames[frame] = true
 
     if dragTarget.EnableMouse then dragTarget:EnableMouse(true) end
+
+    local cb = frame.CloseButton
+    if not cb and frame.GetName then
+        cb = _G[frame:GetName() .. "CloseButton"]
+    end
+    if cb and cb.GetFrameLevel and dragTarget.GetFrameLevel then
+        if cb:GetFrameLevel() <= dragTarget:GetFrameLevel() then
+            cb:SetFrameLevel(dragTarget:GetFrameLevel() + 10)
+        end
+    end
 
     if not self.HookedTargets[dragTarget] then
         self.HookedTargets[dragTarget] = frame

@@ -1,7 +1,5 @@
 ForgeStats = {}
 local Stats = ForgeStats
-
--- Cache Table (The "View Model" for our UI)
 Stats.Data = {
     ["FPS"] = "0", ["MS"] = "0", ["Clock"] = "00:00", ["RAM"] = "0MB",
     ["Gold"] = "0g", ["Zone"] = "Unknown", ["Coords"] = "0, 0",
@@ -12,24 +10,32 @@ Stats.Data = {
     ["Mastery"] = "0%", ["Versatility"] = "0%", ["Avoidance"] = "0%",
     ["Leech"] = "0%", ["Speed"] = "0%", ["Run Speed"] = "0%", ["Dodge"] = "0%", ["Parry"] = "0%",
     ["Main Stat"] = "0", ["Armor"] = "0", ["Max HP"] = "0",
-    -- Dragonriding / Skyriding
     ["DragonVigor"] = 0, ["DragonVigorMax"] = 0, ["DragonSpeed"] = 0, ["DragonActive"] = false,
-    -- Social & Navigation
     ["Guild"] = "0", ["Friends"] = "0",
     ["Difficulty"] = "World",
-    -- Talent Loadout
     ["Talent Loadout"] = "Default", 
     ["Talent Loadout Icon"] = 132222
 }
--- Helper mappings
-Stats.ActiveMainStat = "Strength" -- Default
+Stats.ActiveMainStat = "Strength" 
 Stats.CombatStart = nil
+local function SafeGetCoinTextureString(copper)
+    if C_CurrencyInfo and C_CurrencyInfo.GetCoinTextureString then
+        return C_CurrencyInfo.GetCoinTextureString(copper)
+    elseif _G.GetCoinTextureString then
+        return _G.GetCoinTextureString(copper)
+    end
+    local gold = math.floor((copper or 0) / 10000)
+    local silver = math.floor(((copper or 0) % 10000) / 100)
+    local copperOnly = (copper or 0) % 100
+    return string.format("%d|TInterface\\MoneyFrame\\UI-GoldIcon:12:12:2:0|t %d|TInterface\\MoneyFrame\\UI-SilverIcon:12:12:2:0|t %d|TInterface\\MoneyFrame\\UI-CopperIcon:12:12:2:0|t", gold, silver, copperOnly)
+end
 
--- Helper for Money String
+if not _G.GetCoinTextureString then
+    _G.GetCoinTextureString = SafeGetCoinTextureString
+end
+
 local function GetMoneyString(copper, separatorStyle)
     copper = tonumber(copper) or 0
-
-    -- For Gold tooltip rows, support explicit thousand separators.
     if separatorStyle then
         local sep = ","
         if separatorStyle == "DOT" then
@@ -39,11 +45,9 @@ local function GetMoneyString(copper, separatorStyle)
         elseif separatorStyle == "NONE" then
             sep = ""
         end
-
         local gold = math.floor(copper / 10000)
         local silver = math.floor((copper % 10000) / 100)
         local copperOnly = copper % 100
-
         local goldText = tostring(gold)
         if sep ~= "" then
             while true do
@@ -52,25 +56,20 @@ local function GetMoneyString(copper, separatorStyle)
                 if k == 0 then break end
             end
         end
-
         return string.format("%sg %02ds %02dc", goldText, silver, copperOnly)
     end
-
-    return GetCoinTextureString(copper)
+    return SafeGetCoinTextureString(copper)
 end
-
 local function GetCurrentCharacterKey()
     local name = UnitName("player") or "Unknown"
     local realm = GetRealmName() or "Unknown"
     return (name .. "-" .. realm), name, realm
 end
-
 function Stats:PersistCurrentCharacterGold()
     if not WidgetForgeDB then return end
     if type(WidgetForgeDB.goldCache) ~= "table" then
         WidgetForgeDB.goldCache = {}
     end
-
     local key, name, realm = GetCurrentCharacterKey()
     WidgetForgeDB.goldCache[key] = {
         name = name,
@@ -79,17 +78,9 @@ function Stats:PersistCurrentCharacterGold()
         updatedAt = time(),
     }
 end
-
--- =========================================================================
---  INITIALIZATION & EVENTS
--- =========================================================================
-
 function Stats:Initialize()
     if self.Initialized then return end
-    
     Stats.SessionStartMoney = GetMoney()
-    
-    -- Creation of Event Frame
     local f = CreateFrame("Frame")
     f:RegisterEvent("PLAYER_ENTERING_WORLD")
     f:RegisterEvent("PLAYER_MONEY")
@@ -102,43 +93,29 @@ function Stats:Initialize()
     f:RegisterEvent("PLAYER_XP_UPDATE")
     f:RegisterEvent("UPDATE_INVENTORY_DURABILITY")
     f:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-    
-    -- Difficulty Events
     f:RegisterEvent("PLAYER_DIFFICULTY_CHANGED")
     f:RegisterEvent("UPDATE_INSTANCE_INFO")
-
-    -- Stat Events
     f:RegisterEvent("UNIT_STATS")
     f:RegisterEvent("UNIT_AURA") 
     f:RegisterEvent("PLAYER_DAMAGE_DONE_MODS")
-    
-    -- Social Events
     f:RegisterEvent("GUILD_ROSTER_UPDATE")
     f:RegisterEvent("FRIENDLIST_UPDATE")
     f:RegisterEvent("BN_FRIEND_INFO_CHANGED")
-    
     f:SetScript("OnEvent", function(self, event, ...)
         Stats:UpdateEventStat(event, ...)
     end)
-    
     self.EventFrame = f
     self.Initialized = true
-    
-    -- Initial Force Update
     self:UpdateSpecInfo()
     self:UpdateAllStats()
 end
-
 function Stats:UpdateSpecInfo()
     local specIndex = GetSpecialization()
-    
     if specIndex then
         local specID = GetSpecializationInfo(specIndex)
-        
         if specID and WIDGETFORGE_SPECS[specID] then
             Stats.ActiveMainStat = WIDGETFORGE_SPECS[specID]
         else
-            -- Fallback to Class Default
             local _, classFilename = UnitClassBase("player")
             Stats.ActiveMainStat = WIDGETFORGE_CLASS_DEFAULTS[classFilename] or "Strength"
         end
@@ -147,28 +124,14 @@ function Stats:UpdateSpecInfo()
         Stats.ActiveMainStat = WIDGETFORGE_CLASS_DEFAULTS[classFilename] or "Strength"
     end
 end
-
--- =========================================================================
---  UPDATE LOGIC (Polled & Radar Checks)
--- =========================================================================
-
 function Stats:UpdatePolledStats(elapsed)
-    -- 1. FPS
     Stats.Data["FPS"] = floor(GetFramerate())
-    
-    -- 2. MS (Latency)
     local _, _, _, lat = GetNetStats()
     Stats.Data["MS"] = lat
-    
-    -- 3. Clock
     Stats.Data["Clock"] = date("%H:%M")
-    
-    -- 4. RAM
     local mem = collectgarbage("count")
     if mem > 1024 then Stats.Data["RAM"] = string.format("%.1f", mem/1024)
-    else Stats.Data["RAM"] = floor(mem) end
-    
-    -- 5. Combat Timer
+    else Stats.Data["RAM"] = tostring(floor(mem)) end
     if UnitAffectingCombat("player") then
         if not Stats.CombatStart then Stats.CombatStart = GetTime() end
         local t = GetTime() - Stats.CombatStart
@@ -178,16 +141,14 @@ function Stats:UpdatePolledStats(elapsed)
     else
         Stats.Data["Combat Timer"] = "00:00"
     end
-
-    -- 6. Run Speed 
-    local unitSpeed = GetUnitSpeed("player")
-    if unitSpeed then
-        Stats.Data["Run Speed"] = string.format("%.0f%%", (unitSpeed / 7) * 100)
-    else
-        Stats.Data["Run Speed"] = "0%"
-    end
-
-    -- 7. Dragonriding
+    local ok_speed, speed_result = pcall(function()
+        local unitSpeed = GetUnitSpeed("player")
+        if unitSpeed and unitSpeed > 0 then
+            return string.format("%.0f%%", (unitSpeed / 7) * 100)
+        end
+        return "0%"
+    end)
+    Stats.Data["Run Speed"] = ok_speed and speed_result or "0%"
     local vigorData = C_Spell.GetSpellCharges(372608)
     if vigorData then
         local current = vigorData.currentCharges or 0
@@ -209,27 +170,18 @@ function Stats:UpdatePolledStats(elapsed)
         Stats.Data["DragonVigor"] = 0
         Stats.Data["DragonVigorMax"] = 0
     end
-
     local isGliding, canGlide, forwardSpeed = C_PlayerInfo.GetGlidingInfo()
     Stats.Data["DragonSpeed"] = forwardSpeed or 0
     Stats.Data["DragonActive"] = (GetBonusBarIndex() == 11)
-
-    -- =======================================================
-    -- 8. TALENT LOADOUT RADARI
-    -- =======================================================
     local loadoutName = nil
     local loadoutIcon = nil
-    
     local playerKey = UnitName("player") .. "-" .. GetRealmName()
     if WidgetForgeDB and not WidgetForgeDB.talentCache then WidgetForgeDB.talentCache = {} end
-
     if _G.TLX and _G.TLX.GetLoadedData then
         local success, tlxData = pcall(_G.TLX.GetLoadedData)
         if success and type(tlxData) == "table" then
             loadoutName = tlxData.name
             loadoutIcon = tlxData.icon
-            
-            -- Kalıcı depolamaya kaydet veya sil
             if WidgetForgeDB then
                 if loadoutName and loadoutName ~= "" then
                     WidgetForgeDB.talentCache[playerKey] = {
@@ -237,19 +189,15 @@ function Stats:UpdatePolledStats(elapsed)
                         icon = loadoutIcon
                     }
                 else
-                    -- Kullanıcı profil sildiyse veya aktif profil yoksa önbelleği temizle
                     WidgetForgeDB.talentCache[playerKey] = nil
                 end
             end
         end
     end
-    
-    -- Eğer TLX verisi henüz yüklenmediyse (örneğin ilk girişte), saklanan veriyi kullan
     if (not loadoutName or loadoutName == "") and WidgetForgeDB and WidgetForgeDB.talentCache and WidgetForgeDB.talentCache[playerKey] then
         loadoutName = WidgetForgeDB.talentCache[playerKey].name
         loadoutIcon = WidgetForgeDB.talentCache[playerKey].icon
     end
-
     if not loadoutName or loadoutName == "" then
         if C_ClassTalents and C_ClassTalents.GetActiveConfigID then
             local configID = C_ClassTalents.GetActiveConfigID()
@@ -263,7 +211,6 @@ function Stats:UpdatePolledStats(elapsed)
             end
         end
     end
-
     if not loadoutIcon then
         local specIndex = GetSpecialization()
         if specIndex then
@@ -271,31 +218,26 @@ function Stats:UpdatePolledStats(elapsed)
             loadoutIcon = specIcon
         end
     end
-
     Stats.Data["Talent Loadout"] = loadoutName or "Unknown"
     Stats.Data["Talent Loadout Icon"] = loadoutIcon or 132222
 end
-
 function Stats:UpdateEventStat(event, arg1)
-    
     if event == "PLAYER_MONEY" or event == "PLAYER_ENTERING_WORLD" then
         Stats.Data["Gold"] = GetMoneyString(GetMoney())
         self:PersistCurrentCharacterGold()
     end
-    
     if event == "ZONE_CHANGED_NEW_AREA" or event == "ZONE_CHANGED" or event == "ZONE_CHANGED_INDOORS" or event == "PLAYER_ENTERING_WORLD" then
         Stats.Data["Zone"] = GetMinimapZoneText() or ""
     end
-    
     if event == "BAG_UPDATE" or event == "PLAYER_ENTERING_WORLD" then
         local free, total = 0, 0
-        for i = 0, NUM_BAG_SLOTS do
+        for i = 0, 5 do
             free = free + C_Container.GetContainerNumFreeSlots(i)
             total = total + C_Container.GetContainerNumSlots(i)
         end
-        Stats.Data["Bag Space"] = free .. "/" .. total
+        local used = total - free
+        Stats.Data["Bag Space"] = used .. "/" .. total
     end
-    
     if event == "UPDATE_INVENTORY_DURABILITY" or event == "PLAYER_ENTERING_WORLD" then
         local cur, max = 0, 0
         for i = 1, 18 do
@@ -305,35 +247,33 @@ function Stats:UpdateEventStat(event, arg1)
         if max == 0 then Stats.Data["Durability"] = "100%"
         else Stats.Data["Durability"] = floor((cur/max)*100).."%" end
     end
-    
     if event == "PLAYER_XP_UPDATE" or event == "PLAYER_LEVEL_UP" or event == "PLAYER_ENTERING_WORLD" then
         if UnitLevel("player") == GetMaxPlayerLevel() then 
             Stats.Data["XP"] = "Max"
         else
             local curr, max = UnitXP("player"), UnitXPMax("player")
-            Stats.Data["XP"] = string.format("%.1f%%", (curr/max)*100)
+            if max and max > 0 then
+                Stats.Data["XP"] = string.format("%.1f%%", (curr/max)*100)
+            else
+                Stats.Data["XP"] = "0%"
+            end
         end
     end
-    
     if event == "PLAYER_EQUIPMENT_CHANGED" or event == "PLAYER_ENTERING_WORLD" then
         local _, avg = GetAverageItemLevel()
-        Stats.Data["Item Level"] = floor(avg)
+        Stats.Data["Item Level"] = floor(avg or 0)
         Stats:UpdateEventStat("UPDATE_INVENTORY_DURABILITY")
         self:UpdateCharacterStats()
     end
-    
     if event == "PLAYER_SPECIALIZATION_CHANGED" or event == "PLAYER_ENTERING_WORLD" then
         self:UpdateSpecInfo()
         self:UpdateCharacterStats()
     end
-    
     if event == "UNIT_STATS" or event == "UNIT_AURA" or event == "PLAYER_DAMAGE_DONE_MODS" or event == "PLAYER_ENTERING_WORLD" then
         if not arg1 or arg1 == "player" then
             self:UpdateCharacterStats()
         end
     end
-
-    -- Difficulty Events
     if event == "ZONE_CHANGED_NEW_AREA" or event == "PLAYER_ENTERING_WORLD" or event == "PLAYER_DIFFICULTY_CHANGED" or event == "UPDATE_INSTANCE_INFO" then
         local name, instanceType, difficultyID, difficultyName = GetInstanceInfo()
         if name and difficultyName and difficultyName ~= "" and instanceType ~= "none" then
@@ -342,13 +282,10 @@ function Stats:UpdateEventStat(event, arg1)
             Stats.Data["Difficulty"] = "World"
         end
     end
-    
-    -- Social Events
     if event == "PLAYER_ENTERING_WORLD" then
         if IsInGuild() then C_GuildInfo.GuildRoster() end
         C_FriendList.ShowFriends()
     end
-    
     if event == "GUILD_ROSTER_UPDATE" or event == "PLAYER_ENTERING_WORLD" then
         if IsInGuild() then
             local _, numOnline = GetNumGuildMembers()
@@ -357,57 +294,67 @@ function Stats:UpdateEventStat(event, arg1)
             Stats.Data["Guild"] = "0"
         end
     end
-    
     if event == "FRIENDLIST_UPDATE" or event == "BN_FRIEND_INFO_CHANGED" or event == "PLAYER_ENTERING_WORLD" then
         local bnetOnline = select(2, BNGetNumFriends()) or 0
         local wowOnline = C_FriendList.GetNumOnlineFriends() or 0
         Stats.Data["Friends"] = tostring(bnetOnline + wowOnline)
     end
 end
-
 function Stats:UpdateCharacterStats()
-    local function Fmt(val)
-        if not val then return "0" end
-        return BreakUpLargeNumbers(val)
+    local function SafeFmt(fn, ...)
+        local args = {...}
+        local ok, val = pcall(fn, unpack(args))
+        if ok and val then
+            local ok2, result = pcall(BreakUpLargeNumbers, val)
+            return ok2 and result or "0"
+        end
+        return "0"
     end
-
-    Stats.Data["Strength"] = Fmt(UnitStat("player", 1))
-    Stats.Data["Agility"] = Fmt(UnitStat("player", 2))
-    Stats.Data["Stamina"] = Fmt(UnitStat("player", 3))
-    Stats.Data["Intellect"] = Fmt(UnitStat("player", 4))
-    
-    local a1, a2, a3, a4 = UnitArmor("player")
+    local function SafePct(fmt, fn, ...)
+        local args = {...}
+        local ok, val = pcall(fn, unpack(args))
+        if ok and val then
+            local ok2, result = pcall(string.format, fmt, val)
+            return ok2 and result or "0%"
+        end
+        return "0%"
+    end
+    Stats.Data["Strength"] = SafeFmt(UnitStat, "player", 1)
+    Stats.Data["Agility"]  = SafeFmt(UnitStat, "player", 2)
+    Stats.Data["Stamina"]  = SafeFmt(UnitStat, "player", 3)
+    Stats.Data["Intellect"]= SafeFmt(UnitStat, "player", 4)
+    local ok_armor, a1, a2, a3, a4 = pcall(UnitArmor, "player")
     local armorVal = 0
-    if a1 and type(a1) == "number" then armorVal = math.max(armorVal, a1) end
-    if a2 and type(a2) == "number" then armorVal = math.max(armorVal, a2) end
-    if a3 and type(a3) == "number" then armorVal = math.max(armorVal, a3) end
-    if a4 and type(a4) == "number" then armorVal = math.max(armorVal, a4) end
-    Stats.Data["Armor"] = Fmt(armorVal)
-    
-    Stats.Data["Max HP"] = Fmt(UnitHealthMax("player"))
-    Stats.Data["Main Stat"] = Stats.Data[Stats.ActiveMainStat] or "0"
-
-    Stats.Data["Crit"] = string.format("%.1f%%", GetCritChance())
-    Stats.Data["Haste"] = string.format("%.1f%%", GetHaste())
-    Stats.Data["Mastery"] = string.format("%.1f%%", GetMasteryEffect())
-    Stats.Data["Versatility"] = string.format("%.1f%%", GetCombatRatingBonus(CR_VERSATILITY_DAMAGE_DONE) + GetVersatilityBonus(CR_VERSATILITY_DAMAGE_DONE))
-    Stats.Data["Avoidance"] = string.format("%.1f%%", GetAvoidance())
-    Stats.Data["Leech"] = string.format("%.1f%%", GetLifesteal())
-    Stats.Data["Speed"] = string.format("%.1f%%", GetSpeed()) 
-    Stats.Data["Dodge"] = string.format("%.1f%%", GetDodgeChance())
-    Stats.Data["Parry"] = string.format("%.1f%%", GetParryChance())
+    if ok_armor then
+        for _, v in ipairs({a1, a2, a3, a4}) do
+            local ok_v, num = pcall(function() return v + 0 end)
+            if ok_v and num and num > armorVal then armorVal = num end
+        end
+    end
+    local ok_armorFmt, armorStr = pcall(BreakUpLargeNumbers, armorVal)
+    Stats.Data["Armor"] = ok_armorFmt and armorStr or "0"
+    Stats.Data["Max HP"]   = SafeFmt(UnitHealthMax, "player")
+    Stats.Data["Main Stat"]= Stats.Data[Stats.ActiveMainStat] or "0"
+    Stats.Data["Crit"]        = SafePct("%.1f%%", GetCritChance)
+    Stats.Data["Haste"]       = SafePct("%.1f%%", GetHaste)
+    Stats.Data["Mastery"]     = SafePct("%.1f%%", GetMasteryEffect)
+    Stats.Data["Avoidance"]   = SafePct("%.1f%%", GetAvoidance)
+    Stats.Data["Leech"]       = SafePct("%.1f%%", GetLifesteal)
+    Stats.Data["Speed"]       = SafePct("%.1f%%", GetSpeed)
+    Stats.Data["Dodge"]       = SafePct("%.1f%%", GetDodgeChance)
+    Stats.Data["Parry"]       = SafePct("%.1f%%", GetParryChance)
+    local ok_vers, versResult = pcall(function()
+        return string.format("%.1f%%",
+            GetCombatRatingBonus(CR_VERSATILITY_DAMAGE_DONE) +
+            GetVersatilityBonus(CR_VERSATILITY_DAMAGE_DONE))
+    end)
+    Stats.Data["Versatility"] = ok_vers and versResult or "0%"
 end
-
 function Stats:UpdateAllStats()
     self:UpdatePolledStats(0)
     self:UpdateEventStat("PLAYER_ENTERING_WORLD")
     self:UpdateCharacterStats()
 end
-
--- =========================================================================
---  GETTER ( The View Access )
--- =========================================================================
-
 function Stats:GetStat(statType)
     if statType == "Coords" then
         local mapID = C_Map.GetBestMapForUnit("player")
@@ -419,15 +366,12 @@ function Stats:GetStat(statType)
         end
         return "0, 0", ""
     end
-    
     if statType == "Main Stat" then
         local labelMap = { ["Strength"]="Str", ["Agility"]="Agi", ["Intellect"]="Int" }
         return Stats.Data["Main Stat"], labelMap[Stats.ActiveMainStat] or "Stat"
     end
-    
     local val = Stats.Data[statType]
     local lbl = ""
-    
     if statType == "FPS" then lbl = "FPS"
     elseif statType == "MS" then lbl = "MS"
     elseif statType == "RAM" then lbl = (tonumber(val) and tonumber(val) > 100) and "MB" or "KB"
@@ -453,20 +397,12 @@ function Stats:GetStat(statType)
     elseif statType == "Difficulty" then lbl = "Diff"
     elseif statType == "Talent Loadout" then lbl = "Talent"
     end
-    
     return val or "", lbl
 end
-
--- =========================================================================
---  TOOLTIP LOGIC
--- =========================================================================
-
 function Stats:AddTooltip(owner, statType, elemData)
     GameTooltip:SetOwner(owner, "ANCHOR_TOP")
     GameTooltip:ClearLines()
-    
     local added = false
-    
     if statType == "Talent Loadout" then
         GameTooltip:AddLine("Active Talent Loadout", 1, 1, 1)
         GameTooltip:AddLine(" ")
@@ -475,7 +411,6 @@ function Stats:AddTooltip(owner, statType, elemData)
         GameTooltip:AddLine("'Talent Loadout Ex' addon data.", 0.7, 0.7, 0.7)
         added = true
     end
-
     if statType == "Zone" or statType == "Coords" then
         local mapID = C_Map.GetBestMapForUnit("player")
         if mapID then
@@ -489,7 +424,6 @@ function Stats:AddTooltip(owner, statType, elemData)
             added = true
         end
     end
-    
     if statType == "Gold" then
         GameTooltip:AddLine("Economy", 1, 1, 1)
         GameTooltip:AddLine(" ")
@@ -501,7 +435,6 @@ function Stats:AddTooltip(owner, statType, elemData)
         GameTooltip:AddDoubleLine("Session Start:", GetMoneyString(start, moneySep), 1,0.8,0, 1,1,1)
         local diffColor = (diff >= 0) and {0,1,0} or {1,0,0}
         GameTooltip:AddDoubleLine("Session Profit:", GetMoneyString(math.abs(diff), moneySep), 1,0.8,0, diffColor[1], diffColor[2], diffColor[3])
-
         local myKey = GetCurrentCharacterKey()
         local goldCache = WidgetForgeDB and WidgetForgeDB.goldCache
         local accountTotal = 0
@@ -521,7 +454,6 @@ function Stats:AddTooltip(owner, statType, elemData)
             end
         end
         table.sort(rows, function(a, b) return a.money > b.money end)
-
         GameTooltip:AddLine(" ")
         GameTooltip:AddLine("Other Characters", 1, 1, 1)
         if #rows == 0 then
@@ -535,7 +467,6 @@ function Stats:AddTooltip(owner, statType, elemData)
         GameTooltip:AddDoubleLine("Account Total:", GetMoneyString(accountTotal, moneySep), 1,0.8,0, 1,1,1)
         added = true
     end
-    
     if statType == "System" or statType == "RAM" or statType == "FPS" or statType == "MS" then
         GameTooltip:AddLine("System Performance", 1, 1, 1)
         GameTooltip:AddLine(" ")
@@ -547,7 +478,6 @@ function Stats:AddTooltip(owner, statType, elemData)
         GameTooltip:AddDoubleLine("Total Memory:", string.format("%.1f MB", totalMem/1024), 1,0.8,0, 0,1,0)
         added = true
     end 
-
     if statType == "Durability" then
         GameTooltip:AddLine("Durability Status", 1, 1, 1)
         GameTooltip:AddLine(" ")
@@ -565,32 +495,38 @@ function Stats:AddTooltip(owner, statType, elemData)
                      damagedItems = true
                 end
             end
-            local hasItem, _, cost = C_TooltipInfo.GetInventoryItem("player", i)
-            if hasItem and cost then totalCost = totalCost + cost end
+            local ok_tip, tipResult = pcall(function()
+                local data = C_TooltipInfo.GetInventoryItem("player", i)
+                if data and type(data) == "table" and data.repairCost then
+                    return data.repairCost
+                end
+                return 0
+            end)
+            if ok_tip and tipResult then totalCost = totalCost + tipResult end
         end
         if not damagedItems then GameTooltip:AddLine("All items are fully repaired.", 0, 1, 0)
         else GameTooltip:AddLine(" "); GameTooltip:AddDoubleLine("Repair Cost:", GetMoneyString(totalCost), 1,0.8,0, 1,1,1) end
         added = true
     end
-    
     if statType == "Bag Space" or statType == "BagSpace" then
         GameTooltip:AddLine("Bag Usage", 1, 1, 1)
         GameTooltip:AddLine(" ")
         local totalFree, totalSlots = 0, 0
-        for i = 0, NUM_BAG_SLOTS do
+        for i = 0, 5 do
             local free = C_Container.GetContainerNumFreeSlots(i)
             local total = C_Container.GetContainerNumSlots(i)
-            local name = (i==0) and "Backpack" or ("Bag " .. i)
+            local name = (i==0) and "Backpack" or (i==5 and "Reagent Bag" or "Bag " .. i)
             if total > 0 then
-                 GameTooltip:AddDoubleLine(name, free.." / "..total, 1,1,1, 1,0.8,0)
+                 local used = total - free
+                 GameTooltip:AddDoubleLine(name, used.." / "..total, 1,1,1, 1,0.8,0)
                  totalFree = totalFree + free; totalSlots = totalSlots + total
             end
         end
         GameTooltip:AddLine(" ")
-        GameTooltip:AddDoubleLine("Total Free:", totalFree.." / "..totalSlots, 1,0.8,0, 0,1,0)
+        local totalUsed = totalSlots - totalFree
+        GameTooltip:AddDoubleLine("Total Used:", totalUsed.." / "..totalSlots, 1,0.8,0, 0,1,0)
         added = true
     end
-    
     if statType == "Clock" then
         GameTooltip:AddLine("Time Info", 1, 1, 1)
         GameTooltip:AddLine(" ")
@@ -600,7 +536,6 @@ function Stats:AddTooltip(owner, statType, elemData)
         GameTooltip:AddDoubleLine("Date:", date("%A, %B %d, %Y"), 1,0.8,0, 1,1,1)
         added = true
     end
-
     if statType == "Main Stat" then
         GameTooltip:AddLine(Stats.ActiveMainStat .. " (Main Stat)", 1, 1, 1)
         GameTooltip:AddLine(" ")
@@ -609,25 +544,19 @@ function Stats:AddTooltip(owner, statType, elemData)
         GameTooltip:AddLine("based on your current specialization.", 1, 1, 1, true)
         added = true
     end
-    
-    -- Social Tooltips
     if statType == "Guild" then
         GameTooltip:AddLine("Online Guild Members", 1, 1, 1)
         GameTooltip:AddLine(" ")
-        
         if IsInGuild() then
             local numTotal, numOnline = GetNumGuildMembers()
             local showCount = 0
-            
             for i = 1, numTotal do
                 local name, rankName, rankIndex, level, classDisplayName, zone, note, officernote, isOnline, status, class = GetGuildRosterInfo(i)
                 if isOnline then
                     local color = RAID_CLASS_COLORS[class]
                     local hex = color and color.colorStr or "ffffffff"
                     local cleanName = strsplit("-", name)
-                    
                     GameTooltip:AddDoubleLine(string.format("|c%s%s|r (Lvl %d)", hex, cleanName, level), zone or "", 1, 1, 1, 0.7, 0.7, 0.7)
-                    
                     showCount = showCount + 1
                     if showCount >= 30 then
                         GameTooltip:AddLine("...and more", 0.5, 0.5, 0.5)
@@ -640,15 +569,11 @@ function Stats:AddTooltip(owner, statType, elemData)
         end
         added = true
     end
-    
     if statType == "Friends" then
         GameTooltip:AddLine("Online Friends", 1, 1, 1)
         GameTooltip:AddLine(" ")
-        
         local showCount = 0
         local maxShow = 30
-        
-        -- WoW Friends
         local numWoW = C_FriendList.GetNumOnlineFriends()
         for i = 1, numWoW do
             local info = C_FriendList.GetFriendInfoByIndex(i)
@@ -660,8 +585,6 @@ function Stats:AddTooltip(owner, statType, elemData)
             end
             if showCount >= maxShow then break end
         end
-        
-        -- BNet Friends
         if showCount < maxShow then
             local numBNet, numBNetOnline = BNGetNumFriends()
             for i = 1, numBNet do
@@ -671,28 +594,23 @@ function Stats:AddTooltip(owner, statType, elemData)
                     local charName = accountInfo.gameAccountInfo.characterName
                     local bnetName = accountInfo.accountName
                     local zone = accountInfo.gameAccountInfo.areaName or ""
-                    
                     if client == "WoW" then
                         GameTooltip:AddDoubleLine(string.format("|cff82c5ff%s|r (|cffffffff%s|r)", bnetName, charName), zone, 1, 1, 1, 0.7, 0.7, 0.7)
                     else
                         GameTooltip:AddDoubleLine(string.format("|cff82c5ff%s|r", bnetName), client, 1, 1, 1, 0.5, 0.5, 0.5)
                     end
-                    
                     showCount = showCount + 1
                     if showCount >= maxShow then break end
                 end
             end
         end
-        
         if showCount == 0 then
             GameTooltip:AddLine("No friends online.", 0.5, 0.5, 0.5)
         elseif showCount >= maxShow then
             GameTooltip:AddLine("...and more", 0.5, 0.5, 0.5)
         end
-        
         added = true
     end
-
     if statType == "Difficulty" then
         GameTooltip:AddLine("Instance Info", 1, 1, 1)
         GameTooltip:AddLine(" ")
@@ -708,10 +626,8 @@ function Stats:AddTooltip(owner, statType, elemData)
         end
         added = true
     end
-
     if not added then
         GameTooltip:AddLine(statType, 1, 1, 1)
     end
-
     GameTooltip:Show()
 end

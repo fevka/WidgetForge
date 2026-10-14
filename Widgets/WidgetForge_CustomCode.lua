@@ -1,28 +1,17 @@
--- =========================================================================
---  WidgetForge - Custom Code Module
---  Allows users to run arbitrary Lua code and display the returned string
--- =========================================================================
-
 local addonName, addonTable = ...
-
+local L = WFL
 if not _G.WidgetForge then _G.WidgetForge = {} end
 _G.WidgetForge.CustomCode = {}
 local CustomCode = _G.WidgetForge.CustomCode
 addonTable.CustomCode = CustomCode
-
 CustomCode.Instances = {}
-
--- --- WIDGET YÜKLEME ---
 function CustomCode:Load(parent, elem)
     local container = CreateFrame("Frame", nil, parent)
     container:SetSize(elem.widgetWidth or 100, elem.widgetHeight or 30)
     container.elem = elem
-    
     local Skin = _G.ForgeSkin
-    
     container.text = container:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     container.text:SetAllPoints()
-    
     local fontPath = "Fonts\\FRIZQT__.TTF"
     if Skin and Skin.Media and Skin.Media.Fonts and elem.font then
         fontPath = Skin.Media.Fonts[elem.font] or fontPath
@@ -30,7 +19,6 @@ function CustomCode:Load(parent, elem)
     container.text:SetFont(fontPath, elem.fontSize or 14, elem.fontOutline or "OUTLINE")
     container.text:SetTextColor(unpack(elem.color or {1, 1, 1, 1}))
     container.text:SetJustifyH(elem.justifyH or "CENTER")
-    
     if elem.enableShadow == false then
         container.text:SetShadowColor(0, 0, 0, 0)
         container.text:SetShadowOffset(0, 0)
@@ -38,17 +26,14 @@ function CustomCode:Load(parent, elem)
         container.text:SetShadowColor(0, 0, 0, 1)
         container.text:SetShadowOffset(1, -1)
     end
-
     local compiledFunc = nil
     local compileError = nil
-    
     local function Compile()
         if not elem.code or elem.code == "" then
             compiledFunc = nil
-            compileError = "No Code"
+            compileError = L("ERR_CUSTOMCODE_NO_CODE")
             return
         end
-        
         local func, err = loadstring(elem.code)
         if func then
             setfenv(func, setmetatable({}, {__index = _G}))
@@ -56,13 +41,11 @@ function CustomCode:Load(parent, elem)
             compileError = nil
         else
             compiledFunc = nil
-            compileError = "Syntax Error"
+            compileError = L("ERR_CUSTOMCODE_SYNTAX")
         end
     end
-
     Compile()
     container.Compile = Compile
-
     local timer = 0
     container:SetScript("OnUpdate", function(self, elapsed)
         timer = timer + elapsed
@@ -72,43 +55,33 @@ function CustomCode:Load(parent, elem)
                 self.text:SetText("|cffff0000" .. compileError .. "|r")
                 return
             end
-            
             if compiledFunc then
                 local success, result = pcall(compiledFunc)
                 if success then
                     self.text:SetText(tostring(result or ""))
                 else
-                    self.text:SetText("|cffff0000Lua Error|r")
+                    self.text:SetText("|cffff0000" .. L("LABEL_LUA_ERROR") .. "|r")
                 end
             else
-                self.text:SetText("Custom Code")
+                self.text:SetText(L("LABEL_CUSTOM_CODE"))
             end
         end
     end)
-
     table.insert(CustomCode.Instances, container)
-    
     container.Unload = function(self)
         for i, inst in ipairs(CustomCode.Instances) do
             if inst == self then table.remove(CustomCode.Instances, i); break end
         end
     end
-    
     return container
 end
-
--- =========================================================================
---  AYARLAR (CODE EDITOR & BUILDER)
--- =========================================================================
 function CustomCode:CreateSettings(parentFrame)
     local f = parentFrame
     local elem = f.config
     local barIndex = f.barIndex
     local Skin = _G.ForgeSkin
-
     local sb = f.builder or _G.WidgetForgeUtils:CreateSettingsBuilder(f.content)
     f.builder = sb 
-    
     local function RefreshLive()
         if barIndex and _G.WidgetForge then
             for _, inst in ipairs(CustomCode.Instances) do
@@ -120,7 +93,6 @@ function CustomCode:CreateSettings(parentFrame)
                     inst.text:SetFont(fontPath, elem.fontSize or 14, elem.fontOutline or "OUTLINE")
                     inst.text:SetTextColor(unpack(elem.color or {1, 1, 1, 1}))
                     inst.text:SetJustifyH(elem.justifyH or "CENTER")
-                    
                     if elem.enableShadow == false then
                         inst.text:SetShadowColor(0, 0, 0, 0)
                         inst.text:SetShadowOffset(0, 0)
@@ -128,7 +100,6 @@ function CustomCode:CreateSettings(parentFrame)
                         inst.text:SetShadowColor(0, 0, 0, 1)
                         inst.text:SetShadowOffset(1, -1)
                     end
-                    
                     inst:SetSize(elem.widgetWidth or 100, elem.widgetHeight or 30)
                     if inst.Compile then inst.Compile() end
                 end
@@ -136,30 +107,22 @@ function CustomCode:CreateSettings(parentFrame)
             _G.WidgetForge:UpdateBarValues(barIndex)
         end
     end
-
-    sb:AddHeader("Dimensions & Alignment")
-    sb:AddSlider("widgetWidth", "Container Width", 30, 400, 1, 100, elem, RefreshLive)
-    sb:AddSlider("widgetHeight", "Container Height", 10, 100, 1, 30, elem, RefreshLive)
-    sb:AddDropdown("justifyH", "Text Alignment", { {text="Left", value="LEFT"}, {text="Center", value="CENTER"}, {text="Right", value="RIGHT"} }, "CENTER", elem, RefreshLive)
-
-    sb:AddHeader("Typography")
+    sb:AddHeader(L("HEADER_DIMENSIONS_ALIGNMENT"))
+    sb:AddSlider("widgetWidth", L("LABEL_CONTAINER_WIDTH"), 30, 400, 1, 100, elem, RefreshLive)
+    sb:AddSlider("widgetHeight", L("LABEL_CONTAINER_HEIGHT"), 10, 100, 1, 30, elem, RefreshLive)
+    sb:AddDropdown("justifyH", L("LABEL_TEXT_ALIGNMENT"), { {text=L("LABEL_LEFT"), value="LEFT"}, {text=L("LABEL_CENTER"), value="CENTER"}, {text=L("LABEL_RIGHT"), value="RIGHT"} }, "CENTER", elem, RefreshLive)
+    sb:AddHeader(L("HEADER_TYPOGRAPHY"))
     local fontItems = {}
     if Skin and Skin.Media and Skin.Media.Fonts then
         for k, _ in pairs(Skin.Media.Fonts) do table.insert(fontItems, {text=k, value=k}) end
     end
-    if #fontItems == 0 then fontItems = {{text="Default", value="Fonts\\FRIZQT__.TTF"}} end
-
-    sb:AddDropdown("font", "Font Style", fontItems, "Friz Quadrata", elem, RefreshLive)
-    sb:AddSlider("fontSize", "Font Size", 8, 36, 1, 14, elem, RefreshLive)
-    sb:AddDropdown("fontOutline", "Font Outline", { {text="None", value=""}, {text="Outline", value="OUTLINE"}, {text="Thick Outline", value="THICKOUTLINE"} }, "OUTLINE", elem, RefreshLive)
-    sb:AddSwitch("enableShadow", "Enable Drop Shadow", true, elem, RefreshLive)
-    sb:AddColor("color", "Text Color", {1, 1, 1, 1}, elem, RefreshLive)
-
+    if #fontItems == 0 then fontItems = {{text=L("DEFAULT_OPTION"), value="Fonts\\FRIZQT__.TTF"}} end
+    sb:AddDropdown("font", L("LABEL_FONT_STYLE"), fontItems, "Friz Quadrata", elem, RefreshLive)
+    sb:AddSlider("fontSize", L("LABEL_FONT_SIZE"), 8, 36, 1, 14, elem, RefreshLive)
+    sb:AddDropdown("fontOutline", L("LABEL_FONT_OUTLINE"), { {text=L("OUTLINE_NONE"), value=""}, {text=L("OUTLINE_OUTLINE"), value="OUTLINE"}, {text=L("OUTLINE_THICK_OUTLINE"), value="THICKOUTLINE"} }, "OUTLINE", elem, RefreshLive)
+    sb:AddSwitch("enableShadow", L("LABEL_ENABLE_DROP_SHADOW"), true, elem, RefreshLive)
+    sb:AddColor("color", L("LABEL_TEXT_COLOR"), {1, 1, 1, 1}, elem, RefreshLive)
     sb:Finish()
-
-    -- ==========================================================
-    --  %100 FORGESKIN IMPORT/EXPORT UYUMLU MODERN EDİTÖR
-    -- ==========================================================
     local bottomY = 0
     if f.content then
         for _, child in ipairs({f.content:GetChildren()}) do
@@ -171,56 +134,37 @@ function CustomCode:CreateSettings(parentFrame)
                 end
             end
         end
-        
         bottomY = bottomY - 30
-        
         local lbl = f.content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         lbl:SetPoint("TOPLEFT", 10, bottomY) 
-        lbl:SetText("|cff00ccffLUA Code Editor:|r (MUST return a string/number)")
-        
+        lbl:SetText(L("LABEL_LUA_CODE_EDITOR"))
         local warn = f.content:CreateFontString(nil, "OVERLAY", "GameFontRedSmall")
         warn:SetPoint("LEFT", lbl, "RIGHT", 10, 0)
-        warn:SetText("WARNING: Do not paste untrusted code!")
-
-        -- 1. Arkaplan Kutusu
+        warn:SetText(L("WARN_UNTRUSTED_CODE"))
         local bg = CreateFrame("Frame", nil, f.content, "BackdropTemplate")
         bg:SetPoint("TOPLEFT", 10, bottomY - 20)
         bg:SetSize(600, 200)
         if Skin then Skin:ApplyBackdrop(bg, 0.4, 0.8) end 
-
-        -- 2. Kendi Kütüphanemizin Hatasız ScrollFrame'i
-        -- [GÜNCELLEME] Genişlik arkaplanla aynı (600) yapıldı ve sol köşeye 0 noktasından yapıştırıldı.
-        -- Böylece sağdaki kaydırma çubuğu tam olarak duvara yapışacak.
         local sf, scrollChild = Skin:CreateScrollFrame(bg, 600, 190)
         sf:SetPoint("TOPLEFT", bg, "TOPLEFT", 0, -5)
-
-        -- 3. EditBox
         local eb = CreateFrame("EditBox", nil, scrollChild)
         eb:SetMultiLine(true)
         eb:SetAutoFocus(false)
         eb:SetFontObject("ChatFontNormal")
         eb:SetWidth(570) 
-        -- [GÜNCELLEME] Yazılar soldan 10px boşlukla başlasın ki sol ve sağ simetrik gözüksün.
         eb:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 10, -5)
-        eb:SetText(elem.code or "return \"Hello World\"")
-        
-        -- DİKKAT: Boşluğa tıklayınca imlecin (editörün) aktif olması için arkaplanları tıklanabilir yaptık
+        eb:SetText(elem.code or "return WFL('TEXT_HELLO_WORLD')")
         bg:EnableMouse(true)
         scrollChild:EnableMouse(true)
-        
         local function FocusEditor()
             eb:SetFocus()
         end
-        
         bg:SetScript("OnMouseDown", FocusEditor)
         scrollChild:SetScript("OnMouseDown", FocusEditor)
         sf:SetScript("OnMouseDown", FocusEditor)
-
-        -- 4. BÜYÜLÜ ÇÖZÜM: Kendi GetHeight'ini kullanmak
         eb:SetScript("OnTextChanged", function(self, isUserInput)
             local h = self:GetHeight()
             scrollChild:SetHeight(math.max(190, h + 20))
-            
             if isUserInput then
                 elem.code = self:GetText()
                 for _, inst in ipairs(CustomCode.Instances) do
@@ -228,45 +172,36 @@ function CustomCode:CreateSettings(parentFrame)
                 end
             end
         end)
-        
         eb:GetScript("OnTextChanged")(eb, false)
-
-        -- EditBox'ta ok tuşlarına veya Enter'a basıldığında ScrollFrame'in kamerayı kaydırması
         eb:SetScript("OnCursorChanged", function(self, x, y, w, h)
             local cursorY = math.abs(y)
             local currentScroll = sf:GetVerticalScroll()
             local sfHeight = sf:GetHeight()
-            
             if cursorY < currentScroll then
                 sf:SetVerticalScroll(math.max(0, cursorY - 10))
             elseif cursorY + h > currentScroll + sfHeight then
                 sf:SetVerticalScroll((cursorY + h) - sfHeight + 10)
             end
         end)
-
         eb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-        
-        -- HATALARDAN ARINDIRILMIŞ ŞABLONLAR
         local sY = bottomY - 235
         local sLbl = f.content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         sLbl:SetPoint("TOPLEFT", 10, sY)
-        sLbl:SetText("Quick Snippets (Replaces current code):")
-
+        sLbl:SetText(L("LABEL_QUICK_SNIPPETS"))
         local snippetList = {
-            {text = "Select a snippet...", value = "NONE"},
-            {text = "--- Player Info ---", value = "NONE"},
-            {text = "Player Name & Realm", value = "return UnitName('player') .. ' - ' .. GetRealmName()"},
-            {text = "Class & Level", value = "local lvl = UnitLevel('player') or 0\nlocal cls = UnitClass('player') or 'Unknown'\nreturn string.format('Lvl %d %s', lvl, cls)"},
-            {text = "Current Speed", value = "local speed = GetUnitSpeed('player') or 0\nreturn string.format('Speed: %.0f%%', (speed/7)*100)"},
-            {text = "--- System & World ---", value = "NONE"},
-            {text = "FPS & Latency", value = "local _, _, lat = GetNetStats()\nreturn string.format('FPS: %d | MS: %d', floor(GetFramerate()), lat)"},
-            {text = "Current Zone", value = "return GetMinimapZoneText() or 'Unknown'"},
-            {text = "Coordinates", value = "local m = C_Map.GetBestMapForUnit('player')\nif not m then return '0, 0' end\nlocal p = C_Map.GetPlayerMapPosition(m, 'player')\nif not p then return '0, 0' end\nreturn string.format('%.1f, %.1f', p.x*100, p.y*100)"},
-            {text = "--- Utility ---", value = "NONE"},
-            {text = "Gold Count", value = "local money = GetMoney() or 0\nreturn GetCoinTextureString(money)"},
-            {text = "Free Bag Space", value = "local f, t = 0, 0\nfor i = 0, NUM_BAG_SLOTS do\n  f = f + C_Container.GetContainerNumFreeSlots(i)\n  t = t + C_Container.GetContainerNumSlots(i)\nend\nreturn string.format('Bags: %d/%d', f, t)"},
+            {text = L("OPTION_SELECT_SNIPPET"), value = "NONE"},
+            {text = L("SNIPPET_CATEGORY_PLAYER_INFO"), value = "NONE"},
+            {text = L("SNIPPET_PLAYER_NAME_REALM"), value = "return UnitName('player') .. ' - ' .. GetRealmName()"},
+            {text = L("SNIPPET_CLASS_LEVEL"), value = "local lvl = UnitLevel('player') or 0\nlocal cls = UnitClass('player') or WFL('LABEL_UNKNOWN')\nreturn string.format(WFL('SNIPPET_OUTPUT_LEVEL_CLASS'), lvl, cls)"},
+            {text = L("SNIPPET_CURRENT_SPEED"), value = "local speed = GetUnitSpeed('player') or 0\nreturn string.format(WFL('SNIPPET_OUTPUT_SPEED'), (speed/7)*100)"},
+            {text = L("SNIPPET_CATEGORY_SYSTEM_WORLD"), value = "NONE"},
+            {text = L("SNIPPET_FPS_LATENCY"), value = "local _, _, lat = GetNetStats()\nreturn string.format(WFL('SNIPPET_OUTPUT_FPS_LATENCY'), floor(GetFramerate()), lat)"},
+            {text = L("SNIPPET_CURRENT_ZONE"), value = "return GetMinimapZoneText() or WFL('LABEL_UNKNOWN')"},
+            {text = L("SNIPPET_COORDINATES"), value = "local m = C_Map.GetBestMapForUnit('player')\nif not m then return '0, 0' end\nlocal p = C_Map.GetPlayerMapPosition(m, 'player')\nif not p then return '0, 0' end\nreturn string.format('%.1f, %.1f', p.x*100, p.y*100)"},
+            {text = L("SNIPPET_CATEGORY_UTILITY"), value = "NONE"},
+            {text = L("SNIPPET_GOLD_COUNT"), value = "local money = GetMoney() or 0\nreturn GetCoinTextureString(money)"},
+            {text = L("SNIPPET_FREE_BAG_SPACE"), value = "local f, t = 0, 0\nfor i = 0, NUM_BAG_SLOTS do\n  f = f + C_Container.GetContainerNumFreeSlots(i)\n  t = t + C_Container.GetContainerNumSlots(i)\nend\nreturn string.format(WFL('SNIPPET_OUTPUT_BAGS'), f, t)"},
         }
-
         local ddSnippets = Skin:CreateDropdown(f.content, 250, snippetList, "NONE", function(val)
             if val ~= "NONE" then
                 eb:SetText(val)
@@ -278,7 +213,6 @@ function CustomCode:CreateSettings(parentFrame)
             end
         end)
         ddSnippets:SetPoint("TOPLEFT", 10, sY - 15)
-
         if f.content.SetHeight then 
             f.content:SetHeight(math.abs(sY - 60)) 
         end
