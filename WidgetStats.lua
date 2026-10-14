@@ -170,9 +170,13 @@ function Stats:UpdatePolledStats(elapsed)
         Stats.Data["DragonVigor"] = 0
         Stats.Data["DragonVigorMax"] = 0
     end
-    local isGliding, canGlide, forwardSpeed = C_PlayerInfo.GetGlidingInfo()
+    local isGliding, canGlide, forwardSpeed = false, false, 0
+    if C_PlayerInfo and C_PlayerInfo.GetGlidingInfo then
+        local ok, g, c, s = pcall(C_PlayerInfo.GetGlidingInfo)
+        if ok then isGliding, canGlide, forwardSpeed = g, c, s end
+    end
     Stats.Data["DragonSpeed"] = forwardSpeed or 0
-    Stats.Data["DragonActive"] = (GetBonusBarIndex() == 11)
+    Stats.Data["DragonActive"] = (GetBonusBarIndex() == 11) or (canGlide == true) or (isGliding == true)
     local loadoutName = nil
     local loadoutIcon = nil
     local playerKey = UnitName("player") .. "-" .. GetRealmName()

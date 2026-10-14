@@ -1,4 +1,4 @@
-## Interface: 120005, 120007, 120010
+## Interface: 110002, 110005, 110007, 110100, 120005, 120007, 120010
 ## Title: Widget Forge
 ## Notes: Advanced customizable stat bars and widgets
 ## Author: Fevka

@@ -47,7 +47,7 @@ local INTERRUPT_DATA = {
     WARLOCK = { DEFAULT = {ids = {119914, 132409, 19647}} },
     SHAMAN  = { DEFAULT = {ids = {57994}} },
     PRIEST  = { DEFAULT = {ids = {0}}, [3] = {ids = {15487}} },
-    HUNTER  = { DEFAULT = {ids = {147362}} },
+    HUNTER  = { DEFAULT = {ids = {147362}}, [3] = {ids = {187707}} },
     DRUID   = { DEFAULT = {ids = {106839}}, [1] = {ids = {78675, 106839}} },
 }
 
